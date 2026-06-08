@@ -1,29 +1,27 @@
 """
 assistant_starter.py
 ---------------------
-A minimal personal-assistant agent loop.
+A personal-assistant agent loop with a real Google Calendar connector.
 
-The whole point of this file is to teach you ONE pattern:
-
+Pattern:
     you ask -> model decides to use a tool -> your code runs the tool
     -> the result goes back to the model -> model replies in plain words
 
-That loop is the same for EVERY connector you'll ever add. Right now the
-"tools" are fake (they just return made-up data). Later you replace the
-*insides* of these functions with real API calls (calendar, lights, car...),
-and the loop below does not change at all.
-
 SETUP (do this once):
-    1. Install Python 3.9+        ->  https://www.python.org/downloads/
-    2. pip install anthropic
-    3. Get an API key            ->  https://console.anthropic.com/
-    4. Set it in your terminal:
-           macOS/Linux:  export ANTHROPIC_API_KEY="sk-ant-..."
-           Windows:      setx ANTHROPIC_API_KEY "sk-ant-..."
-    5. Run it:  python assistant_starter.py
+    1. pip install -r requirements.txt
+    2. Follow the Google Cloud setup in src/connectors/google_calendar.py,
+       then save credentials.json in the repo root.
+    3. export ANTHROPIC_API_KEY="sk-ant-..."
+    4. python src/assistant_starter.py
+       (first run opens a browser for Google OAuth consent)
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from anthropic import Anthropic
+from src.connectors.google_calendar import get_calendar_events
 
 # The SDK automatically reads the ANTHROPIC_API_KEY environment variable.
 client = Anthropic()
@@ -33,26 +31,20 @@ MODEL = "claude-sonnet-4-6"
 
 
 # ---------------------------------------------------------------------------
-# 1. THE TOOLS (fake for now)
+# 1. THE TOOLS
 #
-# Each tool is just a normal Python function. These two pretend to do
-# something. When you're ready, the body of each function is where a REAL
-# API call goes -- the rest of this file stays exactly the same.
+# Real connector: get_calendar_events (calls Google Calendar API).
+# Placeholder: set_light (replace body with Home Assistant later).
 # ---------------------------------------------------------------------------
 
-def get_current_time(timezone: str = "local") -> str:
-    """Pretend to look up the time. Replace with a real clock/API later."""
-    return f"It is 3:42 PM in the {timezone} timezone (pretend value)."
-
-
 def set_light(room: str, state: str) -> str:
-    """Pretend to switch a light. Later this calls Home Assistant, etc."""
+    """Placeholder — replace body with a real Home Assistant call later."""
     return f"OK, the {room} light is now {state} (pretend action)."
 
 
 # A simple registry so the loop can find a function by its name.
 TOOL_FUNCTIONS = {
-    "get_current_time": get_current_time,
+    "get_calendar_events": get_calendar_events,
     "set_light": set_light,
 }
 
@@ -68,14 +60,14 @@ TOOL_FUNCTIONS = {
 
 TOOLS = [
     {
-        "name": "get_current_time",
-        "description": "Get the current time in a given timezone.",
+        "name": "get_calendar_events",
+        "description": "Get upcoming events from the user's primary Google Calendar.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "timezone": {
-                    "type": "string",
-                    "description": "Timezone name, e.g. 'local' or 'UTC'.",
+                "days_ahead": {
+                    "type": "integer",
+                    "description": "How many days ahead to look. Defaults to 7.",
                 }
             },
             "required": [],
@@ -152,7 +144,7 @@ def run(user_message: str) -> str:
 
 if __name__ == "__main__":
     print("Personal-assistant starter. Type 'quit' to exit.\n")
-    print("Try: 'what time is it?'  or  'turn off the kitchen light'\n")
+    print("Try: 'what's on my calendar this week?' or 'turn off the kitchen light'\n")
     while True:
         user_input = input("you> ").strip()
         if user_input.lower() in {"quit", "exit"}:
