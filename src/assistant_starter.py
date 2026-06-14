@@ -1,40 +1,43 @@
 """
 assistant_starter.py
 ---------------------
-A personal-assistant agent loop with a real Google Calendar connector.
+Personal-assistant agent loop with:
+  - Google Calendar (read upcoming events)
+  - Gmail          (read inbox, search emails)
+  - SQLite memory  (remembers past conversations)
 
 Pattern:
-    you ask -> model decides to use a tool -> your code runs the tool
-    -> the result goes back to the model -> model replies in plain words
+    retrieve relevant memory
+    -> build system prompt with context
+    -> user asks -> model calls tools -> your code runs them -> loop
+    -> model gives final answer
+    -> save exchange to memory
 
 SETUP (do this once):
     1. pip install -r requirements.txt
-    2. Follow the Google Cloud setup in src/connectors/google_calendar.py,
-       then save credentials.json in the repo root.
+    2. Follow Google Cloud setup in src/connectors/google_auth.py docstring,
+       save credentials.json (Desktop app type) in the repo root.
     3. export ANTHROPIC_API_KEY="sk-ant-..."
     4. python src/assistant_starter.py
-       (first run opens a browser for Google OAuth consent)
+       (first run opens a browser for Google OAuth — grants Calendar + Gmail)
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from anthropic import Anthropic
+
 from src.connectors.google_calendar import get_calendar_events
+from src.connectors.gmail import get_recent_emails, search_emails
+from src import memory
 
-# The SDK automatically reads the ANTHROPIC_API_KEY environment variable.
 client = Anthropic()
-
-# Sonnet is a good, affordable default for this kind of work.
 MODEL = "claude-sonnet-4-6"
 
-
 # ---------------------------------------------------------------------------
-# 1. THE TOOLS
-#
-# Real connector: get_calendar_events (calls Google Calendar API).
-# Placeholder: set_light (replace body with Home Assistant later).
+# Tools
 # ---------------------------------------------------------------------------
 
 def set_light(room: str, state: str) -> str:
@@ -42,21 +45,12 @@ def set_light(room: str, state: str) -> str:
     return f"OK, the {room} light is now {state} (pretend action)."
 
 
-# A simple registry so the loop can find a function by its name.
 TOOL_FUNCTIONS = {
     "get_calendar_events": get_calendar_events,
-    "set_light": set_light,
+    "get_recent_emails":   get_recent_emails,
+    "search_emails":       search_emails,
+    "set_light":           set_light,
 }
-
-
-# ---------------------------------------------------------------------------
-# 2. THE TOOL DESCRIPTIONS
-#
-# This is how you DESCRIBE the tools to the model so it knows what exists
-# and what arguments each one takes. The model never runs your code; it just
-# tells you "I'd like to call set_light with these arguments," and your loop
-# does the actual calling.
-# ---------------------------------------------------------------------------
 
 TOOLS = [
     {
@@ -74,12 +68,48 @@ TOOLS = [
         },
     },
     {
+        "name": "get_recent_emails",
+        "description": "Fetch the most recent emails from the user's Gmail inbox.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Number of emails to return. Defaults to 10.",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "search_emails",
+        "description": (
+            "Search the user's Gmail using a query string. "
+            "Supports Gmail search syntax, e.g. 'from:alice', 'subject:invoice', "
+            "'is:unread', 'after:2024/01/01'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Gmail search query.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Number of results to return. Defaults to 5.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "set_light",
         "description": "Turn a light on or off in a specific room.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "room": {"type": "string", "description": "e.g. 'kitchen'."},
+                "room":  {"type": "string", "description": "e.g. 'kitchen'."},
                 "state": {
                     "type": "string",
                     "enum": ["on", "off"],
@@ -91,63 +121,69 @@ TOOLS = [
     },
 ]
 
-
 # ---------------------------------------------------------------------------
-# 3. THE AGENT LOOP  <-- this is the part worth understanding deeply
+# Agent loop
 # ---------------------------------------------------------------------------
 
-def run(user_message: str) -> str:
-    # The running transcript of the conversation.
+def run(user_message: str, system: str = "") -> str:
+    """Run one user message through the tool-use loop and return the reply."""
     messages = [{"role": "user", "content": user_message}]
 
-    # Loop because the model may want several tool calls before it's done.
-    while True:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            tools=TOOLS,
-            messages=messages,
-        )
+    kwargs = dict(model=MODEL, max_tokens=1024, tools=TOOLS, messages=messages)
+    if system:
+        kwargs["system"] = system
 
-        # If the model did NOT ask for a tool, it's giving a final answer.
+    while True:
+        response = client.messages.create(**kwargs)
+
         if response.stop_reason != "tool_use":
-            # Pull out the plain-text parts of the reply.
             return "".join(
                 block.text for block in response.content if block.type == "text"
             )
 
-        # Otherwise: record what the model said (its tool request)...
         messages.append({"role": "assistant", "content": response.content})
 
-        # ...run each requested tool and collect the results.
         tool_results = []
         for block in response.content:
             if block.type == "tool_use":
-                func = TOOL_FUNCTIONS[block.name]      # find the function
-                output = func(**block.input)           # run it with model's args
-                print(f"  [ran {block.name}({block.input}) -> {output}]")
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": output,
-                    }
-                )
+                func   = TOOL_FUNCTIONS[block.name]
+                output = func(**block.input)
+                print(f"  [tool: {block.name}({block.input})]")
+                tool_results.append({
+                    "type":        "tool_result",
+                    "tool_use_id": block.id,
+                    "content":     output,
+                })
 
-        # Send the results back so the model can continue. Then loop.
         messages.append({"role": "user", "content": tool_results})
-
+        kwargs["messages"] = messages
 
 # ---------------------------------------------------------------------------
-# 4. TRY IT
+# Main loop
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    print("Personal-assistant starter. Type 'quit' to exit.\n")
-    print("Try: 'what's on my calendar this week?' or 'turn off the kitchen light'\n")
+    print("Personal assistant ready. Type 'quit' to exit.\n")
+    print("Try: 'what's on my calendar this week?' or 'show my recent emails'\n")
+
     while True:
         user_input = input("you> ").strip()
+        if not user_input:
+            continue
         if user_input.lower() in {"quit", "exit"}:
             break
-        reply = run(user_input)
+
+        # 1. Retrieve relevant past memory to give the model context.
+        past = memory.search(user_input)
+        system_prompt = "You are a helpful personal assistant."
+        if past:
+            system_prompt += (
+                "\n\nRelevant context from past conversations:\n" + past
+            )
+
+        # 2. Run the agent.
+        reply = run(user_input, system=system_prompt)
         print(f"assistant> {reply}\n")
+
+        # 3. Save this exchange so future turns can recall it.
+        memory.save(user_input, reply)
