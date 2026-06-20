@@ -4,6 +4,7 @@ assistant_starter.py
 Personal-assistant agent loop with:
   - Google Calendar (read upcoming events)
   - Gmail          (read inbox, search emails)
+  - Google Drive   (list and read files)
   - SQLite memory  (remembers past conversations)
 
 Pattern:
@@ -31,6 +32,7 @@ from anthropic import Anthropic
 
 from src.connectors.google_calendar import get_calendar_events
 from src.connectors.gmail import get_recent_emails, search_emails
+from src.connectors.google_drive import list_files, read_file
 from src import memory
 
 client = Anthropic()
@@ -49,6 +51,8 @@ TOOL_FUNCTIONS = {
     "get_calendar_events": get_calendar_events,
     "get_recent_emails":   get_recent_emails,
     "search_emails":       search_emails,
+    "list_drive_files":    list_files,
+    "read_drive_file":     read_file,
     "set_light":           set_light,
 }
 
@@ -101,6 +105,45 @@ TOOLS = [
                 },
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "list_drive_files",
+        "description": (
+            "List files in the user's Google Drive. "
+            "Optionally filter with a Drive query, e.g. \"name contains 'budget'\" "
+            "or \"mimeType='application/vnd.google-apps.document'\"."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max number of files to return. Defaults to 20.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Optional Drive query string to filter results.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "read_drive_file",
+        "description": (
+            "Read the text content of a Google Drive file by its ID. "
+            "Works for Google Docs, Sheets, Slides, and plain text files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {
+                    "type": "string",
+                    "description": "The Drive file ID (from list_drive_files).",
+                }
+            },
+            "required": ["file_id"],
         },
     },
     {
@@ -164,7 +207,7 @@ def run(user_message: str, system: str = "") -> str:
 
 if __name__ == "__main__":
     print("Personal assistant ready. Type 'quit' to exit.\n")
-    print("Try: 'what's on my calendar this week?' or 'show my recent emails'\n")
+    print("Try: 'what's on my calendar?', 'show recent emails', 'list my Drive files'\n")
 
     while True:
         user_input = input("you> ").strip()
