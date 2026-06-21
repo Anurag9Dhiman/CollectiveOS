@@ -4,3 +4,5 @@ google-auth-httplib2>=0.2.0
 google-auth-oauthlib>=1.0.0
 fastapi>=0.110.0
 uvicorn>=0.29.0
+psycopg2-binary>=2.9.0
+sentence-transformers>=3.0.0
