@@ -5,7 +5,8 @@ Personal-assistant agent loop with:
   - Google Calendar (read upcoming events)
   - Gmail          (read inbox, search emails)
   - Google Drive   (list and read files)
-  - SQLite memory  (remembers past conversations)
+  - Todoist        (list tasks, projects; add tasks)
+  - Postgres memory (semantic search via pgvector)
 
 Pattern:
     retrieve relevant memory
@@ -33,6 +34,7 @@ from anthropic import Anthropic
 from src.connectors.google_calendar import get_calendar_events
 from src.connectors.gmail import get_recent_emails, search_emails
 from src.connectors.google_drive import list_files, read_file
+from src.connectors.todoist import get_tasks, get_projects, add_task
 from src import memory
 
 client = Anthropic()
@@ -53,6 +55,9 @@ TOOL_FUNCTIONS = {
     "search_emails":       search_emails,
     "list_drive_files":    list_files,
     "read_drive_file":     read_file,
+    "get_tasks":           get_tasks,
+    "get_projects":        get_projects,
+    "add_task":            add_task,
     "set_light":           set_light,
 }
 
@@ -144,6 +149,56 @@ TOOLS = [
                 }
             },
             "required": ["file_id"],
+        },
+    },
+    {
+        "name": "get_tasks",
+        "description": (
+            "List active Todoist tasks. Optionally filter by project name or "
+            "a Todoist filter expression (e.g. 'today', 'overdue', 'p1', '7 days')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Filter to tasks in this project (partial match).",
+                },
+                "filter_str": {
+                    "type": "string",
+                    "description": "Todoist filter expression, e.g. 'today' or 'overdue'.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_projects",
+        "description": "List all Todoist projects.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "add_task",
+        "description": (
+            "Add a new task to Todoist. Always confirm with the user before calling this."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Task title.",
+                },
+                "due_string": {
+                    "type": "string",
+                    "description": "Natural-language due date, e.g. 'tomorrow', 'next Monday'.",
+                },
+                "project_name": {
+                    "type": "string",
+                    "description": "Destination project name. Uses Inbox if omitted.",
+                },
+            },
+            "required": ["content"],
         },
     },
     {
