@@ -2,11 +2,12 @@
 assistant_starter.py
 ---------------------
 Personal-assistant agent loop with:
-  - Google Calendar (read upcoming events)
-  - Gmail          (read inbox, search emails)
-  - Google Drive   (list and read files)
-  - Todoist        (list tasks, projects; add tasks)
-  - Postgres memory (semantic search via pgvector)
+  - Google Calendar  (read upcoming events)
+  - Gmail            (read inbox, search emails)
+  - Google Drive     (list and read files)
+  - Todoist          (list tasks, projects; add tasks)
+  - Home Assistant   (read device states, control lights/switches)
+  - Postgres memory  (semantic search via pgvector)
 
 Pattern:
     retrieve relevant memory
@@ -35,6 +36,7 @@ from src.connectors.google_calendar import get_calendar_events
 from src.connectors.gmail import get_recent_emails, search_emails
 from src.connectors.google_drive import list_files, read_file
 from src.connectors.todoist import get_tasks, get_projects, add_task
+from src.connectors.home_assistant import get_devices, get_device_state, control_device
 from src import memory
 
 client = Anthropic()
@@ -58,6 +60,9 @@ TOOL_FUNCTIONS = {
     "get_tasks":           get_tasks,
     "get_projects":        get_projects,
     "add_task":            add_task,
+    "get_devices":         get_devices,
+    "get_device_state":    get_device_state,
+    "control_device":      control_device,
     "set_light":           set_light,
 }
 
@@ -199,6 +204,61 @@ TOOLS = [
                 },
             },
             "required": ["content"],
+        },
+    },
+    {
+        "name": "get_devices",
+        "description": (
+            "List Home Assistant entities and their current states. "
+            "Optionally filter by domain: 'light', 'switch', 'sensor', "
+            "'binary_sensor', 'climate', 'media_player', etc."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Entity domain to filter by. Leave blank for all.",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_device_state",
+        "description": "Get the full state and attributes of a single Home Assistant entity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "Entity ID, e.g. 'light.living_room'.",
+                }
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "control_device",
+        "description": (
+            "Turn a Home Assistant entity on or off. "
+            "Always confirm with the user before calling. "
+            "Heating appliances (microwave, cooktop, washer, oven) may only be turned OFF."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "Entity ID, e.g. 'switch.fan' or 'light.kitchen'.",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["turn_on", "turn_off"],
+                    "description": "Action to perform.",
+                },
+            },
+            "required": ["entity_id", "action"],
         },
     },
     {
