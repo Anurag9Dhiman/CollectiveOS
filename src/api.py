@@ -3,24 +3,21 @@ FastAPI layer — exposes the assistant over HTTP.
 
 Endpoints
 ---------
+  GET  /           Web chat UI (static/index.html)
   POST /chat       Send a message, get a reply.
   GET  /health     Liveness check.
 
 Auth
 ----
-  Every request must include:
+  Every /chat request must include:
     Authorization: Bearer <API_TOKEN>
   where API_TOKEN is set in your .env file.
+  The UI prompts for the token in the browser — it is never stored server-side.
 
 Run
 ---
   uvicorn src.api:app --reload --port 8000
-
-  Then call it:
-    curl -X POST http://localhost:8000/chat \
-         -H "Authorization: Bearer your-token" \
-         -H "Content-Type: application/json" \
-         -d '{"message": "what is on my calendar today?"}'
+  Then open http://localhost:8000 in your browser.
 """
 
 import os
@@ -30,13 +27,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.assistant_starter import run
 from src import memory
 
+_HERE   = os.path.dirname(os.path.abspath(__file__))
+_STATIC = os.path.join(_HERE, "..", "static")
+
 app = FastAPI(title="Personal Assistant API", version="0.1.0")
-bearer = HTTPBearer()
+app.mount("/static", StaticFiles(directory=_STATIC), name="static")
+bearer = HTTPBearer(auto_error=False)
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -66,6 +69,11 @@ class ChatResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(os.path.join(_STATIC, "index.html"))
+
 
 @app.get("/health")
 def health():
