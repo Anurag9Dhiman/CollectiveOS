@@ -280,11 +280,11 @@ TOOLS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Agent loop
+# Agent loop — batch (CLI) and streaming (API) variants
 # ---------------------------------------------------------------------------
 
 def run(user_message: str, system: str = "") -> str:
-    """Run one user message through the tool-use loop and return the reply."""
+    """Run one user message through the tool-use loop and return the full reply."""
     messages = [{"role": "user", "content": user_message}]
 
     kwargs = dict(model=MODEL, max_tokens=1024, tools=TOOLS, messages=messages)
@@ -307,6 +307,45 @@ def run(user_message: str, system: str = "") -> str:
                 func   = TOOL_FUNCTIONS[block.name]
                 output = func(**block.input)
                 print(f"  [tool: {block.name}({block.input})]")
+                tool_results.append({
+                    "type":        "tool_result",
+                    "tool_use_id": block.id,
+                    "content":     output,
+                })
+
+        messages.append({"role": "user", "content": tool_results})
+        kwargs["messages"] = messages
+
+
+def run_stream(user_message: str, system: str = ""):
+    """
+    Generator variant — yields text tokens as they arrive from the API.
+    Tool calls are executed synchronously between stream calls; a short
+    status line is yielded while tools run so the UI stays responsive.
+    """
+    messages = [{"role": "user", "content": user_message}]
+
+    kwargs = dict(model=MODEL, max_tokens=1024, tools=TOOLS, messages=messages)
+    if system:
+        kwargs["system"] = system
+
+    while True:
+        with client.messages.stream(**kwargs) as stream:
+            for token in stream.text_stream:
+                yield token
+            final = stream.get_final_message()
+
+        if final.stop_reason != "tool_use":
+            break
+
+        messages.append({"role": "assistant", "content": final.content})
+
+        tool_results = []
+        for block in final.content:
+            if block.type == "tool_use":
+                yield f"\n\n_[using {block.name}…]_\n\n"
+                func   = TOOL_FUNCTIONS[block.name]
+                output = func(**block.input)
                 tool_results.append({
                     "type":        "tool_result",
                     "tool_use_id": block.id,
