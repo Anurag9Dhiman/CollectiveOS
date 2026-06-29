@@ -37,7 +37,7 @@ from src.connectors.gmail import get_recent_emails, search_emails
 from src.connectors.google_drive import list_files, read_file
 from src.connectors.todoist import get_tasks, get_projects, add_task
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
-from src import memory
+from src import memory, router
 
 client = Anthropic()
 MODEL = "claude-sonnet-4-6"
@@ -287,7 +287,11 @@ def run(user_message: str, system: str = "") -> str:
     """Run one user message through the tool-use loop and return the full reply."""
     messages = [{"role": "user", "content": user_message}]
 
-    kwargs = dict(model=MODEL, max_tokens=1024, tools=TOOLS, messages=messages)
+    active_tools, categories = router.select_tools(user_message, TOOLS)
+    if categories:
+        print(f"  [router: {', '.join(categories)}  →  {len(active_tools)}/{len(TOOLS)} tools]")
+
+    kwargs = dict(model=MODEL, max_tokens=1024, tools=active_tools, messages=messages)
     if system:
         kwargs["system"] = system
 
@@ -325,7 +329,11 @@ def run_stream(user_message: str, system: str = ""):
     """
     messages = [{"role": "user", "content": user_message}]
 
-    kwargs = dict(model=MODEL, max_tokens=1024, tools=TOOLS, messages=messages)
+    active_tools, categories = router.select_tools(user_message, TOOLS)
+    if categories:
+        yield f"_[routing: {', '.join(categories)}]_\n\n"
+
+    kwargs = dict(model=MODEL, max_tokens=1024, tools=active_tools, messages=messages)
     if system:
         kwargs["system"] = system
 
