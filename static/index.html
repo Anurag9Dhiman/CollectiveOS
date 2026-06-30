@@ -25,8 +25,20 @@
       flex-shrink: 0;
     }
 
-    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; }
+    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; flex: 1; }
     header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+
+    #new-chat-btn {
+      background: none;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      font-size: 0.78rem;
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    #new-chat-btn:hover { border-color: #58a6ff; color: #58a6ff; }
 
     #chat {
       flex: 1;
@@ -163,6 +175,17 @@
       padding: 4px 20px;
       display: none;
     }
+
+    .history-divider {
+      align-self: center;
+      font-size: 0.72rem;
+      color: #484f58;
+      border-top: 1px solid #21262d;
+      width: 100%;
+      text-align: center;
+      padding-top: 8px;
+      margin-bottom: 4px;
+    }
   </style>
 </head>
 <body>
@@ -170,6 +193,7 @@
 <header>
   <div class="dot"></div>
   <h1>CollectiveOS</h1>
+  <button id="new-chat-btn" title="Start a new conversation">+ New chat</button>
 </header>
 
 <div id="chat"></div>
@@ -186,18 +210,24 @@
 </form>
 
 <script>
-  const chat      = document.getElementById("chat");
-  const form      = document.getElementById("chat-form");
-  const input     = document.getElementById("msg-input");
-  const tokenInput= document.getElementById("token-input");
-  const errorEl   = document.getElementById("error");
-  const submitBtn = form.querySelector("button[type=submit]");
+  const chat       = document.getElementById("chat");
+  const form       = document.getElementById("chat-form");
+  const input      = document.getElementById("msg-input");
+  const tokenInput = document.getElementById("token-input");
+  const errorEl    = document.getElementById("error");
+  const submitBtn  = form.querySelector("button[type=submit]");
+  const newChatBtn = document.getElementById("new-chat-btn");
 
-  // Persist token in sessionStorage so you don't retype on refresh.
-  tokenInput.value = sessionStorage.getItem("api_token") || "";
+  const STORAGE_TOKEN = "collectiveos_token";
+  const STORAGE_CONV  = "collectiveos_conv_id";
+
+  // Persist token across refreshes.
+  tokenInput.value = localStorage.getItem(STORAGE_TOKEN) || "";
   tokenInput.addEventListener("input", () =>
-    sessionStorage.setItem("api_token", tokenInput.value.trim())
+    localStorage.setItem(STORAGE_TOKEN, tokenInput.value.trim())
   );
+
+  let conversationId = parseInt(localStorage.getItem(STORAGE_CONV) || "", 10) || null;
 
   // Auto-grow textarea.
   input.addEventListener("input", () => {
@@ -208,6 +238,12 @@
   // Submit on Enter (Shift+Enter = newline).
   input.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+  });
+
+  // New chat — clear stored conversation and reload.
+  newChatBtn.addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_CONV);
+    location.reload();
   });
 
   function addMessage(role, text) {
@@ -252,6 +288,41 @@
     setTimeout(() => { errorEl.style.display = "none"; }, 4000);
   }
 
+  // On page load, restore history for the stored conversation id.
+  async function restoreHistory() {
+    if (!conversationId) return;
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) return;
+
+    try {
+      const resp = await fetch(`/history/${conversationId}`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!resp.ok) {
+        // Conversation may be gone (e.g. DB reset) — start fresh.
+        localStorage.removeItem(STORAGE_CONV);
+        conversationId = null;
+        return;
+      }
+      const { messages } = await resp.json();
+      if (!messages.length) return;
+
+      const divider = document.createElement("div");
+      divider.className = "history-divider";
+      divider.textContent = "— previous messages —";
+      chat.appendChild(divider);
+
+      for (const msg of messages) {
+        addMessage(msg.role, msg.content);
+      }
+    } catch (_) {
+      localStorage.removeItem(STORAGE_CONV);
+      conversationId = null;
+    }
+  }
+
+  restoreHistory();
+
   form.addEventListener("submit", async e => {
     e.preventDefault();
     const text  = input.value.trim();
@@ -274,7 +345,10 @@
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          message: text,
+          conversation_id: conversationId,
+        }),
       });
 
       removeTyping();
@@ -285,8 +359,7 @@
         return;
       }
 
-      // Create the assistant bubble upfront and stream tokens into it.
-      const bubble = addMessage("assistant", "");
+      const bubble  = addMessage("assistant", "");
       const reader  = resp.body.getReader();
       const decoder = new TextDecoder();
       let   buffer  = "";
@@ -297,11 +370,18 @@
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        buffer = lines.pop();           // keep incomplete last line
+        buffer = lines.pop();  // keep incomplete last line
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const payload = JSON.parse(line.slice(6));
+
+          if (payload.meta) {
+            // First event — persist the conversation id so refresh restores history.
+            conversationId = payload.meta.conversation_id;
+            localStorage.setItem(STORAGE_CONV, String(conversationId));
+            continue;
+          }
           if (payload.done) break;
           if (payload.chunk) {
             bubble.textContent += payload.chunk;
