@@ -101,13 +101,16 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     conv_id = body.conversation_id or conversations.create()
 
+    # Load recent turns so the model has conversational context.
+    history = conversations.load_history(conv_id, limit=20)
+
     past = memory.search(user_message)
     system_prompt = "You are a helpful personal assistant."
     if past:
         system_prompt += "\n\nRelevant context from past conversations:\n" + past
 
     conversations.save_message(conv_id, "user", user_message)
-    reply = run(user_message, system=system_prompt)
+    reply = run(user_message, system=system_prompt, history=history)
     conversations.save_message(conv_id, "assistant", reply)
     memory.save(user_message, reply)
 
@@ -127,6 +130,9 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
         raise HTTPException(status_code=400, detail="message must not be empty.")
 
     conv_id = body.conversation_id or conversations.create()
+
+    # Load recent turns so the model has conversational context.
+    history = conversations.load_history(conv_id, limit=20)
     conversations.save_message(conv_id, "user", user_message)
 
     past = memory.search(user_message)
@@ -140,7 +146,7 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     def _producer():
         try:
-            for chunk in run_stream(user_message, system=system_prompt):
+            for chunk in run_stream(user_message, system=system_prompt, history=history):
                 loop.call_soon_threadsafe(queue.put_nowait, chunk)
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel

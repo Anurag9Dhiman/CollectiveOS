@@ -283,9 +283,12 @@ TOOLS = [
 # Agent loop — batch (CLI) and streaming (API) variants
 # ---------------------------------------------------------------------------
 
-def run(user_message: str, system: str = "") -> str:
-    """Run one user message through the tool-use loop and return the full reply."""
-    messages = [{"role": "user", "content": user_message}]
+def run(user_message: str, system: str = "", history: list = []) -> str:
+    """Run one user message through the tool-use loop and return the full reply.
+
+    history: prior [{"role": ..., "content": ...}] turns to prepend, oldest first.
+    """
+    messages = history + [{"role": "user", "content": user_message}]
 
     active_tools, categories = router.select_tools(user_message, TOOLS)
     if categories:
@@ -321,13 +324,15 @@ def run(user_message: str, system: str = "") -> str:
         kwargs["messages"] = messages
 
 
-def run_stream(user_message: str, system: str = ""):
+def run_stream(user_message: str, system: str = "", history: list = []):
     """
     Generator variant — yields text tokens as they arrive from the API.
     Tool calls are executed synchronously between stream calls; a short
     status line is yielded while tools run so the UI stays responsive.
+
+    history: prior [{"role": ..., "content": ...}] turns to prepend, oldest first.
     """
-    messages = [{"role": "user", "content": user_message}]
+    messages = history + [{"role": "user", "content": user_message}]
 
     active_tools, categories = router.select_tools(user_message, TOOLS)
     if categories:
@@ -371,6 +376,8 @@ if __name__ == "__main__":
     print("Personal assistant ready. Type 'quit' to exit.\n")
     print("Try: 'what's on my calendar?', 'show recent emails', 'list my Drive files'\n")
 
+    cli_history: list[dict] = []
+
     while True:
         user_input = input("you> ").strip()
         if not user_input:
@@ -386,9 +393,14 @@ if __name__ == "__main__":
                 "\n\nRelevant context from past conversations:\n" + past
             )
 
-        # 2. Run the agent.
-        reply = run(user_input, system=system_prompt)
+        # 2. Run the agent with in-session history so it remembers prior turns.
+        reply = run(user_input, system=system_prompt, history=cli_history)
         print(f"assistant> {reply}\n")
 
-        # 3. Save this exchange so future turns can recall it.
+        # 3. Extend in-session history (keep last 20 messages = 10 turns).
+        cli_history.append({"role": "user", "content": user_input})
+        cli_history.append({"role": "assistant", "content": reply})
+        cli_history = cli_history[-20:]
+
+        # 4. Save this exchange so future sessions can recall it.
         memory.save(user_input, reply)
