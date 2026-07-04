@@ -28,7 +28,7 @@
     header h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; flex: 1; }
     header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
 
-    #new-chat-btn {
+    .header-btn {
       background: none;
       border: 1px solid #30363d;
       border-radius: 6px;
@@ -38,7 +38,8 @@
       cursor: pointer;
       transition: border-color 0.15s, color 0.15s;
     }
-    #new-chat-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    .header-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    .header-btn.active { border-color: #3fb950; color: #3fb950; }
 
     #chat {
       flex: 1;
@@ -155,6 +156,31 @@
     #msg-input:focus { border-color: #1f6feb; }
     #msg-input::placeholder { color: #484f58; }
 
+    #mic-btn {
+      background: #161b22;
+      color: #8b949e;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 10px 13px;
+      font-size: 1rem;
+      cursor: pointer;
+      align-self: flex-end;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      line-height: 1;
+    }
+    #mic-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    #mic-btn.listening {
+      background: #3d1f1f;
+      border-color: #f85149;
+      color: #f85149;
+      animation: pulse 1.2s infinite;
+    }
+    #mic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
+
     button[type=submit] {
       background: #1f6feb;
       color: #fff;
@@ -193,7 +219,8 @@
 <header>
   <div class="dot"></div>
   <h1>CollectiveOS</h1>
-  <button id="new-chat-btn" title="Start a new conversation">+ New chat</button>
+  <button id="tts-btn" class="header-btn" title="Toggle read-aloud">🔊 Read aloud</button>
+  <button id="new-chat-btn" class="header-btn" title="Start a new conversation">+ New chat</button>
 </header>
 
 <div id="chat"></div>
@@ -206,6 +233,7 @@
 
 <form id="chat-form">
   <textarea id="msg-input" placeholder="Ask anything…" rows="1"></textarea>
+  <button type="button" id="mic-btn" title="Speak your message">🎤</button>
   <button type="submit">Send</button>
 </form>
 
@@ -217,9 +245,12 @@
   const errorEl    = document.getElementById("error");
   const submitBtn  = form.querySelector("button[type=submit]");
   const newChatBtn = document.getElementById("new-chat-btn");
+  const micBtn     = document.getElementById("mic-btn");
+  const ttsBtn     = document.getElementById("tts-btn");
 
   const STORAGE_TOKEN = "collectiveos_token";
   const STORAGE_CONV  = "collectiveos_conv_id";
+  const STORAGE_TTS   = "collectiveos_tts";
 
   // Persist token across refreshes.
   tokenInput.value = localStorage.getItem(STORAGE_TOKEN) || "";
@@ -229,18 +260,105 @@
 
   let conversationId = parseInt(localStorage.getItem(STORAGE_CONV) || "", 10) || null;
 
-  // Auto-grow textarea.
+  // ---------------------------------------------------------------------------
+  // TTS toggle
+  // ---------------------------------------------------------------------------
+  let ttsEnabled = localStorage.getItem(STORAGE_TTS) === "true";
+
+  function updateTtsBtn() {
+    ttsBtn.classList.toggle("active", ttsEnabled);
+    ttsBtn.title = ttsEnabled ? "Read aloud: ON (click to turn off)" : "Read aloud: OFF";
+  }
+  updateTtsBtn();
+
+  ttsBtn.addEventListener("click", () => {
+    ttsEnabled = !ttsEnabled;
+    localStorage.setItem(STORAGE_TTS, ttsEnabled);
+    updateTtsBtn();
+    if (!ttsEnabled) speechSynthesis.cancel();
+  });
+
+  function speak(text) {
+    if (!ttsEnabled || !window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    // Strip markdown-style tool status lines before speaking.
+    const clean = text.replace(/_\[.*?\]_/g, "").trim();
+    if (!clean) return;
+    const utt = new SpeechSynthesisUtterance(clean);
+    utt.rate  = 1.05;
+    utt.pitch = 1;
+    speechSynthesis.speak(utt);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mic / Speech recognition
+  // ---------------------------------------------------------------------------
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let isListening = false;
+
+  if (!SpeechRecognition) {
+    micBtn.disabled = true;
+    micBtn.title = "Speech input not supported in this browser (use Chrome)";
+  } else {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+      isListening = true;
+      micBtn.classList.add("listening");
+      input.placeholder = "Listening…";
+    };
+
+    recognition.onend = () => {
+      isListening = false;
+      micBtn.classList.remove("listening");
+      input.placeholder = "Ask anything…";
+      // Auto-submit if there is transcribed text.
+      if (input.value.trim()) form.requestSubmit();
+    };
+
+    recognition.onerror = (e) => {
+      isListening = false;
+      micBtn.classList.remove("listening");
+      input.placeholder = "Ask anything…";
+      if (e.error !== "no-speech" && e.error !== "aborted") {
+        showError(`Mic error: ${e.error}`);
+      }
+    };
+
+    recognition.onresult = (e) => {
+      let transcript = "";
+      for (const result of e.results) transcript += result[0].transcript;
+      input.value = transcript;
+      input.style.height = "auto";
+      input.style.height = input.scrollHeight + "px";
+    };
+
+    micBtn.addEventListener("click", () => {
+      if (isListening) {
+        recognition.stop();
+      } else {
+        input.value = "";
+        recognition.start();
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // UI helpers
+  // ---------------------------------------------------------------------------
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = input.scrollHeight + "px";
   });
 
-  // Submit on Enter (Shift+Enter = newline).
   input.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
   });
 
-  // New chat — clear stored conversation and reload.
   newChatBtn.addEventListener("click", () => {
     localStorage.removeItem(STORAGE_CONV);
     location.reload();
@@ -288,7 +406,9 @@
     setTimeout(() => { errorEl.style.display = "none"; }, 4000);
   }
 
-  // On page load, restore history for the stored conversation id.
+  // ---------------------------------------------------------------------------
+  // History restore
+  // ---------------------------------------------------------------------------
   async function restoreHistory() {
     if (!conversationId) return;
     const token = localStorage.getItem(STORAGE_TOKEN) || "";
@@ -299,7 +419,6 @@
         headers: { "Authorization": `Bearer ${token}` },
       });
       if (!resp.ok) {
-        // Conversation may be gone (e.g. DB reset) — start fresh.
         localStorage.removeItem(STORAGE_CONV);
         conversationId = null;
         return;
@@ -312,9 +431,7 @@
       divider.textContent = "— previous messages —";
       chat.appendChild(divider);
 
-      for (const msg of messages) {
-        addMessage(msg.role, msg.content);
-      }
+      for (const msg of messages) addMessage(msg.role, msg.content);
     } catch (_) {
       localStorage.removeItem(STORAGE_CONV);
       conversationId = null;
@@ -323,6 +440,9 @@
 
   restoreHistory();
 
+  // ---------------------------------------------------------------------------
+  // Send message
+  // ---------------------------------------------------------------------------
   form.addEventListener("submit", async e => {
     e.preventDefault();
     const text  = input.value.trim();
@@ -334,6 +454,7 @@
     input.value = "";
     input.style.height = "auto";
     submitBtn.disabled = true;
+    micBtn.disabled    = true;
 
     addMessage("user", text);
     showTyping();
@@ -345,10 +466,7 @@
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          message: text,
-          conversation_id: conversationId,
-        }),
+        body: JSON.stringify({ message: text, conversation_id: conversationId }),
       });
 
       removeTyping();
@@ -370,19 +488,21 @@
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        buffer = lines.pop();  // keep incomplete last line
+        buffer = lines.pop();
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const payload = JSON.parse(line.slice(6));
 
           if (payload.meta) {
-            // First event — persist the conversation id so refresh restores history.
             conversationId = payload.meta.conversation_id;
             localStorage.setItem(STORAGE_CONV, String(conversationId));
             continue;
           }
-          if (payload.done) break;
+          if (payload.done) {
+            speak(bubble.textContent);
+            break;
+          }
           if (payload.chunk) {
             bubble.textContent += payload.chunk;
             chat.scrollTop = chat.scrollHeight;
@@ -394,6 +514,7 @@
       showError("Network error — is the server running?");
     } finally {
       submitBtn.disabled = false;
+      micBtn.disabled    = false;
       input.focus();
     }
   });
