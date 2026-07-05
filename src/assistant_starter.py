@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from anthropic import Anthropic
 
-from src.connectors.google_calendar import get_calendar_events
+from src.connectors.google_calendar import get_calendar_events, create_event
 from src.connectors.gmail import get_recent_emails, search_emails
 from src.connectors.google_drive import list_files, read_file
 from src.connectors.todoist import get_tasks, get_projects, add_task
@@ -53,6 +53,7 @@ def set_light(room: str, state: str) -> str:
 
 TOOL_FUNCTIONS = {
     "get_calendar_events": get_calendar_events,
+    "create_event":        create_event,
     "get_recent_emails":   get_recent_emails,
     "search_emails":       search_emails,
     "list_drive_files":    list_files,
@@ -79,6 +80,41 @@ TOOLS = [
                 }
             },
             "required": [],
+        },
+    },
+    {
+        "name": "create_event",
+        "description": (
+            "Create a new event on the user's primary Google Calendar. "
+            "Always confirm the details (title, date, time, duration) with the user before calling. "
+            "Use ISO 8601 for datetimes, e.g. '2024-07-10T14:00:00'. "
+            "Ask the user for their timezone if not already known; default to UTC."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Event title / summary.",
+                },
+                "start_datetime": {
+                    "type": "string",
+                    "description": "Start time in ISO 8601 format, e.g. '2024-07-10T14:00:00'.",
+                },
+                "end_datetime": {
+                    "type": "string",
+                    "description": "End time in ISO 8601 format, e.g. '2024-07-10T15:00:00'.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional event description / notes.",
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone name, e.g. 'America/New_York'. Defaults to UTC.",
+                },
+            },
+            "required": ["title", "start_datetime", "end_datetime"],
         },
     },
     {
