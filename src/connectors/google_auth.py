@@ -13,7 +13,10 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar.readonly",
+    # calendar.events covers read + create/edit events (not calendar settings).
+    # Upgraded from calendar.readonly to support create_event.
+    # Delete token.json and re-authorise once after this change.
+    "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
