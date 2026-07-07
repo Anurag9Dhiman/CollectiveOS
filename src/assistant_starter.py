@@ -25,6 +25,7 @@ SETUP (do this once):
        (first run opens a browser for Google OAuth — grants Calendar + Gmail)
 """
 
+import datetime
 import os
 import sys
 
@@ -421,13 +422,16 @@ if __name__ == "__main__":
         if user_input.lower() in {"quit", "exit"}:
             break
 
-        # 1. Retrieve relevant past memory to give the model context.
+        # 1. Build system prompt with current date + semantic memory.
         past = memory.search(user_input)
-        system_prompt = "You are a helpful personal assistant."
+        now = datetime.datetime.now(datetime.timezone.utc)
+        date_str = now.strftime("%A, %B %-d, %Y, %H:%M UTC")
+        system_prompt = (
+            f"You are a helpful personal assistant.\n"
+            f"Today is {date_str}."
+        )
         if past:
-            system_prompt += (
-                "\n\nRelevant context from past conversations:\n" + past
-            )
+            system_prompt += "\n\nRelevant context from past conversations:\n" + past
 
         # 2. Run the agent with in-session history so it remembers prior turns.
         reply = run(user_input, system=system_prompt, history=cli_history)
