@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CollectiveOS</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -212,6 +213,51 @@
       padding-top: 8px;
       margin-bottom: 4px;
     }
+
+    /* Markdown styles inside assistant bubbles */
+    .msg.assistant .bubble { white-space: normal; }
+    .msg.assistant .bubble p  { margin: 0 0 0.6em; }
+    .msg.assistant .bubble p:last-child { margin-bottom: 0; }
+    .msg.assistant .bubble ul,
+    .msg.assistant .bubble ol { padding-left: 1.4em; margin: 0 0 0.6em; }
+    .msg.assistant .bubble li { margin: 0.15em 0; }
+    .msg.assistant .bubble code {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 0.82em;
+    }
+    .msg.assistant .bubble pre {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+    .msg.assistant .bubble pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.83em;
+    }
+    .msg.assistant .bubble strong { color: #e1e4e8; }
+    .msg.assistant .bubble em    { color: #8b949e; }
+    .msg.assistant .bubble a     { color: #58a6ff; }
+    .msg.assistant .bubble blockquote {
+      border-left: 3px solid #30363d;
+      margin: 0.4em 0;
+      padding-left: 0.8em;
+      color: #8b949e;
+    }
+    .msg.assistant .bubble h1,
+    .msg.assistant .bubble h2,
+    .msg.assistant .bubble h3 {
+      margin: 0.6em 0 0.3em;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -364,6 +410,14 @@
     location.reload();
   });
 
+  function renderBubble(bubble, role, text) {
+    if (role === "assistant") {
+      bubble.innerHTML = marked.parse(text);
+    } else {
+      bubble.textContent = text;
+    }
+  }
+
   function addMessage(role, text) {
     const wrap   = document.createElement("div");
     wrap.className = `msg ${role}`;
@@ -372,7 +426,7 @@
     label.textContent = role === "user" ? "You" : "Assistant";
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.textContent = text;
+    renderBubble(bubble, role, text);
     wrap.appendChild(label);
     wrap.appendChild(bubble);
     chat.appendChild(wrap);
@@ -481,6 +535,7 @@
       const reader  = resp.body.getReader();
       const decoder = new TextDecoder();
       let   buffer  = "";
+      let   rawText = "";  // accumulated plain text for markdown re-render and TTS
 
       while (true) {
         const { done, value } = await reader.read();
@@ -500,11 +555,12 @@
             continue;
           }
           if (payload.done) {
-            speak(bubble.textContent);
+            speak(rawText);
             break;
           }
           if (payload.chunk) {
-            bubble.textContent += payload.chunk;
+            rawText += payload.chunk;
+            bubble.innerHTML = marked.parse(rawText);
             chat.scrollTop = chat.scrollHeight;
           }
         }

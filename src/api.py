@@ -22,6 +22,7 @@ Run
 """
 
 import asyncio
+import datetime
 import json
 import os
 import sys
@@ -38,6 +39,22 @@ from typing import Optional
 
 from src.assistant_starter import run, run_stream
 from src import conversations, memory
+
+_TZ_NAME = os.environ.get("TIMEZONE", "UTC")
+
+
+def _system_prompt(past: str = "") -> str:
+    """Build the system prompt, stamped with the current date and time."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    # Format: "Monday, July 7, 2026, 14:32 UTC"
+    date_str = now.strftime(f"%A, %B %-d, %Y, %H:%M {_TZ_NAME}")
+    prompt = (
+        f"You are a helpful personal assistant.\n"
+        f"Today is {date_str}."
+    )
+    if past:
+        prompt += "\n\nRelevant context from past conversations:\n" + past
+    return prompt
 
 _HERE   = os.path.dirname(os.path.abspath(__file__))
 _STATIC = os.path.join(_HERE, "..", "static")
@@ -105,9 +122,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     history = conversations.load_history(conv_id, limit=20)
 
     past = memory.search(user_message)
-    system_prompt = "You are a helpful personal assistant."
-    if past:
-        system_prompt += "\n\nRelevant context from past conversations:\n" + past
+    system_prompt = _system_prompt(past)
 
     conversations.save_message(conv_id, "user", user_message)
     reply = run(user_message, system=system_prompt, history=history)
@@ -136,9 +151,7 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     conversations.save_message(conv_id, "user", user_message)
 
     past = memory.search(user_message)
-    system_prompt = "You are a helpful personal assistant."
-    if past:
-        system_prompt += "\n\nRelevant context from past conversations:\n" + past
+    system_prompt = _system_prompt(past)
 
     # run_stream is a sync generator; bridge it to this async endpoint via a queue.
     queue: asyncio.Queue = asyncio.Queue()
