@@ -4,6 +4,7 @@ FastAPI layer — exposes the assistant over HTTP.
 Endpoints
 ---------
   GET  /                         Web chat UI (static/index.html)
+  GET  /ask?q=<message>&token=<token>  Plain-text reply (iOS Shortcuts / curl).
   POST /chat                     Send a message, get a full reply (JSON).
   POST /chat/stream              Send a message, stream reply tokens (SSE).
   GET  /history/{conversation_id} Return stored messages for a conversation.
@@ -11,9 +12,19 @@ Endpoints
 
 Auth
 ----
-  Every /chat* and /history* request must include:
-    Authorization: Bearer <API_TOKEN>
-  where API_TOKEN is set in your .env file.
+  /ask:   pass token as ?token= query param OR Authorization: Bearer header.
+  /chat*: Authorization: Bearer <API_TOKEN> header only.
+  API_TOKEN is set in your .env file.
+
+iOS Shortcuts setup
+-------------------
+  1. Create a new Shortcut.
+  2. Add action: "Ask for Input" (Text) → name it "Message".
+  3. Add action: "Get Contents of URL"
+       URL: http://<your-mac-ip>:8000/ask?token=<API_TOKEN>&q=[Shortcut Input]
+       Method: GET
+  4. Add action: "Show Result" (or "Speak Text" for voice).
+  5. Run it from the Home Screen, Siri, or the share sheet.
 
 Run
 ---
@@ -30,8 +41,8 @@ import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -101,6 +112,41 @@ def index():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/ask", response_class=PlainTextResponse)
+def ask(
+    q: str = Query(..., description="The question or command for the assistant."),
+    token: Optional[str] = Query(None, description="API token (alternative to Bearer header)."),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+):
+    """
+    Plain-text endpoint for iOS Shortcuts, curl, and other simple clients.
+
+    Auth: pass ?token=<API_TOKEN> in the URL, or Authorization: Bearer header.
+    Returns: plain text — no JSON wrapper, no markdown characters stripped.
+
+    Example:
+      curl "http://localhost:8000/ask?token=secret&q=what+is+on+my+calendar+today"
+    """
+    expected = os.environ.get("API_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=500, detail="API_TOKEN not configured.")
+
+    provided = token or (credentials.credentials if credentials else None)
+    if provided != expected:
+        raise HTTPException(status_code=401, detail="Invalid token.")
+
+    user_message = q.strip()
+    if not user_message:
+        raise HTTPException(status_code=400, detail="q must not be empty.")
+
+    past = memory.search(user_message)
+    system_prompt = _system_prompt(past)
+
+    reply = run(user_message, system=system_prompt)
+    memory.save(user_message, reply)
+    return reply
 
 
 @app.get("/history/{conversation_id}")
