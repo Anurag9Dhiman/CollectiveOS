@@ -16,7 +16,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "calendar": ["get_calendar_events", "create_event"],
     "email":    ["get_recent_emails", "search_emails"],
     "drive":    ["list_drive_files", "read_drive_file"],
-    "tasks":    ["get_tasks", "get_projects", "add_task"],
+    "tasks":    ["get_tasks", "get_projects", "add_task", "complete_task", "update_task"],
     "home":     ["get_devices", "get_device_state", "control_device", "set_light"],
 }
 

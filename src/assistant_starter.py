@@ -36,7 +36,7 @@ from anthropic import Anthropic
 from src.connectors.google_calendar import get_calendar_events, create_event
 from src.connectors.gmail import get_recent_emails, search_emails
 from src.connectors.google_drive import list_files, read_file
-from src.connectors.todoist import get_tasks, get_projects, add_task
+from src.connectors.todoist import get_tasks, get_projects, add_task, complete_task, update_task
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
 from src import memory, router
 
@@ -62,6 +62,8 @@ TOOL_FUNCTIONS = {
     "get_tasks":           get_tasks,
     "get_projects":        get_projects,
     "add_task":            add_task,
+    "complete_task":       complete_task,
+    "update_task":         update_task,
     "get_devices":         get_devices,
     "get_device_state":    get_device_state,
     "control_device":      control_device,
@@ -241,6 +243,51 @@ TOOLS = [
                 },
             },
             "required": ["content"],
+        },
+    },
+    {
+        "name": "complete_task",
+        "description": (
+            "Mark a Todoist task as completed. "
+            "Always confirm with the user before calling. "
+            "Use get_tasks first if you don't have the task id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task id shown in brackets by get_tasks.",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "update_task",
+        "description": (
+            "Update an existing Todoist task — rename it or change its due date. "
+            "Confirm the change with the user before calling. "
+            "Use get_tasks first if you don't have the task id. "
+            "Pass due_string='none' to remove the due date."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task id from get_tasks.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "New task title. Omit to keep current.",
+                },
+                "due_string": {
+                    "type": "string",
+                    "description": "New due date in natural language, e.g. 'Friday'. Pass 'none' to clear.",
+                },
+            },
+            "required": ["task_id"],
         },
     },
     {

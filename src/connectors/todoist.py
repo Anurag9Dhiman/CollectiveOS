@@ -1,5 +1,5 @@
 """
-Todoist connector — read tasks and add new ones.
+Todoist connector — read, add, complete, and update tasks.
 
 Auth: personal API token (no OAuth).
   1. Go to https://app.todoist.com/app/settings/integrations/developer
@@ -114,3 +114,54 @@ def add_task(content: str, due_string: str = "", project_name: str = "") -> str:
     due = task.get("due", {})
     due_str = f", due {due['date']}" if due else ""
     return f"Task added: '{task['content']}' (id {task['id']}{due_str})"
+
+
+def complete_task(task_id: str) -> str:
+    """
+    Mark a Todoist task as completed.
+
+    - task_id: the id shown in brackets by get_tasks, e.g. '8675309'.
+    """
+    resp = requests.post(
+        f"{_BASE}/tasks/{task_id}/close", headers=_headers()
+    )
+    if resp.status_code == 404:
+        return f"Task {task_id} not found. Use get_tasks to find the correct id."
+    resp.raise_for_status()
+    return f"Task {task_id} marked as complete."
+
+
+def update_task(
+    task_id: str,
+    content: str = "",
+    due_string: str = "",
+) -> str:
+    """
+    Update an existing Todoist task's title and/or due date.
+
+    - task_id:    id from get_tasks.
+    - content:    new task title (leave blank to keep current).
+    - due_string: new due date in natural language, e.g. 'tomorrow', 'Friday'.
+                  Pass 'none' to remove the due date.
+    """
+    payload: dict = {}
+    if content:
+        payload["content"] = content
+    if due_string.lower() == "none":
+        payload["due_string"] = "no due date"
+    elif due_string:
+        payload["due_string"] = due_string
+
+    if not payload:
+        return "Nothing to update — provide a new content or due_string."
+
+    resp = requests.post(
+        f"{_BASE}/tasks/{task_id}", headers=_headers(), json=payload
+    )
+    if resp.status_code == 404:
+        return f"Task {task_id} not found. Use get_tasks to find the correct id."
+    resp.raise_for_status()
+    task = resp.json()
+    due = task.get("due", {})
+    due_str = f", due {due['date']}" if due else ""
+    return f"Task updated: '{task['content']}'{due_str} (id {task_id})"
