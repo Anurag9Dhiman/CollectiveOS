@@ -38,6 +38,7 @@ from src.connectors.gmail import get_recent_emails, search_emails
 from src.connectors.google_drive import list_files, read_file
 from src.connectors.todoist import get_tasks, get_projects, add_task, complete_task, update_task
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
+from src.connectors import spotify as _spotify
 from src import memory, router
 
 client = Anthropic()
@@ -68,6 +69,11 @@ TOOL_FUNCTIONS = {
     "get_device_state":    get_device_state,
     "control_device":      control_device,
     "set_light":           set_light,
+    "spotify_now_playing": _spotify.get_now_playing,
+    "spotify_get_devices": _spotify.get_devices,
+    "spotify_control":     _spotify.control_playback,
+    "spotify_set_volume":  _spotify.set_volume,
+    "spotify_search_play": _spotify.search_and_play,
 }
 
 TOOLS = [
@@ -359,6 +365,79 @@ TOOLS = [
                 },
             },
             "required": ["room", "state"],
+        },
+    },
+    {
+        "name": "spotify_now_playing",
+        "description": "Get the currently playing track on Spotify, including artist, album, position, and active device.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "spotify_get_devices",
+        "description": "List all active Spotify Connect devices (phone, laptop, speaker, car, etc.) with their ids and volume.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "spotify_control",
+        "description": "Control Spotify playback — play, pause, skip to next track, or go to previous track.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["play", "pause", "next", "previous"],
+                    "description": "Playback action to perform.",
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "Optional Spotify device id from spotify_get_devices. Defaults to active device.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "spotify_set_volume",
+        "description": "Set the Spotify playback volume on the active (or specified) device.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "volume_percent": {
+                    "type": "integer",
+                    "description": "Volume level 0–100.",
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "Optional Spotify device id. Defaults to active device.",
+                },
+            },
+            "required": ["volume_percent"],
+        },
+    },
+    {
+        "name": "spotify_search_play",
+        "description": (
+            "Search Spotify for a track, artist, album, or playlist and immediately play the top result. "
+            "Examples: 'Bohemian Rhapsody', 'The Beatles', 'Chill focus playlist'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term — song name, artist, album, or playlist description.",
+                },
+                "search_type": {
+                    "type": "string",
+                    "enum": ["track", "artist", "album", "playlist"],
+                    "description": "What to search for. Defaults to track.",
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "Optional Spotify device id. Defaults to active device.",
+                },
+            },
+            "required": ["query"],
         },
     },
 ]

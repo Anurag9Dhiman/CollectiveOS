@@ -1,6 +1,7 @@
 .env
 credentials.json
 token.json
+.spotify_cache
 memory.db
 __pycache__/
 *.py[cod]

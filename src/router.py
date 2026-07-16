@@ -18,6 +18,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "drive":    ["list_drive_files", "read_drive_file"],
     "tasks":    ["get_tasks", "get_projects", "add_task", "complete_task", "update_task"],
     "home":     ["get_devices", "get_device_state", "control_device", "set_light"],
+    "music":    ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
