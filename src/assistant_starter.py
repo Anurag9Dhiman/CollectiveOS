@@ -39,6 +39,7 @@ from src.connectors.google_drive import list_files, read_file
 from src.connectors.todoist import get_tasks, get_projects, add_task, complete_task, update_task
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
 from src.connectors import spotify as _spotify
+from src.connectors import mac_system as _mac
 from src import memory, router
 
 client = Anthropic()
@@ -69,11 +70,16 @@ TOOL_FUNCTIONS = {
     "get_device_state":    get_device_state,
     "control_device":      control_device,
     "set_light":           set_light,
-    "spotify_now_playing": _spotify.get_now_playing,
-    "spotify_get_devices": _spotify.get_devices,
-    "spotify_control":     _spotify.control_playback,
-    "spotify_set_volume":  _spotify.set_volume,
-    "spotify_search_play": _spotify.search_and_play,
+    "spotify_now_playing":  _spotify.get_now_playing,
+    "spotify_get_devices":  _spotify.get_devices,
+    "spotify_control":      _spotify.control_playback,
+    "spotify_set_volume":   _spotify.set_volume,
+    "spotify_search_play":  _spotify.search_and_play,
+    "get_system_info":      _mac.get_system_info,
+    "get_wifi_info":        _mac.get_wifi_info,
+    "show_notification":    _mac.show_notification,
+    "open_application":     _mac.open_application,
+    "set_system_volume":    _mac.set_system_volume,
 }
 
 TOOLS = [
@@ -438,6 +444,75 @@ TOOLS = [
                 },
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "get_system_info",
+        "description": (
+            "Get a snapshot of this Mac's current status: battery level and "
+            "charging state, disk usage, free memory, CPU model, macOS version, and uptime."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_wifi_info",
+        "description": "Get the current Wi-Fi network name (SSID) and local IP address.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "show_notification",
+        "description": (
+            "Show a macOS notification banner on this Mac. "
+            "Useful for reminders, alerts, or confirming a completed action."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Notification title.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Notification message text.",
+                },
+            },
+            "required": ["title", "body"],
+        },
+    },
+    {
+        "name": "open_application",
+        "description": (
+            "Open a macOS application by name, e.g. 'Safari', 'Spotify', 'VS Code', 'Calendar'. "
+            "Always confirm with the user before opening apps."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Application name as it appears in /Applications.",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "set_system_volume",
+        "description": (
+            "Set the macOS system audio output volume (0–100). "
+            "This controls the Mac's speaker/headphone volume, "
+            "independent of Spotify's own volume control."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "integer",
+                    "description": "Volume level 0 (silent) to 100 (maximum).",
+                },
+            },
+            "required": ["level"],
         },
     },
 ]
