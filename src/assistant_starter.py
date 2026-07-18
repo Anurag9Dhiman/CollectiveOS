@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from anthropic import Anthropic
 
 from src.connectors.google_calendar import get_calendar_events, create_event
-from src.connectors.gmail import get_recent_emails, search_emails
+from src.connectors.gmail import get_recent_emails, search_emails, create_draft, send_email
 from src.connectors.google_drive import list_files, read_file
 from src.connectors.todoist import get_tasks, get_projects, add_task, complete_task, update_task
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
@@ -59,6 +59,8 @@ TOOL_FUNCTIONS = {
     "create_event":        create_event,
     "get_recent_emails":   get_recent_emails,
     "search_emails":       search_emails,
+    "create_draft":        create_draft,
+    "send_email":          send_email,
     "list_drive_files":    list_files,
     "read_drive_file":     read_file,
     "get_tasks":           get_tasks,
@@ -166,6 +168,67 @@ TOOLS = [
                 },
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "create_draft",
+        "description": (
+            "Create a Gmail draft. Does NOT send — the user reviews and sends it from Gmail. "
+            "Always confirm recipient, subject, and body with the user before calling. "
+            "Prefer this over send_email unless the user explicitly says 'send now'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Recipient email address.",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject. Leave blank when reply_to_id is set to auto-fill 'Re: ...'.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Plain-text email body.",
+                },
+                "reply_to_id": {
+                    "type": "string",
+                    "description": "Optional message id to reply to (from get_recent_emails). Keeps the email in the same thread.",
+                },
+            },
+            "required": ["to", "body"],
+        },
+    },
+    {
+        "name": "send_email",
+        "description": (
+            "Send an email immediately via Gmail. "
+            "Only call this after the user has explicitly confirmed the full content — "
+            "recipient, subject, and body. For safety, use create_draft first so the user "
+            "can review before sending."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Recipient email address.",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Plain-text email body.",
+                },
+                "reply_to_id": {
+                    "type": "string",
+                    "description": "Optional message id to reply to (keeps thread).",
+                },
+            },
+            "required": ["to", "subject", "body"],
         },
     },
     {

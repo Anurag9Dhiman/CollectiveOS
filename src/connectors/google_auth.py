@@ -17,7 +17,11 @@ SCOPES = [
     # Upgraded from calendar.readonly to support create_event.
     # Delete token.json and re-authorise once after this change.
     "https://www.googleapis.com/auth/calendar.events",
+    # gmail.readonly: read inbox and messages.
+    # gmail.compose: create drafts and send new messages.
+    # Both needed; delete token.json and re-authorise once after this change.
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
