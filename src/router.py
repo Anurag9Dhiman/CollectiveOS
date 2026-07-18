@@ -14,7 +14,7 @@ ROUTER_MODEL = "claude-haiku-4-5-20251001"
 # Map intent category → tool names. Extend as connectors grow.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
     "calendar": ["get_calendar_events", "create_event"],
-    "email":    ["get_recent_emails", "search_emails"],
+    "email":    ["get_recent_emails", "search_emails", "create_draft", "send_email"],
     "drive":    ["list_drive_files", "read_drive_file"],
     "tasks":    ["get_tasks", "get_projects", "add_task", "complete_task", "update_task"],
     "home":     ["get_devices", "get_device_state", "control_device", "set_light"],
