@@ -258,6 +258,141 @@
       margin: 0.6em 0 0.3em;
       font-weight: 600;
     }
+
+    /* Tool-use status lines injected by run_stream() */
+    .tool-action {
+      display: inline-block;
+      background: #2d1f00;
+      border: 1px solid #6e4c00;
+      border-radius: 4px;
+      color: #e3a000;
+      font-size: 0.75rem;
+      padding: 1px 7px;
+      margin: 2px 0;
+      font-style: normal;
+    }
+    .tool-read {
+      display: inline-block;
+      background: #0d1f0d;
+      border: 1px solid #1f4f1f;
+      border-radius: 4px;
+      color: #3fb950;
+      font-size: 0.75rem;
+      padding: 1px 7px;
+      margin: 2px 0;
+      font-style: normal;
+    }
+
+    /* Settings panel */
+    #settings-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+    }
+    #settings-overlay.open { display: block; }
+
+    #settings-panel {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: 320px;
+      background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #settings-panel header {
+      padding: 16px 18px;
+      border-bottom: 1px solid #21262d;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #settings-panel header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #settings-close {
+      background: none;
+      border: none;
+      color: #8b949e;
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    #settings-close:hover { color: #e1e4e8; background: #21262d; }
+
+    #settings-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .settings-section-title {
+      font-size: 0.7rem;
+      color: #484f58;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 6px;
+      margin-bottom: 4px;
+    }
+
+    .connector-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      transition: border-color 0.15s;
+    }
+    .connector-row:hover { border-color: #30363d; }
+    .connector-row.disabled { opacity: 0.55; }
+
+    .connector-emoji { font-size: 1.1rem; }
+    .connector-info  { flex: 1; }
+    .connector-name  { font-size: 0.85rem; font-weight: 500; }
+    .connector-meta  { font-size: 0.7rem; color: #484f58; margin-top: 2px; }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle input { display: none; }
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: #30363d;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle input:checked + .toggle-track { background: #238636; }
+    .toggle-thumb {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 14px; height: 14px;
+      background: #fff;
+      border-radius: 50%;
+      transition: left 0.2s;
+      pointer-events: none;
+    }
+    .toggle input:checked ~ .toggle-thumb { left: 19px; }
+
+    #settings-note {
+      font-size: 0.72rem;
+      color: #484f58;
+      padding: 10px 0 4px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -267,6 +402,7 @@
   <h1>CollectiveOS</h1>
   <button id="tts-btn" class="header-btn" title="Toggle read-aloud">🔊 Read aloud</button>
   <button id="new-chat-btn" class="header-btn" title="Start a new conversation">+ New chat</button>
+  <button id="settings-btn" class="header-btn" title="Connector permissions">⚙ Settings</button>
 </header>
 
 <div id="chat"></div>
@@ -283,6 +419,25 @@
   <button type="submit">Send</button>
 </form>
 
+<!-- Settings panel -->
+<div id="settings-overlay">
+  <div id="settings-panel">
+    <header>
+      <h2>⚙ Connector Permissions</h2>
+      <button id="settings-close" title="Close">✕</button>
+    </header>
+    <div id="settings-body">
+      <p class="settings-section-title">Connected apps</p>
+      <div id="connector-list">Loading…</div>
+      <p id="settings-note">
+        <strong>Read</strong> tools (calendar lookup, email search, etc.) run freely.<br>
+        <strong>Write / action</strong> tools always ask for your confirmation first.<br>
+        Disabling a connector blocks all its tools immediately.
+      </p>
+    </div>
+  </div>
+</div>
+
 <script>
   const chat       = document.getElementById("chat");
   const form       = document.getElementById("chat-form");
@@ -290,9 +445,13 @@
   const tokenInput = document.getElementById("token-input");
   const errorEl    = document.getElementById("error");
   const submitBtn  = form.querySelector("button[type=submit]");
-  const newChatBtn = document.getElementById("new-chat-btn");
-  const micBtn     = document.getElementById("mic-btn");
-  const ttsBtn     = document.getElementById("tts-btn");
+  const newChatBtn    = document.getElementById("new-chat-btn");
+  const settingsBtn   = document.getElementById("settings-btn");
+  const settingsOvl   = document.getElementById("settings-overlay");
+  const settingsClose = document.getElementById("settings-close");
+  const connectorList = document.getElementById("connector-list");
+  const micBtn        = document.getElementById("mic-btn");
+  const ttsBtn        = document.getElementById("tts-btn");
 
   const STORAGE_TOKEN = "collectiveos_token";
   const STORAGE_CONV  = "collectiveos_conv_id";
@@ -410,9 +569,18 @@
     location.reload();
   });
 
+  // Replace _[ACTION: ...]_ and _[reading: ...]_ with styled spans before markdown.
+  function injectToolMarkers(text) {
+    return text
+      .replace(/_\[ACTION: ([^\]]+)\]_/g,
+        '<span class="tool-action">⚡ Action: $1</span>')
+      .replace(/_\[reading: ([^\]]+)\]_/g,
+        '<span class="tool-read">↳ $1</span>');
+  }
+
   function renderBubble(bubble, role, text) {
     if (role === "assistant") {
-      bubble.innerHTML = marked.parse(text);
+      bubble.innerHTML = marked.parse(injectToolMarkers(text));
     } else {
       bubble.textContent = text;
     }
@@ -573,6 +741,101 @@
       micBtn.disabled    = false;
       input.focus();
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Settings panel — connector permissions
+  // ---------------------------------------------------------------------------
+  const CONNECTOR_EMOJIS = {
+    google_calendar: "📅",
+    gmail:           "📧",
+    google_drive:    "📁",
+    todoist:         "✅",
+    home_assistant:  "🏠",
+    spotify:         "🎵",
+    mac_system:      "💻",
+  };
+
+  async function loadPermissions() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) {
+      connectorList.innerHTML = "<p style='color:#f85149;font-size:0.8rem'>Enter your API token first.</p>";
+      return;
+    }
+    try {
+      const resp = await fetch("/permissions", {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(resp.statusText);
+      const { permissions } = await resp.json();
+      renderPermissions(permissions);
+    } catch (e) {
+      connectorList.innerHTML = "<p style='color:#f85149;font-size:0.8rem'>Failed to load permissions.</p>";
+    }
+  }
+
+  function renderPermissions(perms) {
+    connectorList.innerHTML = "";
+    for (const p of perms) {
+      const emoji = CONNECTOR_EMOJIS[p.connector] || "🔌";
+      const readCount  = p.read_tools.length;
+      const writeCount = p.write_tools.length;
+      const meta = [
+        readCount  ? `${readCount} read` : null,
+        writeCount ? `${writeCount} write` : null,
+      ].filter(Boolean).join(" · ");
+
+      const row = document.createElement("div");
+      row.className = "connector-row" + (p.enabled ? "" : " disabled");
+      row.innerHTML = `
+        <span class="connector-emoji">${emoji}</span>
+        <div class="connector-info">
+          <div class="connector-name">${p.label}</div>
+          <div class="connector-meta">${meta}</div>
+        </div>
+        <label class="toggle" title="${p.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}">
+          <input type="checkbox" data-connector="${p.connector}" ${p.enabled ? "checked" : ""}>
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      `;
+      connectorList.appendChild(row);
+
+      const cb = row.querySelector("input[type=checkbox]");
+      cb.addEventListener("change", async () => {
+        const enabled = cb.checked;
+        const token = localStorage.getItem(STORAGE_TOKEN) || "";
+        try {
+          const res = await fetch(`/permissions/${p.connector}`, {
+            method:  "PATCH",
+            headers: {
+              "Content-Type":  "application/json",
+              "Authorization": `Bearer ${token}`,
+            },
+            body: JSON.stringify({ enabled }),
+          });
+          if (!res.ok) throw new Error();
+          row.classList.toggle("disabled", !enabled);
+          cb.parentElement.title = enabled ? "Enabled — click to disable" : "Disabled — click to enable";
+        } catch (_) {
+          cb.checked = !enabled;  // revert on failure
+          showError("Failed to update permission.");
+        }
+      });
+    }
+  }
+
+  settingsBtn.addEventListener("click", () => {
+    settingsOvl.classList.add("open");
+    loadPermissions();
+  });
+
+  settingsClose.addEventListener("click", () => {
+    settingsOvl.classList.remove("open");
+  });
+
+  settingsOvl.addEventListener("click", e => {
+    if (e.target === settingsOvl) settingsOvl.classList.remove("open");
   });
 </script>
 

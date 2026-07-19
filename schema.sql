@@ -89,6 +89,25 @@ CREATE INDEX IF NOT EXISTS memory_chunks_embedding_idx
     ON memory_chunks USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
 
+-- Per-connector permission toggles
+-- Seeded with all connectors enabled by default.
+-- permissions.py creates this table at runtime too (for existing deployments).
+CREATE TABLE IF NOT EXISTS connector_permissions (
+    connector  TEXT PRIMARY KEY,
+    enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO connector_permissions (connector) VALUES
+    ('google_calendar'),
+    ('gmail'),
+    ('google_drive'),
+    ('todoist'),
+    ('home_assistant'),
+    ('spotify'),
+    ('mac_system')
+ON CONFLICT (connector) DO NOTHING;
+
 -- Seed the single default user
 INSERT INTO users (name, prefs)
 SELECT 'default', '{}'

@@ -46,22 +46,39 @@ from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 from src.assistant_starter import run, run_stream
-from src import conversations, memory
+from src import conversations, memory, permissions
 
 _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
+
+
+_READ_TOOLS = (
+    "get_calendar_events, get_recent_emails, search_emails, list_drive_files, "
+    "read_drive_file, get_tasks, get_projects, get_devices, get_device_state, "
+    "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info"
+)
+_WRITE_TOOLS = (
+    "create_event, create_draft, send_email, add_task, complete_task, update_task, "
+    "control_device, set_light, spotify_control, spotify_set_volume, spotify_search_play, "
+    "show_notification, open_application, set_system_volume"
+)
 
 
 def _system_prompt(past: str = "") -> str:
     """Build the system prompt, stamped with the current date and time."""
     now = datetime.datetime.now(datetime.timezone.utc)
-    # Format: "Monday, July 7, 2026, 14:32 UTC"
     date_str = now.strftime(f"%A, %B %-d, %Y, %H:%M {_TZ_NAME}")
     prompt = (
         f"You are a helpful personal assistant.\n"
-        f"Today is {date_str}."
+        f"Today is {date_str}.\n\n"
+        f"PERMISSION RULES — follow exactly:\n"
+        f"- Read tools ({_READ_TOOLS}): call freely without asking.\n"
+        f"- Write/action tools ({_WRITE_TOOLS}): you MUST describe exactly what you "
+        f"are about to do and only call the tool after the user gives an explicit "
+        f"go-ahead such as 'yes', 'ok', 'do it', 'send it', 'confirm', or 'proceed'. "
+        f"Never call a write/action tool without explicit user approval in this turn."
     )
     if past:
         prompt += "\n\nRelevant context from past conversations:\n" + past
@@ -98,6 +115,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: int
+
+class PermissionUpdate(BaseModel):
+    enabled: bool
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +196,29 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     memory.save(user_message, reply)
 
     return ChatResponse(reply=reply, conversation_id=conv_id)
+
+
+@app.get("/permissions")
+def get_permissions(_token: str = Depends(_verify_token)):
+    """Return all connectors with their current enabled/disabled state."""
+    return {"permissions": permissions.list_all()}
+
+
+@app.patch("/permissions/{connector}")
+def update_permission(
+    connector: str,
+    body: PermissionUpdate,
+    _token: str = Depends(_verify_token),
+):
+    """Enable or disable a connector by name."""
+    try:
+        permissions.set_permission(connector, body.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    label = permissions.CONNECTOR_LABELS.get(connector, connector)
+    state = "enabled" if body.enabled else "disabled"
+    return {"connector": connector, "label": label, "enabled": body.enabled,
+            "message": f"{label} {state}."}
 
 
 @app.post("/chat/stream")
