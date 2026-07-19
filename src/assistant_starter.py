@@ -40,7 +40,7 @@ from src.connectors.todoist import get_tasks, get_projects, add_task, complete_t
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
 from src.connectors import spotify as _spotify
 from src.connectors import mac_system as _mac
-from src import memory, router
+from src import memory, router, permissions
 
 client = Anthropic()
 MODEL = "claude-sonnet-4-6"
@@ -612,8 +612,12 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
         tool_results = []
         for block in response.content:
             if block.type == "tool_use":
-                func   = TOOL_FUNCTIONS[block.name]
-                output = func(**block.input)
+                allowed, err = permissions.check_tool(block.name)
+                if not allowed:
+                    output = err
+                else:
+                    func   = TOOL_FUNCTIONS[block.name]
+                    output = func(**block.input)
                 print(f"  [tool: {block.name}({block.input})]")
                 tool_results.append({
                     "type":        "tool_result",
@@ -657,9 +661,15 @@ def run_stream(user_message: str, system: str = "", history: list = []):
         tool_results = []
         for block in final.content:
             if block.type == "tool_use":
-                yield f"\n\n_[using {block.name}…]_\n\n"
-                func   = TOOL_FUNCTIONS[block.name]
-                output = func(**block.input)
+                is_write = block.name in permissions.WRITE_TOOLS
+                marker = "ACTION" if is_write else "reading"
+                yield f"\n\n_[{marker}: {block.name}…]_\n\n"
+                allowed, err = permissions.check_tool(block.name)
+                if not allowed:
+                    output = err
+                else:
+                    func   = TOOL_FUNCTIONS[block.name]
+                    output = func(**block.input)
                 tool_results.append({
                     "type":        "tool_result",
                     "tool_use_id": block.id,
