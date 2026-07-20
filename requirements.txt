@@ -9,3 +9,4 @@ psycopg2-binary>=2.9.0
 sentence-transformers>=3.0.0
 requests>=2.31.0
 spotipy>=2.23.0
+tavily-python>=0.3.0

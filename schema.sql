@@ -105,7 +105,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('todoist'),
     ('home_assistant'),
     ('spotify'),
-    ('mac_system')
+    ('mac_system'),
+    ('web_search')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

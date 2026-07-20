@@ -40,6 +40,7 @@ from src.connectors.todoist import get_tasks, get_projects, add_task, complete_t
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
 from src.connectors import spotify as _spotify
 from src.connectors import mac_system as _mac
+from src.connectors.web_search import search as web_search
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -82,6 +83,7 @@ TOOL_FUNCTIONS = {
     "show_notification":    _mac.show_notification,
     "open_application":     _mac.open_application,
     "set_system_volume":    _mac.set_system_volume,
+    "web_search":           web_search,
 }
 
 TOOLS = [
@@ -576,6 +578,31 @@ TOOLS = [
                 },
             },
             "required": ["level"],
+        },
+    },
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web for current, real-time information — news, weather, prices, "
+            "sports scores, documentation, local businesses, travel info, or anything "
+            "that may have changed since the model's training cutoff. "
+            "Use this whenever the user asks about something recent, live, or factual "
+            "that you cannot answer from memory alone."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query. Be specific for better results, e.g. "
+                                   "'weather Toronto today' not just 'weather'.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Number of sources to return (1–10). Defaults to 5.",
+                },
+            },
+            "required": ["query"],
         },
     },
 ]
