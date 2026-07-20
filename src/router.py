@@ -20,6 +20,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "home":     ["get_devices", "get_device_state", "control_device", "set_light"],
     "music":    ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
     "system":   ["get_system_info", "get_wifi_info", "show_notification", "open_application", "set_system_volume"],
+    "search":   ["web_search"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -40,7 +41,12 @@ _EXAMPLES = (
     "  show my tasks and upcoming events → [\"tasks\", \"calendar\"]\n"
     "  turn off the living room lights → [\"home\"]\n"
     "  find the budget doc in Drive → [\"drive\"]\n"
-    "  what's the weather today → []\n"
+    "  what's the weather today → [\"search\"]\n"
+    "  latest news about AI → [\"search\"]\n"
+    "  what is the current price of Bitcoin → [\"search\"]\n"
+    "  how do I fix a Python import error → [\"search\"]\n"
+    "  what movies are playing this weekend → [\"search\"]\n"
+    "  schedule a meeting and search for the venue address → [\"calendar\", \"search\"]\n"
 )
 
 _client: Anthropic | None = None

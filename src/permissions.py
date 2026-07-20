@@ -26,6 +26,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
                         "spotify_set_volume", "spotify_search_play"],
     "mac_system":      ["get_system_info", "get_wifi_info", "show_notification",
                         "open_application", "set_system_volume"],
+    "web_search":      ["web_search"],
 }
 
 # Reverse index: tool name → connector
@@ -53,6 +54,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "home_assistant":  "Home Assistant",
     "spotify":         "Spotify",
     "mac_system":      "Mac System",
+    "web_search":      "Web Search",
 }
 
 # ---------------------------------------------------------------------------
