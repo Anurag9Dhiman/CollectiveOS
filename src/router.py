@@ -21,6 +21,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "music":    ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
     "system":   ["get_system_info", "get_wifi_info", "show_notification", "open_application", "set_system_volume"],
     "search":   ["web_search"],
+    "messages": ["imessage_get_messages", "imessage_send"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -47,6 +48,10 @@ _EXAMPLES = (
     "  how do I fix a Python import error → [\"search\"]\n"
     "  what movies are playing this weekend → [\"search\"]\n"
     "  schedule a meeting and search for the venue address → [\"calendar\", \"search\"]\n"
+    "  did Alice text me? → [\"messages\"]\n"
+    "  show my recent texts → [\"messages\"]\n"
+    "  send a message to mom → [\"messages\"]\n"
+    "  text John that I'm running late → [\"messages\"]\n"
 )
 
 _client: Anthropic | None = None
