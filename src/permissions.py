@@ -27,6 +27,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "mac_system":      ["get_system_info", "get_wifi_info", "show_notification",
                         "open_application", "set_system_volume"],
     "web_search":      ["web_search"],
+    "imessage":        ["imessage_get_messages", "imessage_send"],
 }
 
 # Reverse index: tool name → connector
@@ -44,6 +45,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "control_device", "set_light",
     "spotify_control", "spotify_set_volume", "spotify_search_play",
     "show_notification", "open_application", "set_system_volume",
+    "imessage_send",
 })
 
 CONNECTOR_LABELS: dict[str, str] = {
@@ -55,6 +57,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "spotify":         "Spotify",
     "mac_system":      "Mac System",
     "web_search":      "Web Search",
+    "imessage":        "iMessage",
 }
 
 # ---------------------------------------------------------------------------

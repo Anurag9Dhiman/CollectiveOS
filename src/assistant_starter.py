@@ -41,6 +41,7 @@ from src.connectors.home_assistant import get_devices, get_device_state, control
 from src.connectors import spotify as _spotify
 from src.connectors import mac_system as _mac
 from src.connectors.web_search import search as web_search
+from src.connectors import imessage as _imessage
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -84,6 +85,8 @@ TOOL_FUNCTIONS = {
     "open_application":     _mac.open_application,
     "set_system_volume":    _mac.set_system_volume,
     "web_search":           web_search,
+    "imessage_get_messages": _imessage.get_messages,
+    "imessage_send":         _imessage.send_message,
 }
 
 TOOLS = [
@@ -603,6 +606,55 @@ TOOLS = [
                 },
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "imessage_get_messages",
+        "description": (
+            "Read recent iMessages from this Mac's Messages history. "
+            "Optionally filter to a single conversation by phone number or Apple ID. "
+            "Requires Full Disk Access granted to the terminal or server process."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact": {
+                    "type": "string",
+                    "description": "Phone number (+1…) or Apple ID email to filter to "
+                                   "one thread. Leave blank for recent messages across all chats.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of messages to return. Defaults to 10.",
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "How many days back to look. Defaults to 3.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "imessage_send",
+        "description": (
+            "Send an iMessage to a phone number (+1…) or Apple ID email. "
+            "Always confirm the recipient and the full message text with the user "
+            "before calling. Messages.app will prompt for Automation permission on first use."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Recipient phone number (e.g. '+14155552671') or Apple ID email.",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message text to send.",
+                },
+            },
+            "required": ["to", "message"],
         },
     },
 ]
