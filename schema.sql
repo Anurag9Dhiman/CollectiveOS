@@ -107,7 +107,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('spotify'),
     ('mac_system'),
     ('web_search'),
-    ('imessage')
+    ('imessage'),
+    ('screen_capture')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

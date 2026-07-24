@@ -19,7 +19,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "tasks":    ["get_tasks", "get_projects", "add_task", "complete_task", "update_task"],
     "home":     ["get_devices", "get_device_state", "control_device", "set_light"],
     "music":    ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
-    "system":   ["get_system_info", "get_wifi_info", "show_notification", "open_application", "set_system_volume"],
+    "system":   ["get_system_info", "get_wifi_info", "show_notification", "open_application", "set_system_volume", "capture_screen"],
     "search":   ["web_search"],
     "messages": ["imessage_get_messages", "imessage_send"],
 }
@@ -52,6 +52,9 @@ _EXAMPLES = (
     "  show my recent texts → [\"messages\"]\n"
     "  send a message to mom → [\"messages\"]\n"
     "  text John that I'm running late → [\"messages\"]\n"
+    "  what's on my screen right now → [\"system\"]\n"
+    "  what does this error say → [\"system\"]\n"
+    "  can you see what app I have open → [\"system\"]\n"
 )
 
 _client: Anthropic | None = None

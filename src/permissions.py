@@ -28,6 +28,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
                         "open_application", "set_system_volume"],
     "web_search":      ["web_search"],
     "imessage":        ["imessage_get_messages", "imessage_send"],
+    "screen_capture":  ["capture_screen"],
 }
 
 # Reverse index: tool name → connector
@@ -58,6 +59,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "mac_system":      "Mac System",
     "web_search":      "Web Search",
     "imessage":        "iMessage",
+    "screen_capture":  "Screen Capture",
 }
 
 # ---------------------------------------------------------------------------
