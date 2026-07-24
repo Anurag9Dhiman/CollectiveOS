@@ -42,6 +42,7 @@ from src.connectors import spotify as _spotify
 from src.connectors import mac_system as _mac
 from src.connectors.web_search import search as web_search
 from src.connectors import imessage as _imessage
+from src.connectors.screen_capture import capture_screen
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -87,6 +88,7 @@ TOOL_FUNCTIONS = {
     "web_search":           web_search,
     "imessage_get_messages": _imessage.get_messages,
     "imessage_send":         _imessage.send_message,
+    "capture_screen":        capture_screen,
 }
 
 TOOLS = [
@@ -655,6 +657,30 @@ TOOLS = [
                 },
             },
             "required": ["to", "message"],
+        },
+    },
+    {
+        "name": "capture_screen",
+        "description": (
+            "Take a screenshot of the current Mac screen and analyse it using "
+            "Claude's vision. Use this when the user asks about something on their "
+            "screen — an error message, the current app state, a piece of UI, code "
+            "they are looking at, or any visible text. "
+            "The screenshot is sent to Anthropic's API for analysis and then deleted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": (
+                        "Specific question to answer about the screen, e.g. "
+                        "'What does this error say?' or 'Which tab is active?'. "
+                        "Leave blank for a general description of what's visible."
+                    ),
+                },
+            },
+            "required": [],
         },
     },
 ]

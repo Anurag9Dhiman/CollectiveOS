@@ -58,7 +58,7 @@ _READ_TOOLS = (
     "get_calendar_events, get_recent_emails, search_emails, list_drive_files, "
     "read_drive_file, get_tasks, get_projects, get_devices, get_device_state, "
     "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info, "
-    "web_search, imessage_get_messages"
+    "web_search, imessage_get_messages, capture_screen"
 )
 _WRITE_TOOLS = (
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "
