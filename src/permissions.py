@@ -29,6 +29,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "web_search":      ["web_search"],
     "imessage":        ["imessage_get_messages", "imessage_send"],
     "screen_capture":  ["capture_screen"],
+    "local_files":     ["list_directory", "read_local_file", "write_local_file"],
 }
 
 # Reverse index: tool name → connector
@@ -47,6 +48,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "spotify_control", "spotify_set_volume", "spotify_search_play",
     "show_notification", "open_application", "set_system_volume",
     "imessage_send",
+    "write_local_file",
 })
 
 CONNECTOR_LABELS: dict[str, str] = {
@@ -60,6 +62,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "web_search":      "Web Search",
     "imessage":        "iMessage",
     "screen_capture":  "Screen Capture",
+    "local_files":     "Local Files",
 }
 
 # ---------------------------------------------------------------------------

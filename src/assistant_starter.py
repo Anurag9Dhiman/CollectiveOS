@@ -43,6 +43,7 @@ from src.connectors import mac_system as _mac
 from src.connectors.web_search import search as web_search
 from src.connectors import imessage as _imessage
 from src.connectors.screen_capture import capture_screen
+from src.connectors import local_files as _fs
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -89,6 +90,9 @@ TOOL_FUNCTIONS = {
     "imessage_get_messages": _imessage.get_messages,
     "imessage_send":         _imessage.send_message,
     "capture_screen":        capture_screen,
+    "list_directory":        _fs.list_directory,
+    "read_local_file":       _fs.read_local_file,
+    "write_local_file":      _fs.write_local_file,
 }
 
 TOOLS = [
@@ -681,6 +685,71 @@ TOOLS = [
                 },
             },
             "required": [],
+        },
+    },
+    {
+        "name": "list_directory",
+        "description": (
+            "List the contents of a directory on this Mac. "
+            "Accepts ~ (home), relative paths, or absolute paths inside the home directory. "
+            "Shows file names, sizes, and last-modified dates."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory to list. Defaults to ~ (home). "
+                                   "Examples: '~', '~/Downloads', '~/Documents/CollectiveOS'.",
+                },
+                "show_hidden": {
+                    "type": "boolean",
+                    "description": "Include hidden files and dotfiles. Defaults to false.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "read_local_file",
+        "description": (
+            "Read the text content of a file on this Mac. "
+            "Accepts ~ and relative paths (resolved from home). "
+            "Refuses binary files. Caps at 50 KB to stay within token limits."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file. Examples: '~/Downloads/notes.txt', "
+                                   "'~/Documents/CollectiveOS/README.md'.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_local_file",
+        "description": (
+            "Write (create or overwrite) a file on this Mac with text content. "
+            "Creates any missing parent directories automatically. "
+            "Always confirm the file path and full content with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to write. Must be inside the home directory. "
+                                   "Example: '~/Documents/notes.txt'.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full text content to write to the file.",
+                },
+            },
+            "required": ["path", "content"],
         },
     },
 ]
