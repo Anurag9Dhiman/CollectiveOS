@@ -108,7 +108,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('mac_system'),
     ('web_search'),
     ('imessage'),
-    ('screen_capture')
+    ('screen_capture'),
+    ('local_files')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

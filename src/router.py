@@ -22,6 +22,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "system":   ["get_system_info", "get_wifi_info", "show_notification", "open_application", "set_system_volume", "capture_screen"],
     "search":   ["web_search"],
     "messages": ["imessage_get_messages", "imessage_send"],
+    "files":    ["list_directory", "read_local_file", "write_local_file"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -55,6 +56,10 @@ _EXAMPLES = (
     "  what's on my screen right now → [\"system\"]\n"
     "  what does this error say → [\"system\"]\n"
     "  can you see what app I have open → [\"system\"]\n"
+    "  what's in my Downloads folder → [\"files\"]\n"
+    "  read the file ~/Documents/notes.txt → [\"files\"]\n"
+    "  save this to a file on my Desktop → [\"files\"]\n"
+    "  list my project files → [\"files\"]\n"
 )
 
 _client: Anthropic | None = None
