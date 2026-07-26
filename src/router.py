@@ -23,6 +23,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "search":   ["web_search"],
     "messages": ["imessage_get_messages", "imessage_send"],
     "files":    ["list_directory", "read_local_file", "write_local_file"],
+    "browser":  ["browser_get_active_tab", "browser_list_tabs", "browser_open_url"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -60,6 +61,10 @@ _EXAMPLES = (
     "  read the file ~/Documents/notes.txt → [\"files\"]\n"
     "  save this to a file on my Desktop → [\"files\"]\n"
     "  list my project files → [\"files\"]\n"
+    "  what page am I on → [\"browser\"]\n"
+    "  what tabs do I have open → [\"browser\"]\n"
+    "  open this URL in my browser → [\"browser\"]\n"
+    "  show me the GitHub page for this repo → [\"browser\"]\n"
 )
 
 _client: Anthropic | None = None

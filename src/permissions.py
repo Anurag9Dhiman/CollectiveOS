@@ -30,6 +30,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "imessage":        ["imessage_get_messages", "imessage_send"],
     "screen_capture":  ["capture_screen"],
     "local_files":     ["list_directory", "read_local_file", "write_local_file"],
+    "browser":         ["browser_get_active_tab", "browser_list_tabs", "browser_open_url"],
 }
 
 # Reverse index: tool name → connector
@@ -49,6 +50,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "show_notification", "open_application", "set_system_volume",
     "imessage_send",
     "write_local_file",
+    "browser_open_url",
 })
 
 CONNECTOR_LABELS: dict[str, str] = {
@@ -63,6 +65,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "imessage":        "iMessage",
     "screen_capture":  "Screen Capture",
     "local_files":     "Local Files",
+    "browser":         "Browser",
 }
 
 # ---------------------------------------------------------------------------
