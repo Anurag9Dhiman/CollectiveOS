@@ -44,6 +44,7 @@ from src.connectors.web_search import search as web_search
 from src.connectors import imessage as _imessage
 from src.connectors.screen_capture import capture_screen
 from src.connectors import local_files as _fs
+from src.connectors import browser as _browser
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -93,6 +94,9 @@ TOOL_FUNCTIONS = {
     "list_directory":        _fs.list_directory,
     "read_local_file":       _fs.read_local_file,
     "write_local_file":      _fs.write_local_file,
+    "browser_get_active_tab": _browser.get_active_tab,
+    "browser_list_tabs":      _browser.list_tabs,
+    "browser_open_url":       _browser.open_url,
 }
 
 TOOLS = [
@@ -750,6 +754,41 @@ TOOLS = [
                 },
             },
             "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "browser_get_active_tab",
+        "description": (
+            "Get the title and URL of the currently active tab in Safari or Chrome. "
+            "Use this when the user asks what page they are on, what site is open, "
+            "or wants context about their current browsing."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "browser_list_tabs",
+        "description": (
+            "List all open tabs across all windows in Safari and Google Chrome. "
+            "Returns titles and URLs grouped by browser and window."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "browser_open_url",
+        "description": (
+            "Open a URL in the default browser. "
+            "Only http:// and https:// URLs are allowed. "
+            "Always confirm the URL with the user before opening."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Full URL to open, e.g. 'https://example.com'.",
+                },
+            },
+            "required": ["url"],
         },
     },
 ]

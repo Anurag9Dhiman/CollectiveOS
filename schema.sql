@@ -109,7 +109,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('web_search'),
     ('imessage'),
     ('screen_capture'),
-    ('local_files')
+    ('local_files'),
+    ('browser')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user
