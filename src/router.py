@@ -23,7 +23,11 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "search":   ["web_search"],
     "messages": ["imessage_get_messages", "imessage_send"],
     "files":    ["list_directory", "read_local_file", "write_local_file"],
-    "browser":  ["browser_get_active_tab", "browser_list_tabs", "browser_open_url"],
+    "browser":   ["browser_get_active_tab", "browser_list_tabs", "browser_open_url"],
+    "contacts":  ["contacts_search"],
+    "reminders": ["reminders_list", "reminders_add", "reminders_complete"],
+    "notes":     ["notes_list", "notes_read", "notes_create", "notes_append"],
+    "clipboard": ["clipboard_read", "clipboard_write"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -65,6 +69,15 @@ _EXAMPLES = (
     "  what tabs do I have open → [\"browser\"]\n"
     "  open this URL in my browser → [\"browser\"]\n"
     "  show me the GitHub page for this repo → [\"browser\"]\n"
+    "  what's John's phone number → [\"contacts\"]\n"
+    "  find Alice's email → [\"contacts\"]\n"
+    "  what are my reminders → [\"reminders\"]\n"
+    "  remind me to call the dentist tomorrow → [\"reminders\"]\n"
+    "  what notes do I have → [\"notes\"]\n"
+    "  read my shopping list note → [\"notes\"]\n"
+    "  add milk to my shopping list note → [\"notes\"]\n"
+    "  what's in my clipboard → [\"clipboard\"]\n"
+    "  copy this to clipboard → [\"clipboard\"]\n"
 )
 
 _client: Anthropic | None = None
