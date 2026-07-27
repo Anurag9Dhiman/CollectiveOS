@@ -45,6 +45,7 @@ from src.connectors import imessage as _imessage
 from src.connectors.screen_capture import capture_screen
 from src.connectors import local_files as _fs
 from src.connectors import browser as _browser
+from src.connectors import apple_native as _apple
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -97,6 +98,16 @@ TOOL_FUNCTIONS = {
     "browser_get_active_tab": _browser.get_active_tab,
     "browser_list_tabs":      _browser.list_tabs,
     "browser_open_url":       _browser.open_url,
+    "contacts_search":        _apple.contacts_search,
+    "reminders_list":         _apple.reminders_list,
+    "reminders_add":          _apple.reminders_add,
+    "reminders_complete":     _apple.reminders_complete,
+    "notes_list":             _apple.notes_list,
+    "notes_read":             _apple.notes_read,
+    "notes_create":           _apple.notes_create,
+    "notes_append":           _apple.notes_append,
+    "clipboard_read":         _apple.clipboard_read,
+    "clipboard_write":        _apple.clipboard_write,
 }
 
 TOOLS = [
@@ -789,6 +800,194 @@ TOOLS = [
                 },
             },
             "required": ["url"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Apple-native: Contacts
+    # -----------------------------------------------------------------------
+    {
+        "name": "contacts_search",
+        "description": (
+            "Search Apple Contacts by name and return phone numbers and email addresses. "
+            "macOS will prompt for Contacts access on first use."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Full or partial name to search for, e.g. 'Alice' or 'Smith'.",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Apple-native: Reminders
+    # -----------------------------------------------------------------------
+    {
+        "name": "reminders_list",
+        "description": "List incomplete reminders from the Mac Reminders app. "
+                       "Optionally filter by list name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "list_name": {
+                    "type": "string",
+                    "description": "Reminders list name to filter to, e.g. 'Groceries'. "
+                                   "Leave blank to show all lists.",
+                },
+                "due_today": {
+                    "type": "boolean",
+                    "description": "If true, show only reminders due today or overdue.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "reminders_add",
+        "description": (
+            "Add a new reminder to the Mac Reminders app. "
+            "Always confirm the title and due date with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Reminder text.",
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": "Optional due date in YYYY-MM-DD format, e.g. '2026-07-28'.",
+                },
+                "list_name": {
+                    "type": "string",
+                    "description": "Reminders list to add to. Defaults to the default list.",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "reminders_complete",
+        "description": (
+            "Mark a reminder as completed. "
+            "Always confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title of the reminder to complete (partial match).",
+                },
+                "list_name": {
+                    "type": "string",
+                    "description": "Optional list name to narrow the search.",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Apple-native: Notes
+    # -----------------------------------------------------------------------
+    {
+        "name": "notes_list",
+        "description": "List note titles in the Mac Notes app. "
+                       "Optionally filter by folder name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "folder": {
+                    "type": "string",
+                    "description": "Notes folder name to filter to. Leave blank for all notes.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "notes_read",
+        "description": "Read the full text content of a note by title (partial match).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Full or partial note title.",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "notes_create",
+        "description": (
+            "Create a new note in the Mac Notes app. "
+            "Always confirm the title and content with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Note title."},
+                "body":  {"type": "string", "description": "Note body text."},
+                "folder": {
+                    "type": "string",
+                    "description": "Notes folder to create in (optional).",
+                },
+            },
+            "required": ["title", "body"],
+        },
+    },
+    {
+        "name": "notes_append",
+        "description": (
+            "Append text to an existing note matched by title. "
+            "Always confirm which note and what text with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title of the note to append to (partial match).",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Text to add at the end of the note.",
+                },
+            },
+            "required": ["title", "text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Apple-native: Clipboard
+    # -----------------------------------------------------------------------
+    {
+        "name": "clipboard_read",
+        "description": "Read the current text contents of the Mac clipboard. "
+                       "Useful when the user says 'I just copied something' or "
+                       "'use what's in my clipboard'.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "clipboard_write",
+        "description": (
+            "Copy text to the Mac clipboard, replacing its current contents. "
+            "Always confirm the text with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Text to copy to the clipboard.",
+                },
+            },
+            "required": ["text"],
         },
     },
 ]

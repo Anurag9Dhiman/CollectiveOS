@@ -31,6 +31,10 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "screen_capture":  ["capture_screen"],
     "local_files":     ["list_directory", "read_local_file", "write_local_file"],
     "browser":         ["browser_get_active_tab", "browser_list_tabs", "browser_open_url"],
+    "contacts":        ["contacts_search"],
+    "reminders":       ["reminders_list", "reminders_add", "reminders_complete"],
+    "notes":           ["notes_list", "notes_read", "notes_create", "notes_append"],
+    "clipboard":       ["clipboard_read", "clipboard_write"],
 }
 
 # Reverse index: tool name → connector
@@ -51,6 +55,9 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "imessage_send",
     "write_local_file",
     "browser_open_url",
+    "reminders_add", "reminders_complete",
+    "notes_create", "notes_append",
+    "clipboard_write",
 })
 
 CONNECTOR_LABELS: dict[str, str] = {
@@ -66,6 +73,10 @@ CONNECTOR_LABELS: dict[str, str] = {
     "screen_capture":  "Screen Capture",
     "local_files":     "Local Files",
     "browser":         "Browser",
+    "contacts":        "Contacts",
+    "reminders":       "Reminders",
+    "notes":           "Notes",
+    "clipboard":       "Clipboard",
 }
 
 # ---------------------------------------------------------------------------

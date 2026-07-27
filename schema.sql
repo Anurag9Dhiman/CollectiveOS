@@ -110,7 +110,11 @@ INSERT INTO connector_permissions (connector) VALUES
     ('imessage'),
     ('screen_capture'),
     ('local_files'),
-    ('browser')
+    ('browser'),
+    ('contacts'),
+    ('reminders'),
+    ('notes'),
+    ('clipboard')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

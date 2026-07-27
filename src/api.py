@@ -59,13 +59,15 @@ _READ_TOOLS = (
     "read_drive_file, get_tasks, get_projects, get_devices, get_device_state, "
     "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info, "
     "web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
-    "browser_get_active_tab, browser_list_tabs"
+    "browser_get_active_tab, browser_list_tabs, contacts_search, reminders_list, "
+    "notes_list, notes_read, clipboard_read"
 )
 _WRITE_TOOLS = (
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "
     "control_device, set_light, spotify_control, spotify_set_volume, spotify_search_play, "
     "show_notification, open_application, set_system_volume, imessage_send, "
-    "write_local_file, browser_open_url"
+    "write_local_file, browser_open_url, reminders_add, reminders_complete, "
+    "notes_create, notes_append, clipboard_write"
 )
 
 
