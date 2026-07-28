@@ -38,6 +38,7 @@ import json
 import os
 import sys
 import threading
+from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -49,9 +50,18 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from src.assistant_starter import run, run_stream
-from src import conversations, memory, permissions
+from src import conversations, memory, permissions, routines as _routines
+from src import scheduler as _scheduler
 
 _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    _scheduler.load_all()
+    _scheduler.start()
+    yield
+    _scheduler.shutdown()
 
 
 _READ_TOOLS = (
@@ -92,7 +102,7 @@ def _system_prompt(past: str = "") -> str:
 _HERE   = os.path.dirname(os.path.abspath(__file__))
 _STATIC = os.path.join(_HERE, "..", "static")
 
-app = FastAPI(title="Personal Assistant API", version="0.1.0")
+app = FastAPI(title="Personal Assistant API", version="0.1.0", lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 bearer = HTTPBearer(auto_error=False)
 
@@ -123,6 +133,19 @@ class ChatResponse(BaseModel):
 
 class PermissionUpdate(BaseModel):
     enabled: bool
+
+class RoutineCreate(BaseModel):
+    name: str
+    prompt: str
+    schedule: str          # cron expression, e.g. "0 8 * * *"
+    notify_via: str = "notification"
+
+class RoutineUpdate(BaseModel):
+    name: Optional[str]    = None
+    prompt: Optional[str]  = None
+    schedule: Optional[str]= None
+    enabled: Optional[bool]= None
+    notify_via: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +224,69 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     memory.save(user_message, reply)
 
     return ChatResponse(reply=reply, conversation_id=conv_id)
+
+
+@app.get("/routines")
+def get_routines(_token: str = Depends(_verify_token)):
+    """List all scheduled routines."""
+    return {"routines": _routines.list_all()}
+
+
+@app.post("/routines", status_code=201)
+def create_routine(body: RoutineCreate, _token: str = Depends(_verify_token)):
+    """Create a new scheduled routine."""
+    from apscheduler.triggers.cron import CronTrigger
+    try:
+        CronTrigger.from_crontab(body.schedule)
+    except Exception:
+        raise HTTPException(status_code=400,
+                            detail=f"Invalid cron expression: {body.schedule!r}")
+    row = _routines.create(body.name, body.prompt, body.schedule, body.notify_via)
+    _scheduler.reload_routine(row["id"])
+    return row
+
+
+@app.patch("/routines/{routine_id}")
+def update_routine(routine_id: int, body: RoutineUpdate,
+                   _token: str = Depends(_verify_token)):
+    """Update fields on an existing routine."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "schedule" in updates:
+        from apscheduler.triggers.cron import CronTrigger
+        try:
+            CronTrigger.from_crontab(updates["schedule"])
+        except Exception:
+            raise HTTPException(status_code=400,
+                                detail=f"Invalid cron: {updates['schedule']!r}")
+    row = _routines.update(routine_id, **updates)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Routine not found.")
+    _scheduler.reload_routine(routine_id)
+    return row
+
+
+@app.delete("/routines/{routine_id}", status_code=204)
+def delete_routine(routine_id: int, _token: str = Depends(_verify_token)):
+    """Delete a routine and remove it from the live scheduler."""
+    if not _routines.delete(routine_id):
+        raise HTTPException(status_code=404, detail="Routine not found.")
+    _scheduler.remove_job(routine_id)
+
+
+@app.post("/routines/{routine_id}/run")
+def run_routine_now(routine_id: int, _token: str = Depends(_verify_token)):
+    """Trigger a routine immediately (runs in background thread)."""
+    r = _routines.get(routine_id)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Routine not found.")
+    import threading
+    threading.Thread(
+        target=_scheduler._run_routine,
+        kwargs={"routine_id": r["id"], "name": r["name"],
+                "prompt": r["prompt"], "notify_via": r["notify_via"]},
+        daemon=True,
+    ).start()
+    return {"message": f"Routine '{r['name']}' triggered."}
 
 
 @app.get("/permissions")
