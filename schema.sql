@@ -89,6 +89,20 @@ CREATE INDEX IF NOT EXISTS memory_chunks_embedding_idx
     ON memory_chunks USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
 
+-- Scheduled routines — prompts that run automatically on a cron schedule
+CREATE TABLE IF NOT EXISTS routines (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    prompt      TEXT NOT NULL,
+    schedule    TEXT NOT NULL,   -- cron expression, e.g. '0 8 * * *' = 8am daily
+    enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_via  TEXT NOT NULL DEFAULT 'notification'  -- 'notification' | 'none'
+                CHECK (notify_via IN ('notification', 'none')),
+    last_run_at TIMESTAMPTZ,
+    last_result TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Per-connector permission toggles
 -- Seeded with all connectors enabled by default.
 -- permissions.py creates this table at runtime too (for existing deployments).

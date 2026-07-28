@@ -393,6 +393,105 @@
       padding: 10px 0 4px;
       line-height: 1.5;
     }
+
+    /* Routines panel — same slide-in pattern as settings */
+    #routines-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+    }
+    #routines-overlay.open { display: block; }
+
+    #routines-panel {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: 400px;
+      background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #routines-panel > header {
+      padding: 16px 18px;
+      border-bottom: 1px solid #21262d;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #routines-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #routines-close {
+      background: none; border: none; color: #8b949e;
+      font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    #routines-close:hover { color: #e1e4e8; background: #21262d; }
+
+    #routines-body {
+      flex: 1; overflow-y: auto; padding: 14px 18px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+
+    .routine-row {
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .routine-header { display: flex; align-items: center; gap: 8px; }
+    .routine-name   { font-size: 0.87rem; font-weight: 500; flex: 1; }
+    .routine-schedule {
+      font-size: 0.7rem;
+      color: #58a6ff;
+      font-family: "SF Mono", Consolas, monospace;
+    }
+    .routine-prompt {
+      font-size: 0.75rem; color: #8b949e;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .routine-last {
+      font-size: 0.7rem; color: #484f58;
+    }
+    .routine-actions { display: flex; gap: 6px; margin-top: 4px; }
+    .routine-btn {
+      background: none; border: 1px solid #30363d; border-radius: 5px;
+      color: #8b949e; font-size: 0.72rem; padding: 3px 8px; cursor: pointer;
+    }
+    .routine-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    .routine-btn.danger:hover { border-color: #f85149; color: #f85149; }
+    .routine-btn.run-now:hover { border-color: #3fb950; color: #3fb950; }
+
+    /* Add-routine form */
+    #add-routine-form {
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #add-routine-form .form-row { display: flex; flex-direction: column; gap: 3px; }
+    #add-routine-form label { font-size: 0.72rem; color: #8b949e; }
+    #add-routine-form input,
+    #add-routine-form textarea,
+    #add-routine-form select {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.82rem; padding: 6px 10px; outline: none;
+    }
+    #add-routine-form input:focus,
+    #add-routine-form textarea:focus { border-color: #1f6feb; }
+    #add-routine-form textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+    #add-routine-form .cron-hint { font-size: 0.67rem; color: #484f58; }
+    #save-routine-btn {
+      background: #1f6feb; color: #fff; border: none; border-radius: 6px;
+      padding: 7px 14px; font-size: 0.82rem; cursor: pointer; align-self: flex-end;
+    }
+    #save-routine-btn:hover { background: #388bfd; }
   </style>
 </head>
 <body>
@@ -402,7 +501,8 @@
   <h1>CollectiveOS</h1>
   <button id="tts-btn" class="header-btn" title="Toggle read-aloud">🔊 Read aloud</button>
   <button id="new-chat-btn" class="header-btn" title="Start a new conversation">+ New chat</button>
-  <button id="settings-btn" class="header-btn" title="Connector permissions">⚙ Settings</button>
+  <button id="settings-btn"  class="header-btn" title="Connector permissions">⚙ Settings</button>
+  <button id="routines-btn" class="header-btn" title="Scheduled routines">⏱ Routines</button>
 </header>
 
 <div id="chat"></div>
@@ -418,6 +518,45 @@
   <button type="button" id="mic-btn" title="Speak your message">🎤</button>
   <button type="submit">Send</button>
 </form>
+
+<!-- Routines panel -->
+<div id="routines-overlay">
+  <div id="routines-panel">
+    <header>
+      <h2>⏱ Scheduled Routines</h2>
+      <button id="routines-close">✕</button>
+    </header>
+    <div id="routines-body">
+      <div id="routines-list">Loading…</div>
+
+      <div id="add-routine-form">
+        <div class="form-row">
+          <label>Name</label>
+          <input id="r-name" type="text" placeholder="Morning briefing" />
+        </div>
+        <div class="form-row">
+          <label>Prompt — what the assistant will do</label>
+          <textarea id="r-prompt" placeholder="Give me a morning briefing: check my calendar for today, any unread emails, and my open tasks."></textarea>
+        </div>
+        <div class="form-row">
+          <label>Schedule (cron)</label>
+          <input id="r-schedule" type="text" placeholder="0 8 * * *" />
+          <span class="cron-hint">
+            Examples: <code>0 8 * * *</code> = 8am daily · <code>0 9 * * 1</code> = Monday 9am · <code>*/30 * * * *</code> = every 30 min
+          </span>
+        </div>
+        <div class="form-row">
+          <label>Deliver result via</label>
+          <select id="r-notify">
+            <option value="notification">Mac notification</option>
+            <option value="none">Silent (store only)</option>
+          </select>
+        </div>
+        <button id="save-routine-btn">+ Add routine</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Settings panel -->
 <div id="settings-overlay">
@@ -846,6 +985,123 @@
   settingsOvl.addEventListener("click", e => {
     if (e.target === settingsOvl) settingsOvl.classList.remove("open");
   });
+
+  // ---------------------------------------------------------------------------
+  // Routines panel
+  // ---------------------------------------------------------------------------
+  const routinesBtn   = document.getElementById("routines-btn");
+  const routinesOvl   = document.getElementById("routines-overlay");
+  const routinesClose = document.getElementById("routines-close");
+  const routinesList  = document.getElementById("routines-list");
+  const saveRoutineBtn = document.getElementById("save-routine-btn");
+
+  async function loadRoutines() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) { routinesList.innerHTML = "<p style='color:#f85149;font-size:0.8rem'>Enter your API token first.</p>"; return; }
+    try {
+      const resp = await fetch("/routines", { headers: { "Authorization": `Bearer ${token}` } });
+      if (!resp.ok) throw new Error(resp.statusText);
+      const { routines } = await resp.json();
+      renderRoutines(routines);
+    } catch (e) {
+      routinesList.innerHTML = "<p style='color:#f85149;font-size:0.8rem'>Failed to load routines.</p>";
+    }
+  }
+
+  function renderRoutines(list) {
+    if (!list.length) {
+      routinesList.innerHTML = "<p style='color:#484f58;font-size:0.8rem'>No routines yet. Add one below.</p>";
+      return;
+    }
+    routinesList.innerHTML = "";
+    for (const r of list) {
+      const row = document.createElement("div");
+      row.className = "routine-row";
+      const lastRun = r.last_run_at
+        ? new Date(r.last_run_at).toLocaleString()
+        : "Never run";
+      row.innerHTML = `
+        <div class="routine-header">
+          <span class="routine-name">${r.name}</span>
+          <span class="routine-schedule">${r.schedule}</span>
+          <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
+            <input type="checkbox" data-id="${r.id}" ${r.enabled ? "checked" : ""}>
+            <div class="toggle-track"></div>
+            <div class="toggle-thumb"></div>
+          </label>
+        </div>
+        <div class="routine-prompt">${r.prompt}</div>
+        <div class="routine-last">Last run: ${lastRun}</div>
+        <div class="routine-actions">
+          <button class="routine-btn run-now" data-id="${r.id}">▶ Run now</button>
+          <button class="routine-btn danger delete-btn" data-id="${r.id}">✕ Delete</button>
+        </div>
+      `;
+      routinesList.appendChild(row);
+
+      // Toggle enabled
+      row.querySelector("input[type=checkbox]").addEventListener("change", async (e) => {
+        const token = localStorage.getItem(STORAGE_TOKEN) || "";
+        await fetch(`/routines/${r.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ enabled: e.target.checked }),
+        });
+      });
+
+      // Run now
+      row.querySelector(".run-now").addEventListener("click", async () => {
+        const token = localStorage.getItem(STORAGE_TOKEN) || "";
+        const res = await fetch(`/routines/${r.id}/run`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+        if (res.ok) showError("Routine triggered — result will arrive as a notification.");
+      });
+
+      // Delete
+      row.querySelector(".delete-btn").addEventListener("click", async () => {
+        if (!confirm(`Delete routine "${r.name}"?`)) return;
+        const token = localStorage.getItem(STORAGE_TOKEN) || "";
+        await fetch(`/routines/${r.id}`, {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+        loadRoutines();
+      });
+    }
+  }
+
+  saveRoutineBtn.addEventListener("click", async () => {
+    const token    = localStorage.getItem(STORAGE_TOKEN) || "";
+    const name     = document.getElementById("r-name").value.trim();
+    const prompt   = document.getElementById("r-prompt").value.trim();
+    const schedule = document.getElementById("r-schedule").value.trim();
+    const notify   = document.getElementById("r-notify").value;
+    if (!name || !prompt || !schedule) { showError("Fill in name, prompt, and schedule."); return; }
+    try {
+      const resp = await fetch("/routines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ name, prompt, schedule, notify_via: notify }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        showError(err.detail || "Failed to save routine.");
+        return;
+      }
+      document.getElementById("r-name").value = "";
+      document.getElementById("r-prompt").value = "";
+      document.getElementById("r-schedule").value = "";
+      loadRoutines();
+    } catch (e) {
+      showError("Network error saving routine.");
+    }
+  });
+
+  routinesBtn.addEventListener("click", () => { routinesOvl.classList.add("open"); loadRoutines(); });
+  routinesClose.addEventListener("click", () => routinesOvl.classList.remove("open"));
+  routinesOvl.addEventListener("click", e => { if (e.target === routinesOvl) routinesOvl.classList.remove("open"); });
 </script>
 
 </body>
