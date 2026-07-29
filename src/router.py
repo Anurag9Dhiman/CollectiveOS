@@ -28,6 +28,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "reminders": ["reminders_list", "reminders_add", "reminders_complete"],
     "notes":     ["notes_list", "notes_read", "notes_create", "notes_append"],
     "clipboard": ["clipboard_read", "clipboard_write"],
+    "telegram":  ["telegram_get_messages", "telegram_send"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -78,6 +79,9 @@ _EXAMPLES = (
     "  add milk to my shopping list note → [\"notes\"]\n"
     "  what's in my clipboard → [\"clipboard\"]\n"
     "  copy this to clipboard → [\"clipboard\"]\n"
+    "  any new Telegram messages → [\"telegram\"]\n"
+    "  send a Telegram to John → [\"telegram\"]\n"
+    "  message my Telegram bot → [\"telegram\"]\n"
 )
 
 _client: Anthropic | None = None

@@ -46,6 +46,7 @@ from src.connectors.screen_capture import capture_screen
 from src.connectors import local_files as _fs
 from src.connectors import browser as _browser
 from src.connectors import apple_native as _apple
+from src.connectors import telegram_bot as _telegram
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -108,6 +109,8 @@ TOOL_FUNCTIONS = {
     "notes_append":           _apple.notes_append,
     "clipboard_read":         _apple.clipboard_read,
     "clipboard_write":        _apple.clipboard_write,
+    "telegram_get_messages":  _telegram.get_messages,
+    "telegram_send":          _telegram.send_message,
 }
 
 TOOLS = [
@@ -985,6 +988,54 @@ TOOLS = [
                 "text": {
                     "type": "string",
                     "description": "Text to copy to the clipboard.",
+                },
+            },
+            "required": ["text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Telegram
+    # -----------------------------------------------------------------------
+    {
+        "name": "telegram_get_messages",
+        "description": (
+            "Read recent messages sent to your Telegram bot. "
+            "Returns sender name, chat_id, and message text for each update. "
+            "Requires TELEGRAM_BOT_TOKEN in the environment."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of messages to return (default 10).",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "telegram_send",
+        "description": (
+            "Send a Telegram message to a specific chat. "
+            "Always confirm the recipient chat_id and full message text "
+            "with the user before calling. "
+            "If TELEGRAM_CHAT_ID is set in .env, leave chat_id blank to "
+            "message the user directly."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "description": (
+                        "Telegram chat id to send to — visible in telegram_get_messages output. "
+                        "Leave blank to use the TELEGRAM_CHAT_ID env default."
+                    ),
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Message text to send (max 4096 chars).",
                 },
             },
             "required": ["text"],
