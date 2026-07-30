@@ -28,6 +28,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "reminders": ["reminders_list", "reminders_add", "reminders_complete"],
     "notes":     ["notes_list", "notes_read", "notes_create", "notes_append"],
     "clipboard": ["clipboard_read", "clipboard_write"],
+    "notion":    ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -78,6 +79,10 @@ _EXAMPLES = (
     "  add milk to my shopping list note → [\"notes\"]\n"
     "  what's in my clipboard → [\"clipboard\"]\n"
     "  copy this to clipboard → [\"clipboard\"]\n"
+    "  search my Notion for meeting notes → [\"notion\"]\n"
+    "  what does my project plan page say → [\"notion\"]\n"
+    "  create a new Notion page for my ideas → [\"notion\"]\n"
+    "  add this to my daily notes in Notion → [\"notion\"]\n"
 )
 
 _client: Anthropic | None = None
