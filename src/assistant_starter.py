@@ -46,6 +46,7 @@ from src.connectors.screen_capture import capture_screen
 from src.connectors import local_files as _fs
 from src.connectors import browser as _browser
 from src.connectors import apple_native as _apple
+from src.connectors import notion as _notion
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -108,6 +109,10 @@ TOOL_FUNCTIONS = {
     "notes_append":           _apple.notes_append,
     "clipboard_read":         _apple.clipboard_read,
     "clipboard_write":        _apple.clipboard_write,
+    "notion_search":          _notion.notion_search,
+    "notion_read_page":       _notion.notion_read_page,
+    "notion_create_page":     _notion.notion_create_page,
+    "notion_append_to_page":  _notion.notion_append_to_page,
 }
 
 TOOLS = [
@@ -988,6 +993,92 @@ TOOLS = [
                 },
             },
             "required": ["text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Notion
+    # -----------------------------------------------------------------------
+    {
+        "name": "notion_search",
+        "description": (
+            "Search Notion for pages and databases by keyword. "
+            "Returns titles, IDs, and URLs for matching results. "
+            "Use this to find a page ID before reading or appending to it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term, e.g. 'daily notes', 'project plan', 'reading list'.",
+                },
+                "filter_type": {
+                    "type": "string",
+                    "enum": ["page", "database", ""],
+                    "description": "Limit results to 'page', 'database', or '' for both. Defaults to ''.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "notion_read_page",
+        "description": "Read the full text content of a Notion page by its ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "Notion page ID (from notion_search). Dashes are optional.",
+                },
+            },
+            "required": ["page_id"],
+        },
+    },
+    {
+        "name": "notion_create_page",
+        "description": (
+            "Create a new Notion page under a parent page or database. "
+            "Always confirm the title, parent, and content with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "parent_id": {
+                    "type": "string",
+                    "description": "ID of the parent page or database (from notion_search).",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Title of the new page.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Optional initial text content. Paragraphs separated by blank lines.",
+                },
+            },
+            "required": ["parent_id", "title"],
+        },
+    },
+    {
+        "name": "notion_append_to_page",
+        "description": (
+            "Append text to the end of an existing Notion page. "
+            "Always confirm which page and what content with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "Notion page ID to append to (from notion_search).",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text to append. Paragraphs separated by blank lines.",
+                },
+            },
+            "required": ["page_id", "content"],
         },
     },
 ]

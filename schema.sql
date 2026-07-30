@@ -128,7 +128,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('contacts'),
     ('reminders'),
     ('notes'),
-    ('clipboard')
+    ('clipboard'),
+    ('notion')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user
