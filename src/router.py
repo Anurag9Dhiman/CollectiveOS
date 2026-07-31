@@ -29,6 +29,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "notes":     ["notes_list", "notes_read", "notes_create", "notes_append"],
     "clipboard": ["clipboard_read", "clipboard_write"],
     "notion":    ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
+    "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -83,6 +84,11 @@ _EXAMPLES = (
     "  what does my project plan page say → [\"notion\"]\n"
     "  create a new Notion page for my ideas → [\"notion\"]\n"
     "  add this to my daily notes in Notion → [\"notion\"]\n"
+    "  show my GitHub repos → [\"github\"]\n"
+    "  any open PRs on CollectiveOS → [\"github\"]\n"
+    "  what issues are open in my repo → [\"github\"]\n"
+    "  did CI pass on main → [\"github\"]\n"
+    "  create a GitHub issue for this bug → [\"github\"]\n"
 )
 
 _client: Anthropic | None = None

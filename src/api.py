@@ -70,14 +70,16 @@ _READ_TOOLS = (
     "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info, "
     "web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
     "browser_get_active_tab, browser_list_tabs, contacts_search, reminders_list, "
-    "notes_list, notes_read, clipboard_read, notion_search, notion_read_page"
+    "notes_list, notes_read, clipboard_read, notion_search, notion_read_page, "
+    "github_list_repos, github_list_prs, github_list_issues, github_get_ci_status"
 )
 _WRITE_TOOLS = (
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "
     "control_device, set_light, spotify_control, spotify_set_volume, spotify_search_play, "
     "show_notification, open_application, set_system_volume, imessage_send, "
     "write_local_file, browser_open_url, reminders_add, reminders_complete, "
-    "notes_create, notes_append, clipboard_write, notion_create_page, notion_append_to_page"
+    "notes_create, notes_append, clipboard_write, notion_create_page, notion_append_to_page, "
+    "github_create_issue"
 )
 
 
