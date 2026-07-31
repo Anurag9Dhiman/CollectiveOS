@@ -47,6 +47,7 @@ from src.connectors import local_files as _fs
 from src.connectors import browser as _browser
 from src.connectors import apple_native as _apple
 from src.connectors import notion as _notion
+from src.connectors import github as _github
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -113,6 +114,11 @@ TOOL_FUNCTIONS = {
     "notion_read_page":       _notion.notion_read_page,
     "notion_create_page":     _notion.notion_create_page,
     "notion_append_to_page":  _notion.notion_append_to_page,
+    "github_list_repos":      _github.github_list_repos,
+    "github_list_prs":        _github.github_list_prs,
+    "github_list_issues":     _github.github_list_issues,
+    "github_get_ci_status":   _github.github_get_ci_status,
+    "github_create_issue":    _github.github_create_issue,
 }
 
 TOOLS = [
@@ -993,6 +999,118 @@ TOOLS = [
                 },
             },
             "required": ["text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # GitHub
+    # -----------------------------------------------------------------------
+    {
+        "name": "github_list_repos",
+        "description": (
+            "List the authenticated GitHub user's repositories, most recently updated first. "
+            "Includes repo name, language, visibility, and description."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max repos to return. Defaults to 20.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "github_list_prs",
+        "description": "List pull requests for a GitHub repository (owner/repo format).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format, e.g. 'Anurag9Dhiman/CollectiveOS'.",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["open", "closed", "all"],
+                    "description": "Filter by PR state. Defaults to 'open'.",
+                },
+            },
+            "required": ["repo"],
+        },
+    },
+    {
+        "name": "github_list_issues",
+        "description": "List issues for a GitHub repository. Excludes pull requests.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format.",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["open", "closed", "all"],
+                    "description": "Filter by issue state. Defaults to 'open'.",
+                },
+                "labels": {
+                    "type": "string",
+                    "description": "Comma-separated label names to filter by, e.g. 'bug,help wanted'.",
+                },
+            },
+            "required": ["repo"],
+        },
+    },
+    {
+        "name": "github_get_ci_status",
+        "description": (
+            "Get CI check-run results for a branch, tag, or commit SHA in a repository. "
+            "Shows pass/fail status for each check (Actions workflows, status checks, etc.)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format.",
+                },
+                "ref": {
+                    "type": "string",
+                    "description": "Branch name (e.g. 'main'), tag, or full commit SHA.",
+                },
+            },
+            "required": ["repo", "ref"],
+        },
+    },
+    {
+        "name": "github_create_issue",
+        "description": (
+            "Create a new GitHub issue in a repository. "
+            "Always confirm the repo, title, body, and labels with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Issue title.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Issue body / description in Markdown. Optional.",
+                },
+                "labels": {
+                    "type": "string",
+                    "description": "Comma-separated label names to apply, e.g. 'bug,enhancement'. Optional.",
+                },
+            },
+            "required": ["repo", "title"],
         },
     },
     # -----------------------------------------------------------------------

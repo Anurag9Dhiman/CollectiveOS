@@ -129,7 +129,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('reminders'),
     ('notes'),
     ('clipboard'),
-    ('notion')
+    ('notion'),
+    ('github')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user
