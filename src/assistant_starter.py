@@ -48,6 +48,7 @@ from src.connectors import browser as _browser
 from src.connectors import apple_native as _apple
 from src.connectors import notion as _notion
 from src.connectors import github as _github
+from src.connectors import slack_bot as _slack
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -119,6 +120,9 @@ TOOL_FUNCTIONS = {
     "github_list_issues":     _github.github_list_issues,
     "github_get_ci_status":   _github.github_get_ci_status,
     "github_create_issue":    _github.github_create_issue,
+    "slack_list_channels":    _slack.slack_list_channels,
+    "slack_read_messages":    _slack.slack_read_messages,
+    "slack_send_message":     _slack.slack_send_message,
 }
 
 TOOLS = [
@@ -999,6 +1003,70 @@ TOOLS = [
                 },
             },
             "required": ["text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Slack
+    # -----------------------------------------------------------------------
+    {
+        "name": "slack_list_channels",
+        "description": (
+            "List Slack channels the bot has access to, with member count and topic. "
+            "Use this to discover channel names and IDs before reading messages."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max channels to return. Defaults to 30.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "slack_read_messages",
+        "description": (
+            "Read recent messages from a Slack channel. "
+            "Pass a channel name (e.g. 'general') or channel ID (e.g. 'C12345'). "
+            "Messages are shown oldest-first with timestamps and sender names."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel name (with or without #) or Slack channel ID.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent messages to fetch. Defaults to 20.",
+                },
+            },
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "slack_send_message",
+        "description": (
+            "Send a message to a Slack channel or DM. "
+            "Pass a channel name, channel ID, or a Slack user ID (U...) to send a direct message. "
+            "Always confirm the channel and full message text with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel name, channel ID (C...), or user ID (U...) for a DM.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Message text to send. Supports Slack mrkdwn formatting.",
+                },
+            },
+            "required": ["channel", "text"],
         },
     },
     # -----------------------------------------------------------------------

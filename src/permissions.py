@@ -37,6 +37,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "clipboard":       ["clipboard_read", "clipboard_write"],
     "notion":          ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
     "github":          ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
+    "slack":           ["slack_list_channels", "slack_read_messages", "slack_send_message"],
 }
 
 # Reverse index: tool name → connector
@@ -62,6 +63,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "clipboard_write",
     "notion_create_page", "notion_append_to_page",
     "github_create_issue",
+    "slack_send_message",
 })
 
 CONNECTOR_LABELS: dict[str, str] = {
@@ -83,6 +85,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "clipboard":       "Clipboard",
     "notion":          "Notion",
     "github":          "GitHub",
+    "slack":           "Slack",
 }
 
 # ---------------------------------------------------------------------------
