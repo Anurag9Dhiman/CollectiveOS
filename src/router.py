@@ -30,6 +30,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "clipboard": ["clipboard_read", "clipboard_write"],
     "notion":    ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
     "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
+    "slack":     ["slack_list_channels", "slack_read_messages", "slack_send_message"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -89,6 +90,11 @@ _EXAMPLES = (
     "  what issues are open in my repo → [\"github\"]\n"
     "  did CI pass on main → [\"github\"]\n"
     "  create a GitHub issue for this bug → [\"github\"]\n"
+    "  what channels do I have in Slack → [\"slack\"]\n"
+    "  show recent messages in #general → [\"slack\"]\n"
+    "  what did the team say in Slack today → [\"slack\"]\n"
+    "  send a Slack message to the engineering channel → [\"slack\"]\n"
+    "  DM John on Slack → [\"slack\"]\n"
 )
 
 _client: Anthropic | None = None
