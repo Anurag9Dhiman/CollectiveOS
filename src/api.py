@@ -72,7 +72,8 @@ _READ_TOOLS = (
     "browser_get_active_tab, browser_list_tabs, contacts_search, reminders_list, "
     "notes_list, notes_read, clipboard_read, notion_search, notion_read_page, "
     "github_list_repos, github_list_prs, github_list_issues, github_get_ci_status, "
-    "slack_list_channels, slack_read_messages"
+    "slack_list_channels, slack_read_messages, "
+    "health_get_sleep, health_get_activity, health_get_readiness"
 )
 _WRITE_TOOLS = (
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "
@@ -149,6 +150,11 @@ class RoutineUpdate(BaseModel):
     schedule: Optional[str]= None
     enabled: Optional[bool]= None
     notify_via: Optional[str] = None
+
+class HealthIngest(BaseModel):
+    date: str                    # YYYY-MM-DD
+    source: str = "apple_health"
+    metrics: dict                # steps, sleep_hours, hrv, resting_heart_rate, etc.
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +319,41 @@ def update_permission(
     state = "enabled" if body.enabled else "disabled"
     return {"connector": connector, "label": label, "enabled": body.enabled,
             "message": f"{label} {state}."}
+
+
+@app.post("/health-ingest", status_code=201)
+def health_ingest(body: HealthIngest, _token: str = Depends(_verify_token)):
+    """
+    Receive health metrics from an iOS Shortcut or any external source.
+
+    iOS Shortcut setup:
+      1. "Get Health Samples" actions for steps, sleep, HRV, heart rate, etc.
+      2. "Get Contents of URL" — POST to http://<mac-ip>:8000/health-ingest
+         Headers: Authorization: Bearer <API_TOKEN>, Content-Type: application/json
+         Body: {"date": "<today>", "source": "apple_health",
+                "metrics": {"steps": ..., "sleep_hours": ..., "hrv": ...,
+                            "resting_heart_rate": ..., "active_calories": ...}}
+    """
+    import json as _json
+    try:
+        from src.db import connect
+        conn = connect()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO health_snapshots (date, source, metrics)
+                    VALUES (%s, %s, %s::jsonb)
+                    ON CONFLICT (date, source) DO UPDATE
+                        SET metrics    = health_snapshots.metrics || EXCLUDED.metrics,
+                            created_at = NOW()
+                    """,
+                    (body.date, body.source, _json.dumps(body.metrics)),
+                )
+        conn.close()
+        return {"message": f"Health data saved for {body.date} ({body.source})."}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/chat/stream")
