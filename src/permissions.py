@@ -38,6 +38,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "notion":          ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
     "github":          ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":           ["slack_list_channels", "slack_read_messages", "slack_send_message"],
+    "health":          ["health_get_sleep", "health_get_activity", "health_get_readiness"],
 }
 
 # Reverse index: tool name → connector
@@ -86,6 +87,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "notion":          "Notion",
     "github":          "GitHub",
     "slack":           "Slack",
+    "health":          "Health",
 }
 
 # ---------------------------------------------------------------------------

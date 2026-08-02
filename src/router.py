@@ -31,6 +31,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "notion":    ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
     "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":     ["slack_list_channels", "slack_read_messages", "slack_send_message"],
+    "health":    ["health_get_sleep", "health_get_activity", "health_get_readiness"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -95,6 +96,11 @@ _EXAMPLES = (
     "  what did the team say in Slack today → [\"slack\"]\n"
     "  send a Slack message to the engineering channel → [\"slack\"]\n"
     "  DM John on Slack → [\"slack\"]\n"
+    "  how did I sleep last night → [\"health\"]\n"
+    "  what's my HRV this week → [\"health\"]\n"
+    "  show my step count for the last 7 days → [\"health\"]\n"
+    "  what's my readiness score today → [\"health\"]\n"
+    "  how is my recovery looking → [\"health\"]\n"
 )
 
 _client: Anthropic | None = None

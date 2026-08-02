@@ -103,6 +103,16 @@ CREATE TABLE IF NOT EXISTS routines (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Health snapshots — metrics pushed from iOS Shortcuts or cached from Oura
+CREATE TABLE IF NOT EXISTS health_snapshots (
+    id         SERIAL PRIMARY KEY,
+    date       DATE NOT NULL,
+    source     TEXT NOT NULL DEFAULT 'apple_health',
+    metrics    JSONB NOT NULL DEFAULT '{}',   -- steps, sleep_hours, hrv, resting_heart_rate, etc.
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (date, source)
+);
+
 -- Per-connector permission toggles
 -- Seeded with all connectors enabled by default.
 -- permissions.py creates this table at runtime too (for existing deployments).
@@ -131,7 +141,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('clipboard'),
     ('notion'),
     ('github'),
-    ('slack')
+    ('slack'),
+    ('health')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

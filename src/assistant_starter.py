@@ -49,6 +49,7 @@ from src.connectors import apple_native as _apple
 from src.connectors import notion as _notion
 from src.connectors import github as _github
 from src.connectors import slack_bot as _slack
+from src.connectors import health as _health
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -123,6 +124,9 @@ TOOL_FUNCTIONS = {
     "slack_list_channels":    _slack.slack_list_channels,
     "slack_read_messages":    _slack.slack_read_messages,
     "slack_send_message":     _slack.slack_send_message,
+    "health_get_sleep":       _health.health_get_sleep,
+    "health_get_activity":    _health.health_get_activity,
+    "health_get_readiness":   _health.health_get_readiness,
 }
 
 TOOLS = [
@@ -1003,6 +1007,63 @@ TOOLS = [
                 },
             },
             "required": ["text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Health
+    # -----------------------------------------------------------------------
+    {
+        "name": "health_get_sleep",
+        "description": (
+            "Get sleep data for the last N days — total duration, deep sleep, REM, "
+            "HRV, resting heart rate, and efficiency score. "
+            "Uses Oura Ring if OURA_TOKEN is set, otherwise the Apple Health cache."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to return. Defaults to 7.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "health_get_activity",
+        "description": (
+            "Get activity data for the last N days — steps, active calories, "
+            "total calories, and activity score. "
+            "Uses Oura Ring if OURA_TOKEN is set, otherwise the Apple Health cache."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to return. Defaults to 7.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "health_get_readiness",
+        "description": (
+            "Get readiness score and HRV balance for the last N days — overall readiness, "
+            "HRV balance, resting heart rate score, sleep balance, and activity balance. "
+            "Uses Oura Ring if OURA_TOKEN is set, otherwise the Apple Health cache."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to return. Defaults to 7.",
+                },
+            },
+            "required": [],
         },
     },
     # -----------------------------------------------------------------------
