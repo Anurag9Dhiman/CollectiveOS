@@ -142,7 +142,8 @@ INSERT INTO connector_permissions (connector) VALUES
     ('notion'),
     ('github'),
     ('slack'),
-    ('health')
+    ('health'),
+    ('finance')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

@@ -50,6 +50,7 @@ from src.connectors import notion as _notion
 from src.connectors import github as _github
 from src.connectors import slack_bot as _slack
 from src.connectors import health as _health
+from src.connectors import finance as _finance
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -124,9 +125,12 @@ TOOL_FUNCTIONS = {
     "slack_list_channels":    _slack.slack_list_channels,
     "slack_read_messages":    _slack.slack_read_messages,
     "slack_send_message":     _slack.slack_send_message,
-    "health_get_sleep":       _health.health_get_sleep,
-    "health_get_activity":    _health.health_get_activity,
-    "health_get_readiness":   _health.health_get_readiness,
+    "health_get_sleep":             _health.health_get_sleep,
+    "health_get_activity":          _health.health_get_activity,
+    "health_get_readiness":         _health.health_get_readiness,
+    "finance_get_accounts":         _finance.finance_get_accounts,
+    "finance_get_transactions":     _finance.finance_get_transactions,
+    "finance_get_spending_summary": _finance.finance_get_spending_summary,
 }
 
 TOOLS = [
@@ -1007,6 +1011,57 @@ TOOLS = [
                 },
             },
             "required": ["text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Finance (read-only)
+    # -----------------------------------------------------------------------
+    {
+        "name": "finance_get_accounts",
+        "description": (
+            "List connected bank and credit card accounts with real-time balances "
+            "(current and available). Requires Plaid setup."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "finance_get_transactions",
+        "description": (
+            "Fetch recent transactions from all connected accounts, sorted newest first. "
+            "Shows date, amount, merchant name, and spending category. "
+            "Optionally filter to a single account by its Plaid account ID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to fetch. Defaults to 30.",
+                },
+                "account_id": {
+                    "type": "string",
+                    "description": "Optional Plaid account ID to filter to one account.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "finance_get_spending_summary",
+        "description": (
+            "Summarize spending by top-level Plaid category (Food and Drink, "
+            "Travel, Shopping, etc.) over the last N days. "
+            "Shows totals and percentage of overall spend per category."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days to summarize. Defaults to 30.",
+                },
+            },
+            "required": [],
         },
     },
     # -----------------------------------------------------------------------
