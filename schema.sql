@@ -119,8 +119,12 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
 CREATE TABLE IF NOT EXISTS connector_permissions (
     connector  TEXT PRIMARY KEY,
     enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    config     JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE connector_permissions
+    ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}';
 
 INSERT INTO connector_permissions (connector) VALUES
     ('google_calendar'),
@@ -142,7 +146,9 @@ INSERT INTO connector_permissions (connector) VALUES
     ('notion'),
     ('github'),
     ('slack'),
-    ('health')
+    ('health'),
+    ('car'),
+    ('appliances')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

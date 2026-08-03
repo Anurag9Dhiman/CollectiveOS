@@ -50,6 +50,8 @@ from src.connectors import notion as _notion
 from src.connectors import github as _github
 from src.connectors import slack_bot as _slack
 from src.connectors import health as _health
+from src.connectors import car as _car
+from src.connectors import appliances as _appliances
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -127,6 +129,12 @@ TOOL_FUNCTIONS = {
     "health_get_sleep":       _health.health_get_sleep,
     "health_get_activity":    _health.health_get_activity,
     "health_get_readiness":   _health.health_get_readiness,
+    "car_get_status":         _car.car_get_status,
+    "car_lock":               _car.car_lock,
+    "car_climate":            _car.car_climate,
+    "appliances_list":        _appliances.appliances_list,
+    "appliances_get_status":  _appliances.appliances_get_status,
+    "appliances_control":     _appliances.appliances_control,
 }
 
 TOOLS = [
@@ -1326,6 +1334,108 @@ TOOLS = [
                 },
             },
             "required": ["page_id", "content"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Car
+    # -----------------------------------------------------------------------
+    {
+        "name": "car_get_status",
+        "description": (
+            "Get the car's current status — battery/charge level, range, lock state, "
+            "climate on/off, inside/outside temperature, and GPS location. "
+            "Brand is selected in Settings ⚙ → Car."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "car_lock",
+        "description": (
+            "Lock or unlock the car doors remotely. "
+            "Always confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["lock", "unlock"],
+                    "description": "'lock' or 'unlock'.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "car_climate",
+        "description": (
+            "Start or stop climate pre-conditioning for the car. "
+            "Always confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop"],
+                    "description": "'start' or 'stop'.",
+                },
+                "temp_f": {
+                    "type": "number",
+                    "description": "Target temperature in Fahrenheit. Defaults to 70.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Smart Appliances
+    # -----------------------------------------------------------------------
+    {
+        "name": "appliances_list",
+        "description": (
+            "List all smart home appliances with their device IDs. "
+            "Heating appliances (washer, dryer, oven, microwave, cooktop) are marked "
+            "monitor-only and cannot be remotely started. "
+            "Brand is selected in Settings ⚙ → Smart Appliances."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "appliances_get_status",
+        "description": "Get the detailed status of a single appliance by its device ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {
+                    "type": "string",
+                    "description": "Device ID from appliances_list.",
+                },
+            },
+            "required": ["device_id"],
+        },
+    },
+    {
+        "name": "appliances_control",
+        "description": (
+            "Turn a smart appliance on or off. "
+            "Heating appliances are blocked from 'on' for safety. "
+            "Always confirm the device and command with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {
+                    "type": "string",
+                    "description": "Device ID from appliances_list.",
+                },
+                "command": {
+                    "type": "string",
+                    "enum": ["on", "off"],
+                    "description": "'on' or 'off'.",
+                },
+            },
+            "required": ["device_id", "command"],
         },
     },
 ]
