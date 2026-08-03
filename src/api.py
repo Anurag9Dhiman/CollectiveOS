@@ -75,6 +75,7 @@ _READ_TOOLS = (
     "slack_list_channels, slack_read_messages, "
     "health_get_sleep, health_get_activity, health_get_readiness, "
     "car_get_status, appliances_list, appliances_get_status"
+    "finance_get_accounts, finance_get_transactions, finance_get_spending_summary"
 )
 _WRITE_TOOLS = (
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "

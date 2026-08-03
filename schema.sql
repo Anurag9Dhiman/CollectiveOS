@@ -149,6 +149,7 @@ INSERT INTO connector_permissions (connector) VALUES
     ('health'),
     ('car'),
     ('appliances')
+    ('finance')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

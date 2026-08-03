@@ -34,6 +34,8 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "health":     ["health_get_sleep", "health_get_activity", "health_get_readiness"],
     "car":        ["car_get_status", "car_lock", "car_climate"],
     "appliances": ["appliances_list", "appliances_get_status", "appliances_control"],
+    "health":    ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "finance":   ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -113,6 +115,11 @@ _EXAMPLES = (
     "  turn off the living room lamp → [\"appliances\"]\n"
     "  what is the status of my TV → [\"appliances\"]\n"
     "  turn on the bedroom lights → [\"appliances\"]\n"
+    "  what's my bank balance → [\"finance\"]\n"
+    "  show my recent transactions → [\"finance\"]\n"
+    "  how much did I spend this month → [\"finance\"]\n"
+    "  what did I spend on food last week → [\"finance\"]\n"
+    "  break down my spending by category → [\"finance\"]\n"
 )
 
 _client: Anthropic | None = None
