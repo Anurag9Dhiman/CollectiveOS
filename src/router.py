@@ -31,6 +31,9 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "notion":    ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
     "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":     ["slack_list_channels", "slack_read_messages", "slack_send_message"],
+    "health":     ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "car":        ["car_get_status", "car_lock", "car_climate"],
+    "appliances": ["appliances_list", "appliances_get_status", "appliances_control"],
     "health":    ["health_get_sleep", "health_get_activity", "health_get_readiness"],
     "finance":   ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
 }
@@ -102,6 +105,16 @@ _EXAMPLES = (
     "  show my step count for the last 7 days → [\"health\"]\n"
     "  what's my readiness score today → [\"health\"]\n"
     "  how is my recovery looking → [\"health\"]\n"
+    "  what's my car status → [\"car\"]\n"
+    "  lock my car → [\"car\"]\n"
+    "  unlock the car doors → [\"car\"]\n"
+    "  start climate in my car → [\"car\"]\n"
+    "  preheat my car to 72 degrees → [\"car\"]\n"
+    "  list my smart appliances → [\"appliances\"]\n"
+    "  what appliances do I have → [\"appliances\"]\n"
+    "  turn off the living room lamp → [\"appliances\"]\n"
+    "  what is the status of my TV → [\"appliances\"]\n"
+    "  turn on the bedroom lights → [\"appliances\"]\n"
     "  what's my bank balance → [\"finance\"]\n"
     "  show my recent transactions → [\"finance\"]\n"
     "  how much did I spend this month → [\"finance\"]\n"

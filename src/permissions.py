@@ -39,6 +39,8 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "github":          ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":           ["slack_list_channels", "slack_read_messages", "slack_send_message"],
     "health":          ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "car":             ["car_get_status", "car_lock", "car_climate"],
+    "appliances":      ["appliances_list", "appliances_get_status", "appliances_control"],
     "finance":         ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
 }
 
@@ -66,6 +68,8 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "notion_create_page", "notion_append_to_page",
     "github_create_issue",
     "slack_send_message",
+    "car_lock", "car_climate",
+    "appliances_control",
 })
 
 CONNECTOR_LABELS: dict[str, str] = {
@@ -89,6 +93,8 @@ CONNECTOR_LABELS: dict[str, str] = {
     "github":          "GitHub",
     "slack":           "Slack",
     "health":          "Health",
+    "car":             "Car",
+    "appliances":      "Smart Appliances",
     "finance":         "Finance",
 }
 
@@ -100,8 +106,14 @@ _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS connector_permissions (
     connector  TEXT PRIMARY KEY,
     enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    config     JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+"""
+
+_ADD_CONFIG_COL = """
+ALTER TABLE connector_permissions
+    ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}';
 """
 
 _SEED = """
@@ -117,6 +129,7 @@ def _bootstrap() -> None:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(_CREATE_TABLE)
+                cur.execute(_ADD_CONFIG_COL)
                 for name in CONNECTOR_TOOLS:
                     cur.execute(_SEED, {"connector": name})
         conn.close()
@@ -187,26 +200,64 @@ def set_permission(connector: str, enabled: bool) -> None:
     conn.close()
 
 
+def get_config(connector: str) -> dict:
+    """Return the stored config dict for a connector (empty dict if none)."""
+    try:
+        conn = connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT config FROM connector_permissions WHERE connector = %s",
+                (connector,),
+            )
+            row = cur.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else {}
+    except Exception:
+        return {}
+
+
+def set_config(connector: str, updates: dict) -> None:
+    """Merge *updates* into the connector's config JSONB. Raises ValueError for unknown connectors."""
+    if connector not in CONNECTOR_TOOLS:
+        raise ValueError(f"Unknown connector: {connector!r}")
+    conn = connect()
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO connector_permissions (connector, enabled, config, updated_at)
+                VALUES (%s, TRUE, %s::jsonb, NOW())
+                ON CONFLICT (connector) DO UPDATE
+                    SET config     = connector_permissions.config || EXCLUDED.config,
+                        updated_at = EXCLUDED.updated_at
+                """,
+                (connector, __import__("json").dumps(updates)),
+            )
+    conn.close()
+
+
 def list_all() -> list[dict]:
     """
     Return all connectors with their current permission state.
-    Each entry: {connector, label, enabled, read_tools, write_tools}.
+    Each entry: {connector, label, enabled, config, read_tools, write_tools}.
     """
     try:
         conn = connect()
         with conn.cursor() as cur:
-            cur.execute("SELECT connector, enabled FROM connector_permissions")
-            rows = {r[0]: r[1] for r in cur.fetchall()}
+            cur.execute("SELECT connector, enabled, config FROM connector_permissions")
+            rows = {r[0]: {"enabled": r[1], "config": r[2] or {}} for r in cur.fetchall()}
         conn.close()
     except Exception:
         rows = {}
 
     result = []
     for connector, tools in CONNECTOR_TOOLS.items():
+        row = rows.get(connector, {})
         result.append({
             "connector":   connector,
             "label":       CONNECTOR_LABELS.get(connector, connector),
-            "enabled":     rows.get(connector, True),
+            "enabled":     row.get("enabled", True),
+            "config":      row.get("config", {}),
             "read_tools":  [t for t in tools if t not in WRITE_TOOLS],
             "write_tools": [t for t in tools if t in WRITE_TOOLS],
         })
