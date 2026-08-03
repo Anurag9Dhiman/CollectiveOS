@@ -39,6 +39,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "github":          ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":           ["slack_list_channels", "slack_read_messages", "slack_send_message"],
     "health":          ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "finance":         ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
 }
 
 # Reverse index: tool name → connector
@@ -88,6 +89,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "github":          "GitHub",
     "slack":           "Slack",
     "health":          "Health",
+    "finance":         "Finance",
 }
 
 # ---------------------------------------------------------------------------

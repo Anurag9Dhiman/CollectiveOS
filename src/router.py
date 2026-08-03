@@ -32,6 +32,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":     ["slack_list_channels", "slack_read_messages", "slack_send_message"],
     "health":    ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "finance":   ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -101,6 +102,11 @@ _EXAMPLES = (
     "  show my step count for the last 7 days → [\"health\"]\n"
     "  what's my readiness score today → [\"health\"]\n"
     "  how is my recovery looking → [\"health\"]\n"
+    "  what's my bank balance → [\"finance\"]\n"
+    "  show my recent transactions → [\"finance\"]\n"
+    "  how much did I spend this month → [\"finance\"]\n"
+    "  what did I spend on food last week → [\"finance\"]\n"
+    "  break down my spending by category → [\"finance\"]\n"
 )
 
 _client: Anthropic | None = None
