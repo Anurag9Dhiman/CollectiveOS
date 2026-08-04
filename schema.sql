@@ -96,8 +96,8 @@ CREATE TABLE IF NOT EXISTS routines (
     prompt      TEXT NOT NULL,
     schedule    TEXT NOT NULL,   -- cron expression, e.g. '0 8 * * *' = 8am daily
     enabled     BOOLEAN NOT NULL DEFAULT TRUE,
-    notify_via  TEXT NOT NULL DEFAULT 'notification'  -- 'notification' | 'none'
-                CHECK (notify_via IN ('notification', 'none')),
+    notify_via  TEXT NOT NULL DEFAULT 'notification'  -- 'notification' | 'none' | 'telegram'
+                CHECK (notify_via IN ('notification', 'none', 'telegram')),
     last_run_at TIMESTAMPTZ,
     last_result TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()

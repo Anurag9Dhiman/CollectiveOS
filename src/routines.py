@@ -18,11 +18,22 @@ CREATE TABLE IF NOT EXISTS routines (
     schedule    TEXT NOT NULL,
     enabled     BOOLEAN NOT NULL DEFAULT TRUE,
     notify_via  TEXT NOT NULL DEFAULT 'notification'
-                CHECK (notify_via IN ('notification', 'none')),
+                CHECK (notify_via IN ('notification', 'none', 'telegram')),
     last_run_at TIMESTAMPTZ,
     last_result TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+"""
+
+# Widens the notify_via CHECK to include 'telegram' on existing databases.
+_MIGRATE_NOTIFY_VIA = """
+DO $$
+BEGIN
+    ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_notify_via_check;
+    ALTER TABLE routines ADD CONSTRAINT routines_notify_via_check
+        CHECK (notify_via IN ('notification', 'none', 'telegram'));
+EXCEPTION WHEN others THEN NULL;
+END $$;
 """
 
 
@@ -32,6 +43,7 @@ def _bootstrap() -> None:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(_CREATE)
+                cur.execute(_MIGRATE_NOTIFY_VIA)
         conn.close()
     except Exception:
         pass
