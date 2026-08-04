@@ -589,6 +589,7 @@
           <label>Deliver result via</label>
           <select id="r-notify">
             <option value="notification">Mac notification</option>
+            <option value="telegram">Telegram message</option>
             <option value="none">Silent (store only)</option>
           </select>
         </div>
@@ -1124,6 +1125,7 @@
       const lastRun = r.last_run_at
         ? new Date(r.last_run_at).toLocaleString()
         : "Never run";
+      const notifyLabel = { notification: "Mac notification", telegram: "Telegram", none: "Silent" }[r.notify_via] || r.notify_via;
       row.innerHTML = `
         <div class="routine-header">
           <span class="routine-name">${r.name}</span>
@@ -1135,7 +1137,7 @@
           </label>
         </div>
         <div class="routine-prompt">${r.prompt}</div>
-        <div class="routine-last">Last run: ${lastRun}</div>
+        <div class="routine-last">Last run: ${lastRun} · Delivers via: ${notifyLabel}</div>
         <div class="routine-actions">
           <button class="routine-btn run-now" data-id="${r.id}">▶ Run now</button>
           <button class="routine-btn danger delete-btn" data-id="${r.id}">✕ Delete</button>
@@ -1160,7 +1162,10 @@
           method: "POST",
           headers: { "Authorization": `Bearer ${token}` },
         });
-        if (res.ok) showError("Routine triggered — result will arrive as a notification.");
+        if (res.ok) {
+          const via = { notification: "Mac notification", telegram: "Telegram message", none: "DB (silent)" }[r.notify_via] || r.notify_via;
+          showError(`Routine triggered — result will arrive as a ${via}.`);
+        }
       });
 
       // Delete

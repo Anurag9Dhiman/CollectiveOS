@@ -141,6 +141,8 @@ class ChatResponse(BaseModel):
 class PermissionUpdate(BaseModel):
     enabled: bool
 
+_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram"}
+
 class RoutineCreate(BaseModel):
     name: str
     prompt: str
@@ -256,6 +258,9 @@ def create_routine(body: RoutineCreate, _token: str = Depends(_verify_token)):
     except Exception:
         raise HTTPException(status_code=400,
                             detail=f"Invalid cron expression: {body.schedule!r}")
+    if body.notify_via not in _NOTIFY_VIA_OPTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
     row = _routines.create(body.name, body.prompt, body.schedule, body.notify_via)
     _scheduler.reload_routine(row["id"])
     return row
@@ -273,6 +278,9 @@ def update_routine(routine_id: int, body: RoutineUpdate,
         except Exception:
             raise HTTPException(status_code=400,
                                 detail=f"Invalid cron: {updates['schedule']!r}")
+    if "notify_via" in updates and updates["notify_via"] not in _NOTIFY_VIA_OPTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
     row = _routines.update(routine_id, **updates)
     if row is None:
         raise HTTPException(status_code=404, detail="Routine not found.")
