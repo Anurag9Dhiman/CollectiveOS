@@ -387,6 +387,46 @@
     }
     .toggle input:checked ~ .toggle-thumb { left: 19px; }
 
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px 10px;
+      border-top: 1px solid #21262d;
+      margin-top: 0;
+    }
+    .brand-row label {
+      font-size: 0.7rem;
+      color: #8b949e;
+      white-space: nowrap;
+    }
+    .brand-select {
+      flex: 1;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e1e4e8;
+      font-size: 0.78rem;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+    .brand-select:focus { outline: none; border-color: #58a6ff; }
+    .connector-wrap {
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .connector-wrap:hover { border-color: #30363d; }
+    .connector-wrap.disabled { opacity: 0.55; }
+    .connector-wrap .connector-row {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+    }
+    .connector-wrap .connector-row:hover { border-color: transparent; }
+
     #settings-note {
       font-size: 0.72rem;
       color: #484f58;
@@ -549,6 +589,7 @@
           <label>Deliver result via</label>
           <select id="r-notify">
             <option value="notification">Mac notification</option>
+            <option value="telegram">Telegram message</option>
             <option value="none">Silent (store only)</option>
           </select>
         </div>
@@ -903,6 +944,25 @@
     notes:           "📝",
     clipboard:       "📋",
     telegram:        "✈️",
+    notion:          "📓",
+    github:          "🐙",
+    slack:           "🟣",
+    health:          "❤️",
+    car:             "🚗",
+    appliances:      "🏠",
+  };
+
+  const CONNECTOR_BRANDS = {
+    car: [
+      { value: "tesla",  label: "Tesla" },
+      { value: "bmw",    label: "BMW / MINI" },
+      { value: "ford",   label: "Ford / Lincoln" },
+    ],
+    appliances: [
+      { value: "smartthings", label: "Samsung SmartThings" },
+      { value: "lgthinq",     label: "LG ThinQ" },
+    ],
+    finance:         "💰",
   };
 
   async function loadPermissions() {
@@ -923,6 +983,23 @@
     }
   }
 
+  async function saveBrand(connector, brand) {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    try {
+      const res = await fetch(`/permissions/${connector}/config`, {
+        method:  "PATCH",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ brand }),
+      });
+      if (!res.ok) throw new Error();
+    } catch (_) {
+      showError("Failed to save brand selection.");
+    }
+  }
+
   function renderPermissions(perms) {
     connectorList.innerHTML = "";
     for (const p of perms) {
@@ -934,8 +1011,15 @@
         writeCount ? `${writeCount} write` : null,
       ].filter(Boolean).join(" · ");
 
+      const brands = CONNECTOR_BRANDS[p.connector];
+      const hasBrands = brands && brands.length > 0;
+      const currentBrand = (p.config && p.config.brand) || "";
+
+      const wrap = document.createElement("div");
+      wrap.className = "connector-wrap" + (p.enabled ? "" : " disabled");
+
       const row = document.createElement("div");
-      row.className = "connector-row" + (p.enabled ? "" : " disabled");
+      row.className = "connector-row";
       row.innerHTML = `
         <span class="connector-emoji">${emoji}</span>
         <div class="connector-info">
@@ -948,7 +1032,28 @@
           <div class="toggle-thumb"></div>
         </label>
       `;
-      connectorList.appendChild(row);
+      wrap.appendChild(row);
+
+      if (hasBrands) {
+        const brandRow = document.createElement("div");
+        brandRow.className = "brand-row";
+        const opts = brands.map(b =>
+          `<option value="${b.value}" ${currentBrand === b.value ? "selected" : ""}>${b.label}</option>`
+        ).join("");
+        brandRow.innerHTML = `
+          <label>Brand</label>
+          <select class="brand-select">
+            <option value="">— select —</option>
+            ${opts}
+          </select>
+        `;
+        wrap.appendChild(brandRow);
+
+        const sel = brandRow.querySelector("select");
+        sel.addEventListener("change", () => saveBrand(p.connector, sel.value));
+      }
+
+      connectorList.appendChild(wrap);
 
       const cb = row.querySelector("input[type=checkbox]");
       cb.addEventListener("change", async () => {
@@ -964,7 +1069,7 @@
             body: JSON.stringify({ enabled }),
           });
           if (!res.ok) throw new Error();
-          row.classList.toggle("disabled", !enabled);
+          wrap.classList.toggle("disabled", !enabled);
           cb.parentElement.title = enabled ? "Enabled — click to disable" : "Disabled — click to enable";
         } catch (_) {
           cb.checked = !enabled;  // revert on failure
@@ -1021,6 +1126,7 @@
       const lastRun = r.last_run_at
         ? new Date(r.last_run_at).toLocaleString()
         : "Never run";
+      const notifyLabel = { notification: "Mac notification", telegram: "Telegram", none: "Silent" }[r.notify_via] || r.notify_via;
       row.innerHTML = `
         <div class="routine-header">
           <span class="routine-name">${r.name}</span>
@@ -1032,7 +1138,7 @@
           </label>
         </div>
         <div class="routine-prompt">${r.prompt}</div>
-        <div class="routine-last">Last run: ${lastRun}</div>
+        <div class="routine-last">Last run: ${lastRun} · Delivers via: ${notifyLabel}</div>
         <div class="routine-actions">
           <button class="routine-btn run-now" data-id="${r.id}">▶ Run now</button>
           <button class="routine-btn danger delete-btn" data-id="${r.id}">✕ Delete</button>
@@ -1057,7 +1163,10 @@
           method: "POST",
           headers: { "Authorization": `Bearer ${token}` },
         });
-        if (res.ok) showError("Routine triggered — result will arrive as a notification.");
+        if (res.ok) {
+          const via = { notification: "Mac notification", telegram: "Telegram message", none: "DB (silent)" }[r.notify_via] || r.notify_via;
+          showError(`Routine triggered — result will arrive as a ${via}.`);
+        }
       });
 
       // Delete

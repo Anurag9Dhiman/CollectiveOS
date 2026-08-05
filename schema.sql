@@ -96,11 +96,21 @@ CREATE TABLE IF NOT EXISTS routines (
     prompt      TEXT NOT NULL,
     schedule    TEXT NOT NULL,   -- cron expression, e.g. '0 8 * * *' = 8am daily
     enabled     BOOLEAN NOT NULL DEFAULT TRUE,
-    notify_via  TEXT NOT NULL DEFAULT 'notification'  -- 'notification' | 'none'
-                CHECK (notify_via IN ('notification', 'none')),
+    notify_via  TEXT NOT NULL DEFAULT 'notification'  -- 'notification' | 'none' | 'telegram'
+                CHECK (notify_via IN ('notification', 'none', 'telegram')),
     last_run_at TIMESTAMPTZ,
     last_result TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Health snapshots — metrics pushed from iOS Shortcuts or cached from Oura
+CREATE TABLE IF NOT EXISTS health_snapshots (
+    id         SERIAL PRIMARY KEY,
+    date       DATE NOT NULL,
+    source     TEXT NOT NULL DEFAULT 'apple_health',
+    metrics    JSONB NOT NULL DEFAULT '{}',   -- steps, sleep_hours, hrv, resting_heart_rate, etc.
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (date, source)
 );
 
 -- Per-connector permission toggles
@@ -109,8 +119,12 @@ CREATE TABLE IF NOT EXISTS routines (
 CREATE TABLE IF NOT EXISTS connector_permissions (
     connector  TEXT PRIMARY KEY,
     enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    config     JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE connector_permissions
+    ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}';
 
 INSERT INTO connector_permissions (connector) VALUES
     ('google_calendar'),
@@ -130,6 +144,13 @@ INSERT INTO connector_permissions (connector) VALUES
     ('notes'),
     ('clipboard'),
     ('telegram')
+    ('notion'),
+    ('github'),
+    ('slack'),
+    ('health'),
+    ('car'),
+    ('appliances')
+    ('finance')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

@@ -47,6 +47,13 @@ from src.connectors import local_files as _fs
 from src.connectors import browser as _browser
 from src.connectors import apple_native as _apple
 from src.connectors import telegram_bot as _telegram
+from src.connectors import notion as _notion
+from src.connectors import github as _github
+from src.connectors import slack_bot as _slack
+from src.connectors import health as _health
+from src.connectors import car as _car
+from src.connectors import appliances as _appliances
+from src.connectors import finance as _finance
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -111,6 +118,33 @@ TOOL_FUNCTIONS = {
     "clipboard_write":        _apple.clipboard_write,
     "telegram_get_messages":  _telegram.get_messages,
     "telegram_send":          _telegram.send_message,
+    "notion_search":          _notion.notion_search,
+    "notion_read_page":       _notion.notion_read_page,
+    "notion_create_page":     _notion.notion_create_page,
+    "notion_append_to_page":  _notion.notion_append_to_page,
+    "github_list_repos":      _github.github_list_repos,
+    "github_list_prs":        _github.github_list_prs,
+    "github_list_issues":     _github.github_list_issues,
+    "github_get_ci_status":   _github.github_get_ci_status,
+    "github_create_issue":    _github.github_create_issue,
+    "slack_list_channels":    _slack.slack_list_channels,
+    "slack_read_messages":    _slack.slack_read_messages,
+    "slack_send_message":     _slack.slack_send_message,
+    "health_get_sleep":       _health.health_get_sleep,
+    "health_get_activity":    _health.health_get_activity,
+    "health_get_readiness":   _health.health_get_readiness,
+    "car_get_status":         _car.car_get_status,
+    "car_lock":               _car.car_lock,
+    "car_climate":            _car.car_climate,
+    "appliances_list":        _appliances.appliances_list,
+    "appliances_get_status":  _appliances.appliances_get_status,
+    "appliances_control":     _appliances.appliances_control,
+    "health_get_sleep":             _health.health_get_sleep,
+    "health_get_activity":          _health.health_get_activity,
+    "health_get_readiness":         _health.health_get_readiness,
+    "finance_get_accounts":         _finance.finance_get_accounts,
+    "finance_get_transactions":     _finance.finance_get_transactions,
+    "finance_get_spending_summary": _finance.finance_get_spending_summary,
 }
 
 TOOLS = [
@@ -1002,6 +1036,121 @@ TOOLS = [
             "Read recent messages sent to your Telegram bot. "
             "Returns sender name, chat_id, and message text for each update. "
             "Requires TELEGRAM_BOT_TOKEN in the environment."
+    # Finance (read-only)
+    # -----------------------------------------------------------------------
+    {
+        "name": "finance_get_accounts",
+        "description": (
+            "List connected bank and credit card accounts with real-time balances "
+            "(current and available). Requires Plaid setup."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "finance_get_transactions",
+        "description": (
+            "Fetch recent transactions from all connected accounts, sorted newest first. "
+            "Shows date, amount, merchant name, and spending category. "
+            "Optionally filter to a single account by its Plaid account ID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to fetch. Defaults to 30.",
+                },
+                "account_id": {
+                    "type": "string",
+                    "description": "Optional Plaid account ID to filter to one account.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "finance_get_spending_summary",
+        "description": (
+            "Summarize spending by top-level Plaid category (Food and Drink, "
+            "Travel, Shopping, etc.) over the last N days. "
+            "Shows totals and percentage of overall spend per category."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days to summarize. Defaults to 30.",
+                },
+            },
+            "required": [],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Health
+    # -----------------------------------------------------------------------
+    {
+        "name": "health_get_sleep",
+        "description": (
+            "Get sleep data for the last N days — total duration, deep sleep, REM, "
+            "HRV, resting heart rate, and efficiency score. "
+            "Uses Oura Ring if OURA_TOKEN is set, otherwise the Apple Health cache."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to return. Defaults to 7.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "health_get_activity",
+        "description": (
+            "Get activity data for the last N days — steps, active calories, "
+            "total calories, and activity score. "
+            "Uses Oura Ring if OURA_TOKEN is set, otherwise the Apple Health cache."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to return. Defaults to 7.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "health_get_readiness",
+        "description": (
+            "Get readiness score and HRV balance for the last N days — overall readiness, "
+            "HRV balance, resting heart rate score, sleep balance, and activity balance. "
+            "Uses Oura Ring if OURA_TOKEN is set, otherwise the Apple Health cache."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to return. Defaults to 7.",
+                },
+            },
+            "required": [],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Slack
+    # -----------------------------------------------------------------------
+    {
+        "name": "slack_list_channels",
+        "description": (
+            "List Slack channels the bot has access to, with member count and topic. "
+            "Use this to discover channel names and IDs before reading messages."
         ),
         "input_schema": {
             "type": "object",
@@ -1009,6 +1158,7 @@ TOOLS = [
                 "limit": {
                     "type": "integer",
                     "description": "Max number of messages to return (default 10).",
+                    "description": "Max channels to return. Defaults to 30.",
                 },
             },
             "required": [],
@@ -1022,6 +1172,11 @@ TOOLS = [
             "with the user before calling. "
             "If TELEGRAM_CHAT_ID is set in .env, leave chat_id blank to "
             "message the user directly."
+        "name": "slack_read_messages",
+        "description": (
+            "Read recent messages from a Slack channel. "
+            "Pass a channel name (e.g. 'general') or channel ID (e.g. 'C12345'). "
+            "Messages are shown oldest-first with timestamps and sender names."
         ),
         "input_schema": {
             "type": "object",
@@ -1039,6 +1194,338 @@ TOOLS = [
                 },
             },
             "required": ["text"],
+                "channel": {
+                    "type": "string",
+                    "description": "Channel name (with or without #) or Slack channel ID.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent messages to fetch. Defaults to 20.",
+                },
+            },
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "slack_send_message",
+        "description": (
+            "Send a message to a Slack channel or DM. "
+            "Pass a channel name, channel ID, or a Slack user ID (U...) to send a direct message. "
+            "Always confirm the channel and full message text with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel name, channel ID (C...), or user ID (U...) for a DM.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Message text to send. Supports Slack mrkdwn formatting.",
+                },
+            },
+            "required": ["channel", "text"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # GitHub
+    # -----------------------------------------------------------------------
+    {
+        "name": "github_list_repos",
+        "description": (
+            "List the authenticated GitHub user's repositories, most recently updated first. "
+            "Includes repo name, language, visibility, and description."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max repos to return. Defaults to 20.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "github_list_prs",
+        "description": "List pull requests for a GitHub repository (owner/repo format).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format, e.g. 'Anurag9Dhiman/CollectiveOS'.",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["open", "closed", "all"],
+                    "description": "Filter by PR state. Defaults to 'open'.",
+                },
+            },
+            "required": ["repo"],
+        },
+    },
+    {
+        "name": "github_list_issues",
+        "description": "List issues for a GitHub repository. Excludes pull requests.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format.",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["open", "closed", "all"],
+                    "description": "Filter by issue state. Defaults to 'open'.",
+                },
+                "labels": {
+                    "type": "string",
+                    "description": "Comma-separated label names to filter by, e.g. 'bug,help wanted'.",
+                },
+            },
+            "required": ["repo"],
+        },
+    },
+    {
+        "name": "github_get_ci_status",
+        "description": (
+            "Get CI check-run results for a branch, tag, or commit SHA in a repository. "
+            "Shows pass/fail status for each check (Actions workflows, status checks, etc.)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format.",
+                },
+                "ref": {
+                    "type": "string",
+                    "description": "Branch name (e.g. 'main'), tag, or full commit SHA.",
+                },
+            },
+            "required": ["repo", "ref"],
+        },
+    },
+    {
+        "name": "github_create_issue",
+        "description": (
+            "Create a new GitHub issue in a repository. "
+            "Always confirm the repo, title, body, and labels with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository in owner/repo format.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Issue title.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Issue body / description in Markdown. Optional.",
+                },
+                "labels": {
+                    "type": "string",
+                    "description": "Comma-separated label names to apply, e.g. 'bug,enhancement'. Optional.",
+                },
+            },
+            "required": ["repo", "title"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Notion
+    # -----------------------------------------------------------------------
+    {
+        "name": "notion_search",
+        "description": (
+            "Search Notion for pages and databases by keyword. "
+            "Returns titles, IDs, and URLs for matching results. "
+            "Use this to find a page ID before reading or appending to it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term, e.g. 'daily notes', 'project plan', 'reading list'.",
+                },
+                "filter_type": {
+                    "type": "string",
+                    "enum": ["page", "database", ""],
+                    "description": "Limit results to 'page', 'database', or '' for both. Defaults to ''.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "notion_read_page",
+        "description": "Read the full text content of a Notion page by its ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "Notion page ID (from notion_search). Dashes are optional.",
+                },
+            },
+            "required": ["page_id"],
+        },
+    },
+    {
+        "name": "notion_create_page",
+        "description": (
+            "Create a new Notion page under a parent page or database. "
+            "Always confirm the title, parent, and content with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "parent_id": {
+                    "type": "string",
+                    "description": "ID of the parent page or database (from notion_search).",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Title of the new page.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Optional initial text content. Paragraphs separated by blank lines.",
+                },
+            },
+            "required": ["parent_id", "title"],
+        },
+    },
+    {
+        "name": "notion_append_to_page",
+        "description": (
+            "Append text to the end of an existing Notion page. "
+            "Always confirm which page and what content with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "Notion page ID to append to (from notion_search).",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text to append. Paragraphs separated by blank lines.",
+                },
+            },
+            "required": ["page_id", "content"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Car
+    # -----------------------------------------------------------------------
+    {
+        "name": "car_get_status",
+        "description": (
+            "Get the car's current status — battery/charge level, range, lock state, "
+            "climate on/off, inside/outside temperature, and GPS location. "
+            "Brand is selected in Settings ⚙ → Car."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "car_lock",
+        "description": (
+            "Lock or unlock the car doors remotely. "
+            "Always confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["lock", "unlock"],
+                    "description": "'lock' or 'unlock'.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "car_climate",
+        "description": (
+            "Start or stop climate pre-conditioning for the car. "
+            "Always confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop"],
+                    "description": "'start' or 'stop'.",
+                },
+                "temp_f": {
+                    "type": "number",
+                    "description": "Target temperature in Fahrenheit. Defaults to 70.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Smart Appliances
+    # -----------------------------------------------------------------------
+    {
+        "name": "appliances_list",
+        "description": (
+            "List all smart home appliances with their device IDs. "
+            "Heating appliances (washer, dryer, oven, microwave, cooktop) are marked "
+            "monitor-only and cannot be remotely started. "
+            "Brand is selected in Settings ⚙ → Smart Appliances."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "appliances_get_status",
+        "description": "Get the detailed status of a single appliance by its device ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {
+                    "type": "string",
+                    "description": "Device ID from appliances_list.",
+                },
+            },
+            "required": ["device_id"],
+        },
+    },
+    {
+        "name": "appliances_control",
+        "description": (
+            "Turn a smart appliance on or off. "
+            "Heating appliances are blocked from 'on' for safety. "
+            "Always confirm the device and command with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {
+                    "type": "string",
+                    "description": "Device ID from appliances_list.",
+                },
+                "command": {
+                    "type": "string",
+                    "enum": ["on", "off"],
+                    "description": "'on' or 'off'.",
+                },
+            },
+            "required": ["device_id", "command"],
         },
     },
 ]

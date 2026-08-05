@@ -71,6 +71,12 @@ _READ_TOOLS = (
     "web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
     "browser_get_active_tab, browser_list_tabs, contacts_search, reminders_list, "
     "notes_list, notes_read, clipboard_read, telegram_get_messages"
+    "notes_list, notes_read, clipboard_read, notion_search, notion_read_page, "
+    "github_list_repos, github_list_prs, github_list_issues, github_get_ci_status, "
+    "slack_list_channels, slack_read_messages, "
+    "health_get_sleep, health_get_activity, health_get_readiness, "
+    "car_get_status, appliances_list, appliances_get_status"
+    "finance_get_accounts, finance_get_transactions, finance_get_spending_summary"
 )
 _WRITE_TOOLS = (
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "
@@ -78,6 +84,9 @@ _WRITE_TOOLS = (
     "show_notification, open_application, set_system_volume, imessage_send, "
     "write_local_file, browser_open_url, reminders_add, reminders_complete, "
     "notes_create, notes_append, clipboard_write, telegram_send"
+    "notes_create, notes_append, clipboard_write, notion_create_page, notion_append_to_page, "
+    "github_create_issue, slack_send_message, "
+    "car_lock, car_climate, appliances_control"
 )
 
 
@@ -134,6 +143,8 @@ class ChatResponse(BaseModel):
 class PermissionUpdate(BaseModel):
     enabled: bool
 
+_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram"}
+
 class RoutineCreate(BaseModel):
     name: str
     prompt: str
@@ -146,6 +157,14 @@ class RoutineUpdate(BaseModel):
     schedule: Optional[str]= None
     enabled: Optional[bool]= None
     notify_via: Optional[str] = None
+
+class HealthIngest(BaseModel):
+    date: str                    # YYYY-MM-DD
+    source: str = "apple_health"
+    metrics: dict                # steps, sleep_hours, hrv, resting_heart_rate, etc.
+
+class ConnectorConfig(BaseModel):
+    brand: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +260,9 @@ def create_routine(body: RoutineCreate, _token: str = Depends(_verify_token)):
     except Exception:
         raise HTTPException(status_code=400,
                             detail=f"Invalid cron expression: {body.schedule!r}")
+    if body.notify_via not in _NOTIFY_VIA_OPTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
     row = _routines.create(body.name, body.prompt, body.schedule, body.notify_via)
     _scheduler.reload_routine(row["id"])
     return row
@@ -258,6 +280,9 @@ def update_routine(routine_id: int, body: RoutineUpdate,
         except Exception:
             raise HTTPException(status_code=400,
                                 detail=f"Invalid cron: {updates['schedule']!r}")
+    if "notify_via" in updates and updates["notify_via"] not in _NOTIFY_VIA_OPTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
     row = _routines.update(routine_id, **updates)
     if row is None:
         raise HTTPException(status_code=404, detail="Routine not found.")
@@ -310,6 +335,56 @@ def update_permission(
     state = "enabled" if body.enabled else "disabled"
     return {"connector": connector, "label": label, "enabled": body.enabled,
             "message": f"{label} {state}."}
+
+
+@app.patch("/permissions/{connector}/config")
+def update_connector_config(
+    connector: str,
+    body: ConnectorConfig,
+    _token: str = Depends(_verify_token),
+):
+    """Update the brand/config for a connector."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    try:
+        permissions.set_config(connector, updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"connector": connector, "config": updates}
+
+
+@app.post("/health-ingest", status_code=201)
+def health_ingest(body: HealthIngest, _token: str = Depends(_verify_token)):
+    """
+    Receive health metrics from an iOS Shortcut or any external source.
+
+    iOS Shortcut setup:
+      1. "Get Health Samples" actions for steps, sleep, HRV, heart rate, etc.
+      2. "Get Contents of URL" — POST to http://<mac-ip>:8000/health-ingest
+         Headers: Authorization: Bearer <API_TOKEN>, Content-Type: application/json
+         Body: {"date": "<today>", "source": "apple_health",
+                "metrics": {"steps": ..., "sleep_hours": ..., "hrv": ...,
+                            "resting_heart_rate": ..., "active_calories": ...}}
+    """
+    import json as _json
+    try:
+        from src.db import connect
+        conn = connect()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO health_snapshots (date, source, metrics)
+                    VALUES (%s, %s, %s::jsonb)
+                    ON CONFLICT (date, source) DO UPDATE
+                        SET metrics    = health_snapshots.metrics || EXCLUDED.metrics,
+                            created_at = NOW()
+                    """,
+                    (body.date, body.source, _json.dumps(body.metrics)),
+                )
+        conn.close()
+        return {"message": f"Health data saved for {body.date} ({body.source})."}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/chat/stream")
