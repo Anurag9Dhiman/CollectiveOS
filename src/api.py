@@ -42,7 +42,7 @@ from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -442,3 +442,79 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Telegram webhook — two-way Telegram interface
+# ---------------------------------------------------------------------------
+
+def _tg_send(chat_id: str, text: str) -> None:
+    """Send a message to a Telegram chat via the Bot API."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        return
+    import requests as _req
+    try:
+        _req.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text[:4096], "parse_mode": "Markdown"},
+            timeout=15,
+        )
+    except Exception:
+        pass
+
+
+def _handle_tg_message(chat_id: str, text: str) -> None:
+    """Run the agent and reply — executed in a background thread."""
+    past = memory.search(text)
+    try:
+        reply = run(text, system=_system_prompt(past))
+    except Exception as exc:
+        reply = f"Sorry, something went wrong: {exc}"
+    memory.save(text, reply)
+    _tg_send(chat_id, reply)
+
+
+@app.post("/telegram/webhook/{secret}", include_in_schema=False)
+async def telegram_webhook(secret: str, request: Request):
+    """
+    Receive messages from Telegram and reply via the agent.
+
+    Setup (one time):
+      1. Add to .env:
+           TELEGRAM_BOT_TOKEN=<token from @BotFather>
+           TELEGRAM_CHAT_ID=<your personal chat ID>
+           TELEGRAM_WEBHOOK_SECRET=<any random string you choose>
+      2. Register the webhook (replace placeholders):
+           curl "https://api.telegram.org/bot<TOKEN>/setWebhook\\
+                ?url=https://<your-domain>/telegram/webhook/<SECRET>"
+      3. Send your bot a message — it will reply using the full agent.
+    """
+    expected = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+    if not expected or secret != expected:
+        raise HTTPException(status_code=403)
+
+    body = await request.json()
+    message = body.get("message", {})
+    chat_id = str(message.get("chat", {}).get("id", ""))
+    text = (message.get("text") or "").strip()
+
+    if not text or not chat_id:
+        return {"ok": True}
+
+    # Only respond to the configured chat (personal-use guard)
+    allowed = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if allowed and chat_id != allowed:
+        return {"ok": True}
+
+    if text == "/start":
+        _tg_send(chat_id, "Hi! I'm your personal assistant. Send me a message.")
+        return {"ok": True}
+
+    # Run agent in background so Telegram doesn't time out waiting
+    threading.Thread(
+        target=_handle_tg_message,
+        args=(chat_id, text),
+        daemon=True,
+    ).start()
+    return {"ok": True}
