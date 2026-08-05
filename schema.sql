@@ -143,6 +143,7 @@ INSERT INTO connector_permissions (connector) VALUES
     ('reminders'),
     ('notes'),
     ('clipboard'),
+    ('telegram')
     ('notion'),
     ('github'),
     ('slack'),

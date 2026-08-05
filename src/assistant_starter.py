@@ -46,6 +46,7 @@ from src.connectors.screen_capture import capture_screen
 from src.connectors import local_files as _fs
 from src.connectors import browser as _browser
 from src.connectors import apple_native as _apple
+from src.connectors import telegram_bot as _telegram
 from src.connectors import notion as _notion
 from src.connectors import github as _github
 from src.connectors import slack_bot as _slack
@@ -115,6 +116,8 @@ TOOL_FUNCTIONS = {
     "notes_append":           _apple.notes_append,
     "clipboard_read":         _apple.clipboard_read,
     "clipboard_write":        _apple.clipboard_write,
+    "telegram_get_messages":  _telegram.get_messages,
+    "telegram_send":          _telegram.send_message,
     "notion_search":          _notion.notion_search,
     "notion_read_page":       _notion.notion_read_page,
     "notion_create_page":     _notion.notion_create_page,
@@ -1025,6 +1028,14 @@ TOOLS = [
         },
     },
     # -----------------------------------------------------------------------
+    # Telegram
+    # -----------------------------------------------------------------------
+    {
+        "name": "telegram_get_messages",
+        "description": (
+            "Read recent messages sent to your Telegram bot. "
+            "Returns sender name, chat_id, and message text for each update. "
+            "Requires TELEGRAM_BOT_TOKEN in the environment."
     # Finance (read-only)
     # -----------------------------------------------------------------------
     {
@@ -1146,6 +1157,7 @@ TOOLS = [
             "properties": {
                 "limit": {
                     "type": "integer",
+                    "description": "Max number of messages to return (default 10).",
                     "description": "Max channels to return. Defaults to 30.",
                 },
             },
@@ -1153,6 +1165,13 @@ TOOLS = [
         },
     },
     {
+        "name": "telegram_send",
+        "description": (
+            "Send a Telegram message to a specific chat. "
+            "Always confirm the recipient chat_id and full message text "
+            "with the user before calling. "
+            "If TELEGRAM_CHAT_ID is set in .env, leave chat_id blank to "
+            "message the user directly."
         "name": "slack_read_messages",
         "description": (
             "Read recent messages from a Slack channel. "
@@ -1162,6 +1181,19 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "description": (
+                        "Telegram chat id to send to — visible in telegram_get_messages output. "
+                        "Leave blank to use the TELEGRAM_CHAT_ID env default."
+                    ),
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Message text to send (max 4096 chars).",
+                },
+            },
+            "required": ["text"],
                 "channel": {
                     "type": "string",
                     "description": "Channel name (with or without #) or Slack channel ID.",
