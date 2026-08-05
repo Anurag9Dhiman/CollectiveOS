@@ -70,18 +70,23 @@ _READ_TOOLS = (
     "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info, "
     "web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
     "browser_get_active_tab, browser_list_tabs, contacts_search, reminders_list, "
+    "notes_list, notes_read, clipboard_read, telegram_get_messages"
     "notes_list, notes_read, clipboard_read, notion_search, notion_read_page, "
     "github_list_repos, github_list_prs, github_list_issues, github_get_ci_status, "
     "slack_list_channels, slack_read_messages, "
-    "health_get_sleep, health_get_activity, health_get_readiness"
+    "health_get_sleep, health_get_activity, health_get_readiness, "
+    "car_get_status, appliances_list, appliances_get_status"
+    "finance_get_accounts, finance_get_transactions, finance_get_spending_summary"
 )
 _WRITE_TOOLS = (
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "
     "control_device, set_light, spotify_control, spotify_set_volume, spotify_search_play, "
     "show_notification, open_application, set_system_volume, imessage_send, "
     "write_local_file, browser_open_url, reminders_add, reminders_complete, "
+    "notes_create, notes_append, clipboard_write, telegram_send"
     "notes_create, notes_append, clipboard_write, notion_create_page, notion_append_to_page, "
-    "github_create_issue, slack_send_message"
+    "github_create_issue, slack_send_message, "
+    "car_lock, car_climate, appliances_control"
 )
 
 
@@ -138,6 +143,8 @@ class ChatResponse(BaseModel):
 class PermissionUpdate(BaseModel):
     enabled: bool
 
+_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram"}
+
 class RoutineCreate(BaseModel):
     name: str
     prompt: str
@@ -155,6 +162,9 @@ class HealthIngest(BaseModel):
     date: str                    # YYYY-MM-DD
     source: str = "apple_health"
     metrics: dict                # steps, sleep_hours, hrv, resting_heart_rate, etc.
+
+class ConnectorConfig(BaseModel):
+    brand: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +260,9 @@ def create_routine(body: RoutineCreate, _token: str = Depends(_verify_token)):
     except Exception:
         raise HTTPException(status_code=400,
                             detail=f"Invalid cron expression: {body.schedule!r}")
+    if body.notify_via not in _NOTIFY_VIA_OPTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
     row = _routines.create(body.name, body.prompt, body.schedule, body.notify_via)
     _scheduler.reload_routine(row["id"])
     return row
@@ -267,6 +280,9 @@ def update_routine(routine_id: int, body: RoutineUpdate,
         except Exception:
             raise HTTPException(status_code=400,
                                 detail=f"Invalid cron: {updates['schedule']!r}")
+    if "notify_via" in updates and updates["notify_via"] not in _NOTIFY_VIA_OPTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
     row = _routines.update(routine_id, **updates)
     if row is None:
         raise HTTPException(status_code=404, detail="Routine not found.")
@@ -319,6 +335,21 @@ def update_permission(
     state = "enabled" if body.enabled else "disabled"
     return {"connector": connector, "label": label, "enabled": body.enabled,
             "message": f"{label} {state}."}
+
+
+@app.patch("/permissions/{connector}/config")
+def update_connector_config(
+    connector: str,
+    body: ConnectorConfig,
+    _token: str = Depends(_verify_token),
+):
+    """Update the brand/config for a connector."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    try:
+        permissions.set_config(connector, updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"connector": connector, "config": updates}
 
 
 @app.post("/health-ingest", status_code=201)
