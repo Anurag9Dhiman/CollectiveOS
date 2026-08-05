@@ -1,0 +1,10 @@
+.env
+.git
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+node_modules
+nginx/certbot
+token.pickle
