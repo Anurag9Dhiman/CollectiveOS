@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS connector_permissions (
 );
 
 INSERT INTO connector_permissions (connector) VALUES
+    ('memory'),
     ('google_calendar'),
     ('gmail'),
     ('google_drive'),
