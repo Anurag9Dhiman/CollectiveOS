@@ -46,10 +46,14 @@ from src.connectors.screen_capture import capture_screen
 from src.connectors import local_files as _fs
 from src.connectors import browser as _browser
 from src.connectors import apple_native as _apple
+from src.connectors import telegram_bot as _telegram
 from src.connectors import notion as _notion
 from src.connectors import github as _github
 from src.connectors import slack_bot as _slack
 from src.connectors import health as _health
+from src.connectors import car as _car
+from src.connectors import appliances as _appliances
+from src.connectors import finance as _finance
 from src import memory, router, permissions
 
 client = Anthropic()
@@ -137,6 +141,8 @@ TOOL_FUNCTIONS = {
     "notes_append":           _apple.notes_append,
     "clipboard_read":         _apple.clipboard_read,
     "clipboard_write":        _apple.clipboard_write,
+    "telegram_get_messages":  _telegram.get_messages,
+    "telegram_send":          _telegram.send_message,
     "notion_search":          _notion.notion_search,
     "notion_read_page":       _notion.notion_read_page,
     "notion_create_page":     _notion.notion_create_page,
@@ -152,6 +158,18 @@ TOOL_FUNCTIONS = {
     "health_get_sleep":       _health.health_get_sleep,
     "health_get_activity":    _health.health_get_activity,
     "health_get_readiness":   _health.health_get_readiness,
+    "car_get_status":         _car.car_get_status,
+    "car_lock":               _car.car_lock,
+    "car_climate":            _car.car_climate,
+    "appliances_list":        _appliances.appliances_list,
+    "appliances_get_status":  _appliances.appliances_get_status,
+    "appliances_control":     _appliances.appliances_control,
+    "health_get_sleep":             _health.health_get_sleep,
+    "health_get_activity":          _health.health_get_activity,
+    "health_get_readiness":         _health.health_get_readiness,
+    "finance_get_accounts":         _finance.finance_get_accounts,
+    "finance_get_transactions":     _finance.finance_get_transactions,
+    "finance_get_spending_summary": _finance.finance_get_spending_summary,
 }
 
 TOOLS = [
@@ -1083,6 +1101,65 @@ TOOLS = [
         },
     },
     # -----------------------------------------------------------------------
+    # Telegram
+    # -----------------------------------------------------------------------
+    {
+        "name": "telegram_get_messages",
+        "description": (
+            "Read recent messages sent to your Telegram bot. "
+            "Returns sender name, chat_id, and message text for each update. "
+            "Requires TELEGRAM_BOT_TOKEN in the environment."
+    # Finance (read-only)
+    # -----------------------------------------------------------------------
+    {
+        "name": "finance_get_accounts",
+        "description": (
+            "List connected bank and credit card accounts with real-time balances "
+            "(current and available). Requires Plaid setup."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "finance_get_transactions",
+        "description": (
+            "Fetch recent transactions from all connected accounts, sorted newest first. "
+            "Shows date, amount, merchant name, and spending category. "
+            "Optionally filter to a single account by its Plaid account ID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days of history to fetch. Defaults to 30.",
+                },
+                "account_id": {
+                    "type": "string",
+                    "description": "Optional Plaid account ID to filter to one account.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "finance_get_spending_summary",
+        "description": (
+            "Summarize spending by top-level Plaid category (Food and Drink, "
+            "Travel, Shopping, etc.) over the last N days. "
+            "Shows totals and percentage of overall spend per category."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "How many days to summarize. Defaults to 30.",
+                },
+            },
+            "required": [],
+        },
+    },
+    # -----------------------------------------------------------------------
     # Health
     # -----------------------------------------------------------------------
     {
@@ -1153,6 +1230,7 @@ TOOLS = [
             "properties": {
                 "limit": {
                     "type": "integer",
+                    "description": "Max number of messages to return (default 10).",
                     "description": "Max channels to return. Defaults to 30.",
                 },
             },
@@ -1160,6 +1238,13 @@ TOOLS = [
         },
     },
     {
+        "name": "telegram_send",
+        "description": (
+            "Send a Telegram message to a specific chat. "
+            "Always confirm the recipient chat_id and full message text "
+            "with the user before calling. "
+            "If TELEGRAM_CHAT_ID is set in .env, leave chat_id blank to "
+            "message the user directly."
         "name": "slack_read_messages",
         "description": (
             "Read recent messages from a Slack channel. "
@@ -1169,6 +1254,19 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "description": (
+                        "Telegram chat id to send to — visible in telegram_get_messages output. "
+                        "Leave blank to use the TELEGRAM_CHAT_ID env default."
+                    ),
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Message text to send (max 4096 chars).",
+                },
+            },
+            "required": ["text"],
                 "channel": {
                     "type": "string",
                     "description": "Channel name (with or without #) or Slack channel ID.",
@@ -1399,6 +1497,108 @@ TOOLS = [
                 },
             },
             "required": ["page_id", "content"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Car
+    # -----------------------------------------------------------------------
+    {
+        "name": "car_get_status",
+        "description": (
+            "Get the car's current status — battery/charge level, range, lock state, "
+            "climate on/off, inside/outside temperature, and GPS location. "
+            "Brand is selected in Settings ⚙ → Car."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "car_lock",
+        "description": (
+            "Lock or unlock the car doors remotely. "
+            "Always confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["lock", "unlock"],
+                    "description": "'lock' or 'unlock'.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "car_climate",
+        "description": (
+            "Start or stop climate pre-conditioning for the car. "
+            "Always confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop"],
+                    "description": "'start' or 'stop'.",
+                },
+                "temp_f": {
+                    "type": "number",
+                    "description": "Target temperature in Fahrenheit. Defaults to 70.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Smart Appliances
+    # -----------------------------------------------------------------------
+    {
+        "name": "appliances_list",
+        "description": (
+            "List all smart home appliances with their device IDs. "
+            "Heating appliances (washer, dryer, oven, microwave, cooktop) are marked "
+            "monitor-only and cannot be remotely started. "
+            "Brand is selected in Settings ⚙ → Smart Appliances."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "appliances_get_status",
+        "description": "Get the detailed status of a single appliance by its device ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {
+                    "type": "string",
+                    "description": "Device ID from appliances_list.",
+                },
+            },
+            "required": ["device_id"],
+        },
+    },
+    {
+        "name": "appliances_control",
+        "description": (
+            "Turn a smart appliance on or off. "
+            "Heating appliances are blocked from 'on' for safety. "
+            "Always confirm the device and command with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {
+                    "type": "string",
+                    "description": "Device ID from appliances_list.",
+                },
+                "command": {
+                    "type": "string",
+                    "enum": ["on", "off"],
+                    "description": "'on' or 'off'.",
+                },
+            },
+            "required": ["device_id", "command"],
         },
     },
 ]
