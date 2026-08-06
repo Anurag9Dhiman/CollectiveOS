@@ -58,6 +58,79 @@ def save(user_message: str, assistant_reply: str, source: str = "conversation") 
         conn.close()
 
 
+def save_fact(fact: str) -> None:
+    """Save an explicit user fact (preference, name, detail) to memory."""
+    embedding = _embed(fact)
+    now = datetime.datetime.utcnow()
+    conn = connect()
+    try:
+        user_id = default_user_id(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO memory_chunks (user_id, source, content, embedding, created_at) "
+                "VALUES (%s, 'fact', %s, %s, %s)",
+                (user_id, fact, embedding, now),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_facts() -> list[dict]:
+    """Return all explicitly saved facts, newest first."""
+    conn = connect()
+    try:
+        user_id = default_user_id(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, content, created_at FROM memory_chunks "
+                "WHERE user_id = %s AND source = 'fact' ORDER BY created_at DESC",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [
+        {"id": r[0], "content": r[1], "date": r[2].strftime("%Y-%m-%d") if r[2] else ""}
+        for r in rows
+    ]
+
+
+def delete_fact(query: str) -> str:
+    """
+    Delete the fact most semantically similar to *query*.
+    Returns the deleted content, or empty string if no facts exist.
+    """
+    embedding = _embed(query)
+    conn = connect()
+    try:
+        user_id = default_user_id(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, content FROM memory_chunks "
+                "WHERE user_id = %s AND source = 'fact' "
+                "ORDER BY embedding <=> %s::vector LIMIT 1",
+                (user_id, embedding),
+            )
+            row = cur.fetchone()
+            if not row:
+                return ""
+            chunk_id, content = row
+            cur.execute("DELETE FROM memory_chunks WHERE id = %s", (chunk_id,))
+        conn.commit()
+        return content
+    finally:
+        conn.close()
+
+
+def get_all_facts_str() -> str:
+    """Return all saved facts as a bullet list for injection into the system prompt."""
+    facts = list_facts()
+    if not facts:
+        return ""
+    return "\n".join(f"- {f['content']}" for f in facts)
+
+
 def search(query: str, limit: int = 3) -> str:
     """Return the most semantically similar past exchanges for the query."""
     embedding = _embed(query)

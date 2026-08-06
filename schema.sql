@@ -127,6 +127,7 @@ ALTER TABLE connector_permissions
     ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}';
 
 INSERT INTO connector_permissions (connector) VALUES
+    ('memory'),
     ('google_calendar'),
     ('gmail'),
     ('google_drive'),

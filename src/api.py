@@ -65,6 +65,7 @@ async def _lifespan(app: FastAPI):
 
 
 _READ_TOOLS = (
+    "memory_list, "
     "get_calendar_events, get_recent_emails, search_emails, list_drive_files, "
     "read_drive_file, get_tasks, get_projects, get_devices, get_device_state, "
     "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info, "
@@ -79,6 +80,7 @@ _READ_TOOLS = (
     "finance_get_accounts, finance_get_transactions, finance_get_spending_summary"
 )
 _WRITE_TOOLS = (
+    "memory_remember, memory_forget, "
     "create_event, create_draft, send_email, add_task, complete_task, update_task, "
     "control_device, set_light, spotify_control, spotify_set_volume, spotify_search_play, "
     "show_notification, open_application, set_system_volume, imessage_send, "
@@ -104,6 +106,9 @@ def _system_prompt(past: str = "") -> str:
         f"go-ahead such as 'yes', 'ok', 'do it', 'send it', 'confirm', or 'proceed'. "
         f"Never call a write/action tool without explicit user approval in this turn."
     )
+    facts = memory.get_all_facts_str()
+    if facts:
+        prompt += f"\n\nThings you know about the user (always keep in mind):\n{facts}"
     if past:
         prompt += "\n\nRelevant context from past conversations:\n" + past
     return prompt

@@ -63,12 +63,37 @@ MODEL = "claude-sonnet-4-6"
 # Tools
 # ---------------------------------------------------------------------------
 
+def memory_remember(fact: str) -> str:
+    """Save an explicit fact to long-term memory."""
+    memory.save_fact(fact)
+    return f"Got it — I've saved: {fact}"
+
+
+def memory_list() -> str:
+    """Return all explicitly saved facts."""
+    facts = memory.list_facts()
+    if not facts:
+        return "No facts saved yet."
+    return "\n".join(f"[{f['date']}] {f['content']}" for f in facts)
+
+
+def memory_forget(fact: str) -> str:
+    """Remove the saved fact most closely matching the given description."""
+    deleted = memory.delete_fact(fact)
+    if not deleted:
+        return "No matching fact found."
+    return f"Forgotten: {deleted}"
+
+
 def set_light(room: str, state: str) -> str:
     """Placeholder — replace body with a real Home Assistant call later."""
     return f"OK, the {room} light is now {state} (pretend action)."
 
 
 TOOL_FUNCTIONS = {
+    "memory_remember": memory_remember,
+    "memory_list":     memory_list,
+    "memory_forget":   memory_forget,
     "get_calendar_events": get_calendar_events,
     "create_event":        create_event,
     "get_recent_emails":   get_recent_emails,
@@ -148,6 +173,54 @@ TOOL_FUNCTIONS = {
 }
 
 TOOLS = [
+    # -----------------------------------------------------------------------
+    # Long-term memory
+    # -----------------------------------------------------------------------
+    {
+        "name": "memory_remember",
+        "description": (
+            "Save a fact, preference, or personal detail to long-term memory so it "
+            "is always available in future conversations. "
+            "Use when the user says 'remember that…', 'keep in mind that…', "
+            "'my X is Y', or gives you information they expect you to retain. "
+            "Always confirm what you saved."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact": {
+                    "type": "string",
+                    "description": "A concise statement of the fact to remember, e.g. "
+                                   "'User prefers dark roast coffee' or "
+                                   "'User's partner is named Alex'.",
+                },
+            },
+            "required": ["fact"],
+        },
+    },
+    {
+        "name": "memory_list",
+        "description": "List all facts that have been explicitly saved to long-term memory.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "memory_forget",
+        "description": (
+            "Remove a previously saved fact from long-term memory. "
+            "Use when the user says 'forget that…' or 'that's no longer true'. "
+            "Finds the closest matching saved fact and deletes it. Always confirm what was removed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact": {
+                    "type": "string",
+                    "description": "Description of the fact to forget — the closest match will be deleted.",
+                },
+            },
+            "required": ["fact"],
+        },
+    },
     {
         "name": "get_calendar_events",
         "description": "Get upcoming events from the user's primary Google Calendar.",
@@ -1545,7 +1618,7 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
     if categories:
         print(f"  [router: {', '.join(categories)}  →  {len(active_tools)}/{len(TOOLS)} tools]")
 
-    kwargs = dict(model=MODEL, max_tokens=1024, tools=active_tools, messages=messages)
+    kwargs = dict(model=MODEL, max_tokens=4096, tools=active_tools, messages=messages)
     if system:
         kwargs["system"] = system
 
@@ -1593,7 +1666,7 @@ def run_stream(user_message: str, system: str = "", history: list = []):
     if categories:
         yield f"_[routing: {', '.join(categories)}]_\n\n"
 
-    kwargs = dict(model=MODEL, max_tokens=1024, tools=active_tools, messages=messages)
+    kwargs = dict(model=MODEL, max_tokens=4096, tools=active_tools, messages=messages)
     if system:
         kwargs["system"] = system
 
