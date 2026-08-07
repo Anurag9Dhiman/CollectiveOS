@@ -28,6 +28,8 @@ SETUP (do this once):
 import datetime
 import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1607,10 +1609,65 @@ TOOLS = [
 # Agent loop — batch (CLI) and streaming (API) variants
 # ---------------------------------------------------------------------------
 
+MAX_LOOP = 10  # hard cap on tool-use iterations per user message
+
+# Substrings in exception class names that suggest a transient network fault
+_TRANSIENT_MARKERS = ("Timeout", "Connection", "Network", "Reset", "BrokenPipe")
+
+
+def _exec_tool(block) -> tuple[str, str]:
+    """
+    Execute one tool_use block and return (tool_use_id, output_string).
+
+    - Permission-blocked tools return an explanation string (not an exception).
+    - Unknown tool names return an [ERROR] string.
+    - Transient network exceptions are retried once after a 1-second pause.
+    - All other exceptions are caught and formatted as [ERROR: …] so the model
+      can decide whether to retry, ask the user, or give up gracefully.
+    """
+    allowed, err = permissions.check_tool(block.name)
+    if not allowed:
+        return block.id, err
+
+    func = TOOL_FUNCTIONS.get(block.name)
+    if func is None:
+        return block.id, f"[ERROR: unknown tool '{block.name}']"
+
+    for attempt in range(2):
+        try:
+            return block.id, str(func(**block.input))
+        except Exception as exc:
+            exc_type = type(exc).__name__
+            if attempt == 0 and any(m in exc_type for m in _TRANSIENT_MARKERS):
+                time.sleep(1)
+                continue
+            return block.id, f"[ERROR: {exc_type} — {exc}]"
+
+    return block.id, "[ERROR: unexpected retry exhaustion]"  # unreachable but satisfies mypy
+
+
+def _run_tools_parallel(tool_blocks: list) -> list[dict]:
+    """
+    Execute all tool_use blocks concurrently (up to 8 threads).
+    Results are returned in the same order as the input blocks so the
+    Anthropic API can match each result to its tool_use_id.
+    """
+    if not tool_blocks:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(tool_blocks), 8)) as pool:
+        pairs = list(pool.map(_exec_tool, tool_blocks))
+    return [
+        {"type": "tool_result", "tool_use_id": tool_id, "content": output}
+        for tool_id, output in pairs
+    ]
+
+
 def run(user_message: str, system: str = "", history: list = []) -> str:
     """Run one user message through the tool-use loop and return the full reply.
 
     history: prior [{"role": ..., "content": ...}] turns to prepend, oldest first.
+    Independent tool calls within a single turn are executed in parallel threads.
+    The loop is capped at MAX_LOOP iterations; if hit, a final answer is forced.
     """
     messages = history + [{"role": "user", "content": user_message}]
 
@@ -1622,7 +1679,7 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
     if system:
         kwargs["system"] = system
 
-    while True:
+    for _iter in range(MAX_LOOP):
         response = client.messages.create(**kwargs)
 
         if response.stop_reason != "tool_use":
@@ -1632,31 +1689,25 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
 
         messages.append({"role": "assistant", "content": response.content})
 
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                allowed, err = permissions.check_tool(block.name)
-                if not allowed:
-                    output = err
-                else:
-                    func   = TOOL_FUNCTIONS[block.name]
-                    output = func(**block.input)
-                print(f"  [tool: {block.name}({block.input})]")
-                tool_results.append({
-                    "type":        "tool_result",
-                    "tool_use_id": block.id,
-                    "content":     output,
-                })
+        tool_blocks = [b for b in response.content if b.type == "tool_use"]
+        for b in tool_blocks:
+            print(f"  [tool: {b.name}({b.input})]")
 
+        tool_results = _run_tools_parallel(tool_blocks)
         messages.append({"role": "user", "content": tool_results})
         kwargs["messages"] = messages
+
+    # Iteration cap reached — strip tools and force a final text answer
+    final = client.messages.create(**{**kwargs, "tools": []})
+    return "".join(b.text for b in final.content if b.type == "text") or \
+           "[Reached the iteration limit. Please try a more focused request.]"
 
 
 def run_stream(user_message: str, system: str = "", history: list = []):
     """
     Generator variant — yields text tokens as they arrive from the API.
-    Tool calls are executed synchronously between stream calls; a short
-    status line is yielded while tools run so the UI stays responsive.
+    Status lines are yielded before parallel tool execution so the UI stays
+    responsive. Capped at MAX_LOOP iterations; if hit, a final answer is forced.
 
     history: prior [{"role": ..., "content": ...}] turns to prepend, oldest first.
     """
@@ -1670,7 +1721,7 @@ def run_stream(user_message: str, system: str = "", history: list = []):
     if system:
         kwargs["system"] = system
 
-    while True:
+    for _iter in range(MAX_LOOP):
         with client.messages.stream(**kwargs) as stream:
             for token in stream.text_stream:
                 yield token
@@ -1681,26 +1732,22 @@ def run_stream(user_message: str, system: str = "", history: list = []):
 
         messages.append({"role": "assistant", "content": final.content})
 
-        tool_results = []
-        for block in final.content:
-            if block.type == "tool_use":
-                is_write = block.name in permissions.WRITE_TOOLS
-                marker = "ACTION" if is_write else "reading"
-                yield f"\n\n_[{marker}: {block.name}…]_\n\n"
-                allowed, err = permissions.check_tool(block.name)
-                if not allowed:
-                    output = err
-                else:
-                    func   = TOOL_FUNCTIONS[block.name]
-                    output = func(**block.input)
-                tool_results.append({
-                    "type":        "tool_result",
-                    "tool_use_id": block.id,
-                    "content":     output,
-                })
+        tool_blocks = [b for b in final.content if b.type == "tool_use"]
 
+        # Yield status markers for all tools before execution starts
+        for b in tool_blocks:
+            marker = "ACTION" if b.name in permissions.WRITE_TOOLS else "reading"
+            yield f"\n\n_[{marker}: {b.name}…]_\n\n"
+
+        tool_results = _run_tools_parallel(tool_blocks)
         messages.append({"role": "user", "content": tool_results})
         kwargs["messages"] = messages
+    else:
+        # for-loop exhausted without break — iteration cap reached
+        yield "\n\n_[iteration limit reached — summarising…]_\n\n"
+        with client.messages.stream(**{**kwargs, "tools": []}) as stream:
+            for token in stream.text_stream:
+                yield token
 
 # ---------------------------------------------------------------------------
 # Main loop
