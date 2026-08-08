@@ -181,15 +181,14 @@ INSERT INTO connector_permissions (connector) VALUES
     ('reminders'),
     ('notes'),
     ('clipboard'),
-    ('telegram')
+    ('telegram'),
     ('notion'),
     ('github'),
     ('slack'),
     ('health'),
     ('finance'),
     ('car'),
-    ('appliances'),
-    ('telegram')
+    ('appliances')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user

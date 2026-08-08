@@ -37,17 +37,6 @@ END $$;
 """
 
 
-_MIGRATE_NOTIFY_VIA = """
-DO $$
-BEGIN
-    ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_notify_via_check;
-    ALTER TABLE routines ADD CONSTRAINT routines_notify_via_check
-        CHECK (notify_via IN ('notification', 'none', 'telegram'));
-EXCEPTION WHEN others THEN NULL;
-END $$;
-"""
-
-
 def _bootstrap() -> None:
     try:
         conn = connect()

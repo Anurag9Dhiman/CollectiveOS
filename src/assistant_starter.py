@@ -56,7 +56,6 @@ from src.connectors import health as _health
 from src.connectors import finance as _finance
 from src.connectors import car as _car
 from src.connectors import appliances as _appliances
-from src.connectors import telegram_bot as _telegram
 from src import memory, graph_memory, router, permissions
 
 client = Anthropic()

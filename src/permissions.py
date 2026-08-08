@@ -44,7 +44,6 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "finance":         ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
     "car":             ["car_get_status", "car_lock", "car_climate"],
     "appliances":      ["appliances_list", "appliances_get_status", "appliances_control"],
-    "telegram":        ["telegram_get_messages", "telegram_send"],
 }
 
 # Reverse index: tool name → connector
@@ -75,7 +74,6 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "memory_remember", "memory_forget",
     "car_lock", "car_climate",
     "appliances_control",
-    "telegram_send",
 })
 
 CONNECTOR_LABELS: dict[str, str] = {
@@ -104,7 +102,6 @@ CONNECTOR_LABELS: dict[str, str] = {
     "finance":         "Finance",
     "car":             "Car",
     "appliances":      "Smart Appliances",
-    "telegram":        "Telegram",
 }
 
 # ---------------------------------------------------------------------------

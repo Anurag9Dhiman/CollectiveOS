@@ -33,14 +33,10 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "notion":    ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
     "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":     ["slack_list_channels", "slack_read_messages", "slack_send_message"],
-    "health":     ["health_get_sleep", "health_get_activity", "health_get_readiness"],
-    "car":        ["car_get_status", "car_lock", "car_climate"],
-    "appliances": ["appliances_list", "appliances_get_status", "appliances_control"],
     "health":    ["health_get_sleep", "health_get_activity", "health_get_readiness"],
     "finance":   ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
     "car":       ["car_get_status", "car_lock", "car_climate"],
     "appliances":["appliances_list", "appliances_get_status", "appliances_control"],
-    "telegram":  ["telegram_get_messages", "telegram_send"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
