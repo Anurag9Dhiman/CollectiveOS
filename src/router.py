@@ -13,7 +13,7 @@ ROUTER_MODEL = "claude-haiku-4-5-20251001"
 
 # Map intent category → tool names. Extend as connectors grow.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
-    "memory":   ["memory_remember", "memory_list", "memory_forget"],
+    "memory":   ["memory_remember", "memory_list", "memory_forget", "memory_graph_query"],
     "calendar": ["get_calendar_events", "create_event"],
     "email":    ["get_recent_emails", "search_emails", "create_draft", "send_email"],
     "drive":    ["list_drive_files", "read_drive_file"],
@@ -107,6 +107,10 @@ _EXAMPLES = (
     "  what do you remember about me → [\"memory\"]\n"
     "  forget that I said I was vegetarian → [\"memory\"]\n"
     "  what facts have you saved → [\"memory\"]\n"
+    "  what do you know about Alice → [\"memory\"]\n"
+    "  how is Alice related to the project → [\"memory\"]\n"
+    "  show me the knowledge graph for CollectiveOS → [\"memory\"]\n"
+    "  what connections do you see between Bob and the gym → [\"memory\"]\n"
 )
 
 _client: Anthropic | None = None

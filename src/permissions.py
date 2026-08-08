@@ -17,7 +17,7 @@ from src.db import connect
 # ---------------------------------------------------------------------------
 
 CONNECTOR_TOOLS: dict[str, list[str]] = {
-    "memory":          ["memory_remember", "memory_list", "memory_forget"],
+    "memory":          ["memory_remember", "memory_list", "memory_forget", "memory_graph_query"],
     "google_calendar": ["get_calendar_events", "create_event"],
     "gmail":           ["get_recent_emails", "search_emails", "create_draft", "send_email"],
     "google_drive":    ["list_drive_files", "read_drive_file"],

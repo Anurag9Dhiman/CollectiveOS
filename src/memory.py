@@ -37,7 +37,9 @@ def _embed(text: str) -> list[float]:
 # ---------------------------------------------------------------------------
 
 def save(user_message: str, assistant_reply: str, source: str = "conversation") -> None:
-    """Embed and persist one exchange to memory."""
+    """Embed and persist one exchange to memory, then trigger async entity extraction."""
+    from src import graph_memory as _gm
+
     content = f"User: {user_message}\nAssistant: {assistant_reply}"
     embedding = _embed(content)
     now = datetime.datetime.utcnow()
@@ -50,12 +52,16 @@ def save(user_message: str, assistant_reply: str, source: str = "conversation") 
                 """
                 INSERT INTO memory_chunks (user_id, source, content, embedding, created_at)
                 VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
                 """,
                 (user_id, source, content, embedding, now),
             )
+            chunk_id = cur.fetchone()[0]
         conn.commit()
     finally:
         conn.close()
+
+    _gm.trigger_async(chunk_id, content)
 
 
 def save_fact(fact: str) -> None:

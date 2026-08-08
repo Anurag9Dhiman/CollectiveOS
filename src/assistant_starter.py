@@ -52,7 +52,7 @@ from src.connectors import notion as _notion
 from src.connectors import github as _github
 from src.connectors import slack_bot as _slack
 from src.connectors import health as _health
-from src import memory, router, permissions
+from src import memory, graph_memory, router, permissions
 
 client = Anthropic()
 MODEL = "claude-sonnet-4-6"
@@ -83,15 +83,21 @@ def memory_forget(fact: str) -> str:
     return f"Forgotten: {deleted}"
 
 
+def memory_graph_query(entity: str) -> str:
+    """Look up an entity in the knowledge graph and return its relationships."""
+    return graph_memory.query_graph(entity)
+
+
 def set_light(room: str, state: str) -> str:
     """Placeholder — replace body with a real Home Assistant call later."""
     return f"OK, the {room} light is now {state} (pretend action)."
 
 
 TOOL_FUNCTIONS = {
-    "memory_remember": memory_remember,
-    "memory_list":     memory_list,
-    "memory_forget":   memory_forget,
+    "memory_remember":    memory_remember,
+    "memory_list":        memory_list,
+    "memory_forget":      memory_forget,
+    "memory_graph_query": memory_graph_query,
     "get_calendar_events": get_calendar_events,
     "create_event":        create_event,
     "get_recent_emails":   get_recent_emails,
@@ -203,6 +209,27 @@ TOOLS = [
                 },
             },
             "required": ["fact"],
+        },
+    },
+    {
+        "name": "memory_graph_query",
+        "description": (
+            "Query the knowledge graph for a person, project, place, or concept the assistant "
+            "has encountered in past conversations. Returns the entity's type, all known "
+            "relationships to other entities, and the conversations where it appeared. "
+            "Use when the user asks about connections between people or topics, "
+            "e.g. 'what do you know about Alice', 'how is Bob related to the project', "
+            "'show me everything about CollectiveOS'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entity": {
+                    "type": "string",
+                    "description": "Name of the entity to look up, e.g. 'Alice', 'CollectiveOS', 'gym'.",
+                },
+            },
+            "required": ["entity"],
         },
     },
     {

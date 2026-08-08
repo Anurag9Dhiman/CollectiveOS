@@ -89,6 +89,33 @@ CREATE INDEX IF NOT EXISTS memory_chunks_embedding_idx
     ON memory_chunks USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
 
+-- Knowledge graph — entities, mentions, and relationships extracted from conversations
+CREATE TABLE IF NOT EXISTS entities (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    entity_type TEXT NOT NULL DEFAULT 'concept',  -- person, place, project, organization, concept, product
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS entity_mentions (
+    id        SERIAL PRIMARY KEY,
+    entity_id INTEGER REFERENCES entities(id) ON DELETE CASCADE,
+    chunk_id  INTEGER REFERENCES memory_chunks(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(entity_id, chunk_id)
+);
+
+CREATE TABLE IF NOT EXISTS entity_relations (
+    id          SERIAL PRIMARY KEY,
+    entity_a_id INTEGER REFERENCES entities(id) ON DELETE CASCADE,
+    entity_b_id INTEGER REFERENCES entities(id) ON DELETE CASCADE,
+    relation    TEXT NOT NULL,
+    chunk_id    INTEGER REFERENCES memory_chunks(id) ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Scheduled routines — prompts that run automatically on a cron schedule
 CREATE TABLE IF NOT EXISTS routines (
     id          SERIAL PRIMARY KEY,
