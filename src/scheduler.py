@@ -95,6 +95,29 @@ def _send_notification(title: str, body: str) -> None:
         log.warning("Notification failed: %s", exc)
 
 
+def _send_telegram(title: str, body: str) -> None:
+    """Send routine result to the configured Telegram chat."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        log.warning("Telegram notify skipped — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
+        return
+
+    import requests
+
+    # Telegram messages: 4096 char limit; trim body so title + separator fits
+    max_body = 4000 - len(title) - 10
+    text = f"*{title}*\n\n{body[:max_body]}"
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("Telegram send failed: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------

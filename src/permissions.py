@@ -36,6 +36,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "reminders":       ["reminders_list", "reminders_add", "reminders_complete"],
     "notes":           ["notes_list", "notes_read", "notes_create", "notes_append"],
     "clipboard":       ["clipboard_read", "clipboard_write"],
+    "telegram":        ["telegram_get_messages", "telegram_send"],
     "notion":          ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
     "github":          ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":           ["slack_list_channels", "slack_read_messages", "slack_send_message"],
@@ -67,6 +68,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "reminders_add", "reminders_complete",
     "notes_create", "notes_append",
     "clipboard_write",
+    "telegram_send",
     "notion_create_page", "notion_append_to_page",
     "github_create_issue",
     "slack_send_message",
@@ -94,6 +96,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "notes":           "Notes",
     "clipboard":       "Clipboard",
     "memory":          "Long-term Memory",
+    "telegram":        "Telegram",
     "notion":          "Notion",
     "github":          "GitHub",
     "slack":           "Slack",
@@ -112,6 +115,7 @@ _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS connector_permissions (
     connector  TEXT PRIMARY KEY,
     enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    config     JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 """
