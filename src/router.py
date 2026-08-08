@@ -33,6 +33,10 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
     "slack":     ["slack_list_channels", "slack_read_messages", "slack_send_message"],
     "health":    ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "finance":   ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
+    "car":       ["car_get_status", "car_lock", "car_climate"],
+    "appliances":["appliances_list", "appliances_get_status", "appliances_control"],
+    "telegram":  ["telegram_get_messages", "telegram_send"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -111,6 +115,19 @@ _EXAMPLES = (
     "  how is Alice related to the project → [\"memory\"]\n"
     "  show me the knowledge graph for CollectiveOS → [\"memory\"]\n"
     "  what connections do you see between Bob and the gym → [\"memory\"]\n"
+    "  what's my bank balance → [\"finance\"]\n"
+    "  show my recent transactions → [\"finance\"]\n"
+    "  how much did I spend on food this month → [\"finance\"]\n"
+    "  what's my account balance → [\"finance\"]\n"
+    "  is my car locked → [\"car\"]\n"
+    "  lock the car → [\"car\"]\n"
+    "  turn on the car climate → [\"car\"]\n"
+    "  what's the charge level of my car → [\"car\"]\n"
+    "  list my smart appliances → [\"appliances\"]\n"
+    "  turn off the washing machine → [\"appliances\"]\n"
+    "  what's the status of my dryer → [\"appliances\"]\n"
+    "  check my Telegram messages → [\"telegram\"]\n"
+    "  send a Telegram message to John → [\"telegram\"]\n"
 )
 
 _client: Anthropic | None = None

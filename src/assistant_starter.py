@@ -52,6 +52,10 @@ from src.connectors import notion as _notion
 from src.connectors import github as _github
 from src.connectors import slack_bot as _slack
 from src.connectors import health as _health
+from src.connectors import finance as _finance
+from src.connectors import car as _car
+from src.connectors import appliances as _appliances
+from src.connectors import telegram_bot as _telegram
 from src import memory, graph_memory, router, permissions
 
 client = Anthropic()
@@ -160,6 +164,17 @@ TOOL_FUNCTIONS = {
     "health_get_sleep":       _health.health_get_sleep,
     "health_get_activity":    _health.health_get_activity,
     "health_get_readiness":   _health.health_get_readiness,
+    "finance_get_accounts":          _finance.finance_get_accounts,
+    "finance_get_transactions":      _finance.finance_get_transactions,
+    "finance_get_spending_summary":  _finance.finance_get_spending_summary,
+    "car_get_status":   _car.car_get_status,
+    "car_lock":         _car.car_lock,
+    "car_climate":      _car.car_climate,
+    "appliances_list":       _appliances.appliances_list,
+    "appliances_get_status": _appliances.appliances_get_status,
+    "appliances_control":    _appliances.appliances_control,
+    "telegram_get_messages": _telegram.get_messages,
+    "telegram_send":         _telegram.send_message,
 }
 
 TOOLS = [
@@ -1428,6 +1443,142 @@ TOOLS = [
                 },
             },
             "required": ["page_id", "content"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Finance (read-only)
+    # -----------------------------------------------------------------------
+    {
+        "name": "finance_get_accounts",
+        "description": "List all connected bank and credit card accounts with current balances.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "finance_get_transactions",
+        "description": "Get recent transactions for a specific account or all accounts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Plaid account ID (optional — omit for all accounts)."},
+                "days":       {"type": "integer", "description": "How many days back to fetch. Defaults to 30."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "finance_get_spending_summary",
+        "description": "Get a spending breakdown by category for the last N days.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "How many days back to summarise. Defaults to 30."},
+            },
+            "required": [],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Car
+    # -----------------------------------------------------------------------
+    {
+        "name": "car_get_status",
+        "description": "Get the current status of the user's car — charge level, lock state, climate, location.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "car_lock",
+        "description": (
+            "Lock or unlock the car. Requires explicit user confirmation before calling. "
+            "action must be 'lock' or 'unlock'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "description": "'lock' or 'unlock'."},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "car_climate",
+        "description": (
+            "Turn the car climate on or off, optionally setting a target temperature. "
+            "Requires explicit user confirmation. action must be 'on' or 'off'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "description": "'on' or 'off'."},
+                "temp_f": {"type": "number",  "description": "Target temperature in Fahrenheit (optional)."},
+            },
+            "required": ["action"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Smart Appliances
+    # -----------------------------------------------------------------------
+    {
+        "name": "appliances_list",
+        "description": "List all smart appliances / devices connected via SmartThings or LG ThinQ.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "appliances_get_status",
+        "description": "Get the current state of a specific smart appliance by device ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {"type": "string", "description": "SmartThings device ID."},
+            },
+            "required": ["device_id"],
+        },
+    },
+    {
+        "name": "appliances_control",
+        "description": (
+            "Send a command to a smart appliance. Requires explicit user confirmation. "
+            "Heating appliances (microwave, cooktop, washer) can only be turned off — "
+            "never started remotely. command is typically 'on', 'off', or a JSON dict."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_id": {"type": "string", "description": "SmartThings device ID."},
+                "command":   {"type": "string", "description": "'on', 'off', or a capability command."},
+            },
+            "required": ["device_id", "command"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Telegram bot (polling)
+    # -----------------------------------------------------------------------
+    {
+        "name": "telegram_get_messages",
+        "description": (
+            "Read recent messages sent to the Telegram bot. "
+            "Returns sender name, chat ID, and message text. "
+            "Use to proactively check for incoming Telegram messages."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max messages to return. Defaults to 10."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "telegram_send",
+        "description": (
+            "Send a Telegram message to a specific chat ID or to the configured default chat. "
+            "Requires explicit user confirmation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Message text (Markdown supported)."},
+                "chat_id": {"type": "string", "description": "Target chat ID (optional — uses TELEGRAM_CHAT_ID env var if omitted)."},
+            },
+            "required": ["message"],
         },
     },
 ]

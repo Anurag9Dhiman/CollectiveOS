@@ -51,12 +51,33 @@ def _run_routine(routine_id: int, name: str, prompt: str, notify_via: str) -> No
 
     if notify_via == "notification":
         _send_notification(name, result)
+    elif notify_via == "telegram":
+        _send_telegram(name, result)
+
+
+def _send_telegram(title: str, body: str) -> None:
+    """Send routine result to the configured Telegram chat."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        log.warning("Telegram notify skipped — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
+        return
+    import requests
+    max_body = 4000 - len(title) - 10
+    text = f"*{title}*\n\n{body[:max_body]}"
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("Telegram send failed: %s", exc)
 
 
 def _send_notification(title: str, body: str) -> None:
     import platform
     import subprocess
-    import shlex
 
     if platform.system() != "Darwin":
         return

@@ -140,14 +140,28 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
     UNIQUE (date, source)
 );
 
+-- Scheduled routines: widen notify_via CHECK to include 'telegram' on existing DBs
+DO $$
+BEGIN
+    ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_notify_via_check;
+    ALTER TABLE routines ADD CONSTRAINT routines_notify_via_check
+        CHECK (notify_via IN ('notification', 'none', 'telegram'));
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
 -- Per-connector permission toggles
 -- Seeded with all connectors enabled by default.
 -- permissions.py creates this table at runtime too (for existing deployments).
 CREATE TABLE IF NOT EXISTS connector_permissions (
     connector  TEXT PRIMARY KEY,
     enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    config     JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add config column to existing deployments
+ALTER TABLE connector_permissions
+    ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}';
 
 INSERT INTO connector_permissions (connector) VALUES
     ('memory'),
@@ -170,7 +184,11 @@ INSERT INTO connector_permissions (connector) VALUES
     ('notion'),
     ('github'),
     ('slack'),
-    ('health')
+    ('health'),
+    ('finance'),
+    ('car'),
+    ('appliances'),
+    ('telegram')
 ON CONFLICT (connector) DO NOTHING;
 
 -- Seed the single default user
