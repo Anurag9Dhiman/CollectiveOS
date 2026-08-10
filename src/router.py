@@ -13,7 +13,7 @@ ROUTER_MODEL = "claude-haiku-4-5-20251001"
 
 # Map intent category → tool names. Extend as connectors grow.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
-    "memory":   ["memory_remember", "memory_list", "memory_forget", "memory_graph_query"],
+    "memory":   ["memory_remember", "memory_list", "memory_forget", "memory_graph_query", "usage_summary"],
     "calendar": ["get_calendar_events", "create_event"],
     "email":    ["get_recent_emails", "search_emails", "create_draft", "send_email"],
     "drive":    ["list_drive_files", "read_drive_file"],
@@ -109,6 +109,10 @@ _EXAMPLES = (
     "  show my step count for the last 7 days → [\"health\"]\n"
     "  what's my readiness score today → [\"health\"]\n"
     "  how is my recovery looking → [\"health\"]\n"
+    "  how much have I spent on the API today → [\"memory\"]\n"
+    "  what's my API cost this week → [\"memory\"]\n"
+    "  which tools are slowest → [\"memory\"]\n"
+    "  show my usage summary → [\"memory\"]\n"
     "  remember that I prefer dark roast coffee → [\"memory\"]\n"
     "  remember my gym schedule is Monday Wednesday Friday → [\"memory\"]\n"
     "  what do you remember about me → [\"memory\"]\n"
@@ -157,6 +161,11 @@ def select_tools(user_message: str, all_tools: list[dict]) -> tuple[list[dict], 
             system=_SYSTEM + "\n\n" + _EXAMPLES,
             messages=[{"role": "user", "content": user_message}],
         )
+        try:
+            from src import observability as _obs
+            _obs.log_api_call(ROUTER_MODEL, resp.usage.input_tokens, resp.usage.output_tokens, source="router")
+        except Exception:
+            pass
         raw = resp.content[0].text.strip()
         categories: list[str] = json.loads(raw)
         # Ignore any category names not in our map

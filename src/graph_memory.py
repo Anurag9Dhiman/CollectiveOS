@@ -102,6 +102,11 @@ def extract_entities(text: str) -> dict:
             system=_SYSTEM,
             messages=[{"role": "user", "content": text[:2000]}],
         )
+        try:
+            from src import observability as _obs
+            _obs.log_api_call(_EXTRACT_MODEL, resp.usage.input_tokens, resp.usage.output_tokens, source="graph_memory")
+        except Exception:
+            pass
         raw = resp.content[0].text.strip()
         return json.loads(raw)
     except Exception:

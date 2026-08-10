@@ -116,6 +116,26 @@ CREATE TABLE IF NOT EXISTS entity_relations (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Observability — API token usage and tool execution latency
+CREATE TABLE IF NOT EXISTS api_usage (
+    id            SERIAL PRIMARY KEY,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    model         TEXT NOT NULL,
+    source        TEXT NOT NULL DEFAULT 'chat',
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd      NUMERIC(10, 6) NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id         SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    tool_name  TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    success    BOOLEAN NOT NULL DEFAULT TRUE,
+    error_type TEXT
+);
+
 -- Scheduled routines — prompts that run automatically on a cron schedule
 CREATE TABLE IF NOT EXISTS routines (
     id          SERIAL PRIMARY KEY,

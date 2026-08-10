@@ -56,7 +56,7 @@ from src.connectors import health as _health
 from src.connectors import finance as _finance
 from src.connectors import car as _car
 from src.connectors import appliances as _appliances
-from src import memory, graph_memory, router, permissions
+from src import memory, graph_memory, router, permissions, observability as _obs
 
 client = Anthropic()
 MODEL = "claude-sonnet-4-6"
@@ -92,6 +92,11 @@ def memory_graph_query(entity: str) -> str:
     return graph_memory.query_graph(entity)
 
 
+def usage_summary(days: int = 1) -> str:
+    """Return API cost and tool latency report for the last N days."""
+    return _obs.usage_summary(days)
+
+
 def set_light(room: str, state: str) -> str:
     """Placeholder — replace body with a real Home Assistant call later."""
     return f"OK, the {room} light is now {state} (pretend action)."
@@ -102,6 +107,7 @@ TOOL_FUNCTIONS = {
     "memory_list":        memory_list,
     "memory_forget":      memory_forget,
     "memory_graph_query": memory_graph_query,
+    "usage_summary":      usage_summary,
     "get_calendar_events": get_calendar_events,
     "create_event":        create_event,
     "get_recent_emails":   get_recent_emails,
@@ -247,6 +253,25 @@ TOOLS = [
                 },
             },
             "required": ["entity"],
+        },
+    },
+    {
+        "name": "usage_summary",
+        "description": (
+            "Return a summary of API token usage and estimated cost for the last N days, "
+            "plus latency and success rate for the most-called tools. "
+            "Use when the user asks 'how much have I spent today?', 'what's my API cost this week?', "
+            "'which tools are slowest?', or any question about assistant usage or cost."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days to look back. Default is 1 (today).",
+                },
+            },
+            "required": [],
         },
     },
     {
@@ -1693,14 +1718,18 @@ def _exec_tool(block) -> tuple[str, str]:
     if func is None:
         return block.id, f"[ERROR: unknown tool '{block.name}']"
 
+    t0 = time.monotonic()
     for attempt in range(2):
         try:
-            return block.id, str(func(**block.input))
+            result = str(func(**block.input))
+            _obs.log_tool_call(block.name, int((time.monotonic() - t0) * 1000), success=True)
+            return block.id, result
         except Exception as exc:
             exc_type = type(exc).__name__
             if attempt == 0 and any(m in exc_type for m in _TRANSIENT_MARKERS):
                 time.sleep(1)
                 continue
+            _obs.log_tool_call(block.name, int((time.monotonic() - t0) * 1000), success=False, error_type=exc_type)
             return block.id, f"[ERROR: {exc_type} — {exc}]"
 
     return block.id, "[ERROR: unexpected retry exhaustion]"  # unreachable but satisfies mypy
@@ -1741,6 +1770,7 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
 
     for _iter in range(MAX_LOOP):
         response = client.messages.create(**kwargs)
+        _obs.log_api_call(MODEL, response.usage.input_tokens, response.usage.output_tokens)
 
         if response.stop_reason != "tool_use":
             return "".join(
@@ -1759,6 +1789,7 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
 
     # Iteration cap reached — strip tools and force a final text answer
     final = client.messages.create(**{**kwargs, "tools": []})
+    _obs.log_api_call(MODEL, final.usage.input_tokens, final.usage.output_tokens)
     return "".join(b.text for b in final.content if b.type == "text") or \
            "[Reached the iteration limit. Please try a more focused request.]"
 
@@ -1786,6 +1817,7 @@ def run_stream(user_message: str, system: str = "", history: list = []):
             for token in stream.text_stream:
                 yield token
             final = stream.get_final_message()
+        _obs.log_api_call(MODEL, final.usage.input_tokens, final.usage.output_tokens)
 
         if final.stop_reason != "tool_use":
             break
@@ -1808,6 +1840,8 @@ def run_stream(user_message: str, system: str = "", history: list = []):
         with client.messages.stream(**{**kwargs, "tools": []}) as stream:
             for token in stream.text_stream:
                 yield token
+            _forced = stream.get_final_message()
+        _obs.log_api_call(MODEL, _forced.usage.input_tokens, _forced.usage.output_tokens)
 
 # ---------------------------------------------------------------------------
 # Main loop
