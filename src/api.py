@@ -52,12 +52,14 @@ from typing import Optional, List
 from src.assistant_starter import run, run_stream
 from src import conversations, memory, permissions, routines as _routines
 from src import scheduler as _scheduler
+from src import observability as _obs
 
 _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    _obs.configure_logging()
     _scheduler.load_all()
     _scheduler.start()
     yield
