@@ -37,6 +37,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "finance":   ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
     "car":       ["car_get_status", "car_lock", "car_climate"],
     "appliances":["appliances_list", "appliances_get_status", "appliances_control"],
+    "ai":        ["ai_ask", "ai_compare"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -133,6 +134,11 @@ _EXAMPLES = (
     "  list my smart appliances → [\"appliances\"]\n"
     "  turn off the washing machine → [\"appliances\"]\n"
     "  what's the status of my dryer → [\"appliances\"]\n"
+    "  ask ChatGPT to explain quantum computing → [\"ai\"]\n"
+    "  what does Grok think about climate change → [\"ai\"]\n"
+    "  compare what GPT and Gemini say about Python → [\"ai\"]\n"
+    "  ask all AIs about the meaning of life → [\"ai\"]\n"
+    "  get Gemini to write a haiku → [\"ai\"]\n"
     "  check my Telegram messages → [\"telegram\"]\n"
     "  send a Telegram message to John → [\"telegram\"]\n"
 )

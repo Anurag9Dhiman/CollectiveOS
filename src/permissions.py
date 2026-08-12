@@ -44,6 +44,7 @@ CONNECTOR_TOOLS: dict[str, list[str]] = {
     "finance":         ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
     "car":             ["car_get_status", "car_lock", "car_climate"],
     "appliances":      ["appliances_list", "appliances_get_status", "appliances_control"],
+    "ai_models":       ["ai_ask", "ai_compare"],
 }
 
 # Reverse index: tool name → connector
@@ -102,6 +103,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "finance":         "Finance",
     "car":             "Car",
     "appliances":      "Smart Appliances",
+    "ai_models":       "AI Models",
 }
 
 # ---------------------------------------------------------------------------
