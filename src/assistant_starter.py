@@ -56,6 +56,7 @@ from src.connectors import health as _health
 from src.connectors import finance as _finance
 from src.connectors import car as _car
 from src.connectors import appliances as _appliances
+from src.connectors import ai_models as _ai
 from src import memory, graph_memory, router, permissions, observability as _obs
 
 client = Anthropic()
@@ -108,6 +109,8 @@ TOOL_FUNCTIONS = {
     "memory_forget":      memory_forget,
     "memory_graph_query": memory_graph_query,
     "usage_summary":      usage_summary,
+    "ai_ask":             _ai.ai_ask,
+    "ai_compare":         _ai.ai_compare,
     "get_calendar_events": get_calendar_events,
     "create_event":        create_event,
     "get_recent_emails":   get_recent_emails,
@@ -272,6 +275,56 @@ TOOLS = [
                 },
             },
             "required": [],
+        },
+    },
+    {
+        "name": "ai_ask",
+        "description": (
+            "Send a prompt to a specific external AI model and return its response. "
+            "Use when the user wants to ask ChatGPT, Grok, Gemini, or Claude a specific question, "
+            "e.g. 'ask ChatGPT to explain quantum computing', 'what does Grok think about X', "
+            "'get Gemini to write a poem'. model must be one of: chatgpt, claude, grok, gemini."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": "AI model to query. One of: chatgpt, claude, grok, gemini.",
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "The question or instruction to send to the model.",
+                },
+                "system": {
+                    "type": "string",
+                    "description": "Optional system prompt / persona to set for the model.",
+                },
+            },
+            "required": ["model", "prompt"],
+        },
+    },
+    {
+        "name": "ai_compare",
+        "description": (
+            "Send the same prompt to all configured AI models (ChatGPT, Claude, Grok, Gemini) "
+            "simultaneously and return a side-by-side comparison of their responses. "
+            "Use when the user says 'compare AI opinions on X', 'what do different AIs think about Y', "
+            "'ask all models about Z'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The question or task to send to all models.",
+                },
+                "system": {
+                    "type": "string",
+                    "description": "Optional system prompt to apply to all models.",
+                },
+            },
+            "required": ["prompt"],
         },
     },
     {

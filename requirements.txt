@@ -12,3 +12,5 @@ spotipy>=2.23.0
 tavily-python>=0.3.0
 apscheduler>=3.10.0
 structlog>=24.0.0
+openai>=1.0.0
+google-generativeai>=0.8.0
