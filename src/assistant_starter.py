@@ -1,13 +1,7 @@
 """
 assistant_starter.py
 ---------------------
-Personal-assistant agent loop with:
-  - Google Calendar  (read upcoming events)
-  - Gmail            (read inbox, search emails)
-  - Google Drive     (list and read files)
-  - Todoist          (list tasks, projects; add tasks)
-  - Home Assistant   (read device states, control lights/switches)
-  - Postgres memory  (semantic search via pgvector)
+Personal-assistant agent loop powered by Google Gemini with tool use.
 
 Pattern:
     retrieve relevant memory
@@ -18,11 +12,8 @@ Pattern:
 
 SETUP (do this once):
     1. pip install -r requirements.txt
-    2. Follow Google Cloud setup in src/connectors/google_auth.py docstring,
-       save credentials.json (Desktop app type) in the repo root.
-    3. export ANTHROPIC_API_KEY="sk-ant-..."
-    4. python src/assistant_starter.py
-       (first run opens a browser for Google OAuth — grants Calendar + Gmail)
+    2. export GEMINI_API_KEY="AIza..."
+    3. python src/assistant_starter.py
 """
 
 import datetime
@@ -33,7 +24,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from anthropic import Anthropic
+import google.generativeai as genai
+
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 from src.connectors.google_calendar import get_calendar_events, create_event
 from src.connectors.gmail import get_recent_emails, search_emails, create_draft, send_email
@@ -59,8 +52,7 @@ from src.connectors import appliances as _appliances
 from src.connectors import ai_models as _ai
 from src import memory, graph_memory, router, permissions, observability as _obs
 
-client = Anthropic()
-MODEL = "claude-sonnet-4-6"
+MODEL = "gemini-2.0-flash"
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -898,10 +890,10 @@ TOOLS = [
         "name": "capture_screen",
         "description": (
             "Take a screenshot of the current Mac screen and analyse it using "
-            "Claude's vision. Use this when the user asks about something on their "
+            "Gemini's vision. Use this when the user asks about something on their "
             "screen — an error message, the current app state, a piece of UI, code "
             "they are looking at, or any visible text. "
-            "The screenshot is sent to Anthropic's API for analysis and then deleted."
+            "The screenshot is sent to Google's API for analysis and then deleted."
         ),
         "input_schema": {
             "type": "object",
@@ -1744,157 +1736,254 @@ TOOLS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Gemini tool schema converters
+# ---------------------------------------------------------------------------
+
+def _json_schema_to_gemini(schema: dict) -> genai.protos.Schema:
+    """Recursively convert a JSON Schema dict to a Gemini protos.Schema."""
+    type_map = {
+        "string":  genai.protos.Type.STRING,
+        "number":  genai.protos.Type.NUMBER,
+        "integer": genai.protos.Type.INTEGER,
+        "boolean": genai.protos.Type.BOOLEAN,
+        "array":   genai.protos.Type.ARRAY,
+        "object":  genai.protos.Type.OBJECT,
+    }
+    raw_type = schema.get("type", "string")
+    t = type_map.get(raw_type.lower() if isinstance(raw_type, str) else "string",
+                     genai.protos.Type.STRING)
+
+    kwargs: dict = {"type": t, "description": schema.get("description", "")}
+
+    if t == genai.protos.Type.OBJECT:
+        props = {
+            k: _json_schema_to_gemini(v)
+            for k, v in schema.get("properties", {}).items()
+        }
+        if props:
+            kwargs["properties"] = props
+        if schema.get("required"):
+            kwargs["required"] = list(schema["required"])
+
+    elif t == genai.protos.Type.ARRAY and "items" in schema:
+        kwargs["items"] = _json_schema_to_gemini(schema["items"])
+
+    if "enum" in schema:
+        kwargs["enum"] = [str(e) for e in schema["enum"]]
+
+    return genai.protos.Schema(**kwargs)
+
+
+def _to_gemini_tools(anthropic_tools: list[dict]) -> list:
+    """Convert the Anthropic tool-spec list to a Gemini Tool proto list."""
+    if not anthropic_tools:
+        return []
+    declarations = []
+    for tool in anthropic_tools:
+        schema = tool.get("input_schema", {"type": "object", "properties": {}})
+        declarations.append(genai.protos.FunctionDeclaration(
+            name=tool["name"],
+            description=tool.get("description", ""),
+            parameters=_json_schema_to_gemini(schema),
+        ))
+    return [genai.protos.Tool(function_declarations=declarations)]
+
+
+def _convert_history(anthropic_history: list[dict]) -> list[dict]:
+    """Convert Anthropic-format message history to Gemini format."""
+    gemini = []
+    for msg in anthropic_history:
+        role = "model" if msg["role"] == "assistant" else "user"
+        content = msg["content"]
+        if isinstance(content, str):
+            gemini.append({"role": role, "parts": [{"text": content}]})
+        elif isinstance(content, list):
+            texts = [
+                b.get("text", "")
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            if texts:
+                gemini.append({"role": role, "parts": [{"text": " ".join(texts)}]})
+    return gemini
+
+
+# ---------------------------------------------------------------------------
 # Agent loop — batch (CLI) and streaming (API) variants
 # ---------------------------------------------------------------------------
 
 MAX_LOOP = 10  # hard cap on tool-use iterations per user message
 
-# Substrings in exception class names that suggest a transient network fault
 _TRANSIENT_MARKERS = ("Timeout", "Connection", "Network", "Reset", "BrokenPipe")
 
 
-def _exec_tool(block) -> tuple[str, str]:
+def _exec_tool_fn(name: str, args: dict) -> str:
     """
-    Execute one tool_use block and return (tool_use_id, output_string).
-
-    - Permission-blocked tools return an explanation string (not an exception).
-    - Unknown tool names return an [ERROR] string.
-    - Transient network exceptions are retried once after a 1-second pause.
-    - All other exceptions are caught and formatted as [ERROR: …] so the model
-      can decide whether to retry, ask the user, or give up gracefully.
+    Execute a single tool by name+args and return its string output.
+    Permission checks, retries on transient errors, and observability logging
+    are all handled here. Errors are returned as [ERROR: ...] strings so the
+    model can decide what to do rather than crashing the loop.
     """
-    allowed, err = permissions.check_tool(block.name)
+    allowed, err = permissions.check_tool(name)
     if not allowed:
-        return block.id, err
+        return err
 
-    func = TOOL_FUNCTIONS.get(block.name)
+    func = TOOL_FUNCTIONS.get(name)
     if func is None:
-        return block.id, f"[ERROR: unknown tool '{block.name}']"
+        return f"[ERROR: unknown tool '{name}']"
 
     t0 = time.monotonic()
     for attempt in range(2):
         try:
-            result = str(func(**block.input))
-            _obs.log_tool_call(block.name, int((time.monotonic() - t0) * 1000), success=True)
-            return block.id, result
+            result = str(func(**args))
+            _obs.log_tool_call(name, int((time.monotonic() - t0) * 1000), success=True)
+            return result
         except Exception as exc:
             exc_type = type(exc).__name__
             if attempt == 0 and any(m in exc_type for m in _TRANSIENT_MARKERS):
                 time.sleep(1)
                 continue
-            _obs.log_tool_call(block.name, int((time.monotonic() - t0) * 1000), success=False, error_type=exc_type)
-            return block.id, f"[ERROR: {exc_type} — {exc}]"
+            _obs.log_tool_call(name, int((time.monotonic() - t0) * 1000),
+                               success=False, error_type=exc_type)
+            return f"[ERROR: {exc_type} — {exc}]"
 
-    return block.id, "[ERROR: unexpected retry exhaustion]"  # unreachable but satisfies mypy
+    return "[ERROR: unexpected retry exhaustion]"
 
 
-def _run_tools_parallel(tool_blocks: list) -> list[dict]:
-    """
-    Execute all tool_use blocks concurrently (up to 8 threads).
-    Results are returned in the same order as the input blocks so the
-    Anthropic API can match each result to its tool_use_id.
-    """
-    if not tool_blocks:
+def _exec_one_gemini(fc: genai.protos.FunctionCall) -> genai.protos.Part:
+    """Execute a Gemini FunctionCall and wrap the result in a FunctionResponse Part."""
+    result = _exec_tool_fn(fc.name, dict(fc.args))
+    return genai.protos.Part(
+        function_response=genai.protos.FunctionResponse(
+            name=fc.name,
+            response={"result": result},
+        )
+    )
+
+
+def _run_tools_parallel_gemini(fn_calls: list) -> list:
+    """Execute all Gemini FunctionCall objects concurrently (up to 8 threads)."""
+    if not fn_calls:
         return []
-    with ThreadPoolExecutor(max_workers=min(len(tool_blocks), 8)) as pool:
-        pairs = list(pool.map(_exec_tool, tool_blocks))
+    with ThreadPoolExecutor(max_workers=min(len(fn_calls), 8)) as pool:
+        parts = list(pool.map(_exec_one_gemini, fn_calls))
+    return parts
+
+
+def _gemini_fn_calls(response) -> list:
+    """Extract all FunctionCall objects from a Gemini response."""
     return [
-        {"type": "tool_result", "tool_use_id": tool_id, "content": output}
-        for tool_id, output in pairs
+        part.function_call
+        for part in response.parts
+        if part.function_call and part.function_call.name
     ]
 
 
 def run(user_message: str, system: str = "", history: list = []) -> str:
-    """Run one user message through the tool-use loop and return the full reply.
+    """Run one user message through the Gemini tool-use loop; return the full reply.
 
-    history: prior [{"role": ..., "content": ...}] turns to prepend, oldest first.
-    Independent tool calls within a single turn are executed in parallel threads.
-    The loop is capped at MAX_LOOP iterations; if hit, a final answer is forced.
+    history: prior turns in Anthropic format — converted automatically.
+    Independent tool calls within a single turn execute in parallel threads.
+    Capped at MAX_LOOP iterations; if hit, returns whatever text is available.
     """
-    messages = history + [{"role": "user", "content": user_message}]
-
     active_tools, categories = router.select_tools(user_message, TOOLS)
     if categories:
         print(f"  [router: {', '.join(categories)}  →  {len(active_tools)}/{len(TOOLS)} tools]")
 
-    kwargs = dict(model=MODEL, max_tokens=4096, tools=active_tools, messages=messages)
-    if system:
-        kwargs["system"] = system
+    model = genai.GenerativeModel(
+        MODEL,
+        tools=_to_gemini_tools(active_tools) or None,
+        system_instruction=system or None,
+    )
+    chat = model.start_chat(history=_convert_history(history))
+
+    # First message is the user string; subsequent messages are FunctionResponse parts
+    message = user_message
 
     for _iter in range(MAX_LOOP):
-        response = client.messages.create(**kwargs)
-        _obs.log_api_call(MODEL, response.usage.input_tokens, response.usage.output_tokens)
+        response = chat.send_message(message)
 
-        if response.stop_reason != "tool_use":
-            return "".join(
-                block.text for block in response.content if block.type == "text"
+        if response.usage_metadata:
+            _obs.log_api_call(
+                MODEL,
+                response.usage_metadata.prompt_token_count,
+                response.usage_metadata.candidates_token_count,
             )
 
-        messages.append({"role": "assistant", "content": response.content})
+        fn_calls = _gemini_fn_calls(response)
+        if not fn_calls:
+            return response.text or ""
 
-        tool_blocks = [b for b in response.content if b.type == "tool_use"]
-        for b in tool_blocks:
-            print(f"  [tool: {b.name}({b.input})]")
+        for fc in fn_calls:
+            print(f"  [tool: {fc.name}({dict(fc.args)})]")
 
-        tool_results = _run_tools_parallel(tool_blocks)
-        messages.append({"role": "user", "content": tool_results})
-        kwargs["messages"] = messages
+        message = _run_tools_parallel_gemini(fn_calls)
 
-    # Iteration cap reached — strip tools and force a final text answer
-    final = client.messages.create(**{**kwargs, "tools": []})
-    _obs.log_api_call(MODEL, final.usage.input_tokens, final.usage.output_tokens)
-    return "".join(b.text for b in final.content if b.type == "text") or \
-           "[Reached the iteration limit. Please try a more focused request.]"
+    return response.text or "[Reached the iteration limit. Please try a more focused request.]"
 
 
 def run_stream(user_message: str, system: str = "", history: list = []):
     """
-    Generator variant — yields text tokens as they arrive from the API.
-    Status lines are yielded before parallel tool execution so the UI stays
-    responsive. Capped at MAX_LOOP iterations; if hit, a final answer is forced.
+    Generator — yields text tokens as they arrive, then executes any tool calls
+    and continues. Status markers are yielded before tool execution so the UI
+    stays responsive. Capped at MAX_LOOP iterations.
 
-    history: prior [{"role": ..., "content": ...}] turns to prepend, oldest first.
+    history: prior turns in Anthropic format — converted automatically.
     """
-    messages = history + [{"role": "user", "content": user_message}]
-
     active_tools, categories = router.select_tools(user_message, TOOLS)
     if categories:
         yield f"_[routing: {', '.join(categories)}]_\n\n"
 
-    kwargs = dict(model=MODEL, max_tokens=4096, tools=active_tools, messages=messages)
-    if system:
-        kwargs["system"] = system
+    model = genai.GenerativeModel(
+        MODEL,
+        tools=_to_gemini_tools(active_tools) or None,
+        system_instruction=system or None,
+    )
+    chat = model.start_chat(history=_convert_history(history))
+
+    message = user_message
 
     for _iter in range(MAX_LOOP):
-        with client.messages.stream(**kwargs) as stream:
-            for token in stream.text_stream:
-                yield token
-            final = stream.get_final_message()
-        _obs.log_api_call(MODEL, final.usage.input_tokens, final.usage.output_tokens)
+        fn_calls: list = []
+        last_chunk = None
 
-        if final.stop_reason != "tool_use":
+        response = chat.send_message(message, stream=True)
+        for chunk in response:
+            if chunk.text:
+                yield chunk.text
+            last_chunk = chunk
+            for part in chunk.parts:
+                if part.function_call and part.function_call.name:
+                    fn_calls.append(part.function_call)
+
+        # Log usage from the final chunk
+        try:
+            if last_chunk and last_chunk.usage_metadata:
+                _obs.log_api_call(
+                    MODEL,
+                    last_chunk.usage_metadata.prompt_token_count,
+                    last_chunk.usage_metadata.candidates_token_count,
+                )
+        except Exception:
+            pass
+
+        if not fn_calls:
             break
 
-        messages.append({"role": "assistant", "content": final.content})
+        for fc in fn_calls:
+            marker = "ACTION" if fc.name in permissions.WRITE_TOOLS else "reading"
+            yield f"\n\n_[{marker}: {fc.name}...]_\n\n"
 
-        tool_blocks = [b for b in final.content if b.type == "tool_use"]
-
-        # Yield status markers for all tools before execution starts
-        for b in tool_blocks:
-            marker = "ACTION" if b.name in permissions.WRITE_TOOLS else "reading"
-            yield f"\n\n_[{marker}: {b.name}…]_\n\n"
-
-        tool_results = _run_tools_parallel(tool_blocks)
-        messages.append({"role": "user", "content": tool_results})
-        kwargs["messages"] = messages
+        message = _run_tools_parallel_gemini(fn_calls)
     else:
-        # for-loop exhausted without break — iteration cap reached
-        yield "\n\n_[iteration limit reached — summarising…]_\n\n"
-        with client.messages.stream(**{**kwargs, "tools": []}) as stream:
-            for token in stream.text_stream:
-                yield token
-            _forced = stream.get_final_message()
-        _obs.log_api_call(MODEL, _forced.usage.input_tokens, _forced.usage.output_tokens)
+        yield "\n\n_[iteration limit reached — summarising...]_\n\n"
+        try:
+            response = chat.send_message(message, stream=True)
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
+        except Exception:
+            pass
 
 # ---------------------------------------------------------------------------
 # Main loop

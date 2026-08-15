@@ -7,9 +7,11 @@ new category name and its tool names. The rest is automatic.
 """
 
 import json
-from anthropic import Anthropic
+import os
 
-ROUTER_MODEL = "claude-haiku-4-5-20251001"
+import google.generativeai as genai
+
+ROUTER_MODEL = "gemini-2.0-flash"
 
 # Map intent category → tool names. Extend as connectors grow.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
@@ -143,38 +145,45 @@ _EXAMPLES = (
     "  send a Telegram message to John → [\"telegram\"]\n"
 )
 
-_client: Anthropic | None = None
+_router_model: genai.GenerativeModel | None = None
 
 
-def _get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic()
-    return _client
+def _get_model() -> genai.GenerativeModel:
+    global _router_model
+    if _router_model is None:
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        _router_model = genai.GenerativeModel(
+            ROUTER_MODEL,
+            system_instruction=_SYSTEM + "\n\n" + _EXAMPLES,
+        )
+    return _router_model
 
 
 def select_tools(user_message: str, all_tools: list[dict]) -> tuple[list[dict], list[str]]:
     """
-    Classify *user_message* with Haiku and return (filtered_tools, categories).
+    Classify *user_message* with Gemini Flash and return (filtered_tools, categories).
 
     Falls back to (all_tools, []) if classification fails or returns no match,
-    so the main Sonnet call always has at least one tool available.
+    so the main model call always has at least one tool available.
     """
     try:
-        resp = _get_client().messages.create(
-            model=ROUTER_MODEL,
-            max_tokens=64,
-            system=_SYSTEM + "\n\n" + _EXAMPLES,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        resp = _get_model().generate_content(user_message)
         try:
             from src import observability as _obs
-            _obs.log_api_call(ROUTER_MODEL, resp.usage.input_tokens, resp.usage.output_tokens, source="router")
+            if resp.usage_metadata:
+                _obs.log_api_call(
+                    ROUTER_MODEL,
+                    resp.usage_metadata.prompt_token_count,
+                    resp.usage_metadata.candidates_token_count,
+                    source="router",
+                )
         except Exception:
             pass
-        raw = resp.content[0].text.strip()
+        raw = resp.text.strip()
+        # Strip markdown fences if the model added them
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         categories: list[str] = json.loads(raw)
-        # Ignore any category names not in our map
         categories = [c for c in categories if c in _CATEGORY_TOOLS]
     except Exception:
         return all_tools, []

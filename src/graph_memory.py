@@ -13,12 +13,15 @@ even if those chunks scored below the cosine threshold.
 """
 
 import json
+import os
 import threading
-from anthropic import Anthropic
+
+import google.generativeai as genai
+
 from src.db import connect, default_user_id
 
-_EXTRACT_MODEL = "claude-haiku-4-5-20251001"
-_client: Anthropic | None = None
+_EXTRACT_MODEL = "gemini-2.0-flash"
+_extract_model: genai.GenerativeModel | None = None
 
 # ---------------------------------------------------------------------------
 # Bootstrap — creates tables if they don't exist (safe for existing DBs)
@@ -86,28 +89,35 @@ _SYSTEM = (
 )
 
 
-def _get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic()
-    return _client
+def _get_model() -> genai.GenerativeModel:
+    global _extract_model
+    if _extract_model is None:
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        _extract_model = genai.GenerativeModel(
+            _EXTRACT_MODEL,
+            system_instruction=_SYSTEM,
+        )
+    return _extract_model
 
 
 def extract_entities(text: str) -> dict:
-    """Call Haiku to extract entities and relations from text. Returns parsed dict."""
+    """Call Gemini to extract entities and relations from text. Returns parsed dict."""
     try:
-        resp = _get_client().messages.create(
-            model=_EXTRACT_MODEL,
-            max_tokens=300,
-            system=_SYSTEM,
-            messages=[{"role": "user", "content": text[:2000]}],
-        )
+        resp = _get_model().generate_content(text[:2000])
         try:
             from src import observability as _obs
-            _obs.log_api_call(_EXTRACT_MODEL, resp.usage.input_tokens, resp.usage.output_tokens, source="graph_memory")
+            if resp.usage_metadata:
+                _obs.log_api_call(
+                    _EXTRACT_MODEL,
+                    resp.usage_metadata.prompt_token_count,
+                    resp.usage_metadata.candidates_token_count,
+                    source="graph_memory",
+                )
         except Exception:
             pass
-        raw = resp.content[0].text.strip()
+        raw = resp.text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         return json.loads(raw)
     except Exception:
         return {"entities": [], "relations": []}
