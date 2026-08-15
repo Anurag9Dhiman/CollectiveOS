@@ -2,7 +2,7 @@
 Structured observability — token usage tracking, tool latency logging.
 
 Two Postgres tables:
-  api_usage   — every Anthropic API call with token counts + estimated cost
+  api_usage   — every Gemini API call with token counts + estimated cost
   tool_calls  — every tool execution with latency and success/failure
 
 Call configure_logging() once at startup (done in api.py lifespan).
@@ -23,11 +23,17 @@ from src.db import connect
 # ---------------------------------------------------------------------------
 
 _PRICING: dict[str, dict[str, float]] = {
+    # Gemini models (USD per 1 M tokens)
+    "gemini-2.0-flash":          {"input": 0.10,  "output": 0.40},
+    "gemini-2.0-flash-lite":     {"input": 0.075, "output": 0.30},
+    "gemini-1.5-flash":          {"input": 0.075, "output": 0.30},
+    "gemini-1.5-pro":            {"input": 1.25,  "output": 5.00},
+    # Anthropic models — used by the ai_models connector if keys are set
     "claude-sonnet-4-6":         {"input": 3.00,  "output": 15.00},
     "claude-haiku-4-5-20251001": {"input": 0.25,  "output": 1.25},
     "claude-opus-4-8":           {"input": 15.00, "output": 75.00},
 }
-_DEFAULT_PRICE = {"input": 3.00, "output": 15.00}
+_DEFAULT_PRICE = {"input": 0.10, "output": 0.40}  # Gemini 2.0 Flash
 
 # ---------------------------------------------------------------------------
 # Schema
