@@ -9,9 +9,9 @@ new category name and its tool names. The rest is automatic.
 import json
 import os
 
-import google.generativeai as genai
+from google import genai
 
-ROUTER_MODEL = "gemini-2.0-flash"
+ROUTER_MODEL = "models/gemini-flash-latest"
 
 # Map intent category → tool names. Extend as connectors grow.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
@@ -145,18 +145,14 @@ _EXAMPLES = (
     "  send a Telegram message to John → [\"telegram\"]\n"
 )
 
-_router_model: genai.GenerativeModel | None = None
+_router_client: genai.Client | None = None
 
 
-def _get_model() -> genai.GenerativeModel:
-    global _router_model
-    if _router_model is None:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        _router_model = genai.GenerativeModel(
-            ROUTER_MODEL,
-            system_instruction=_SYSTEM + "\n\n" + _EXAMPLES,
-        )
-    return _router_model
+def _get_client() -> genai.Client:
+    global _router_client
+    if _router_client is None:
+        _router_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _router_client
 
 
 def select_tools(user_message: str, all_tools: list[dict]) -> tuple[list[dict], list[str]]:
@@ -167,7 +163,14 @@ def select_tools(user_message: str, all_tools: list[dict]) -> tuple[list[dict], 
     so the main model call always has at least one tool available.
     """
     try:
-        resp = _get_model().generate_content(user_message)
+        from google.genai import types as _gtypes
+        resp = _get_client().models.generate_content(
+            model=ROUTER_MODEL,
+            contents=user_message,
+            config=_gtypes.GenerateContentConfig(
+                system_instruction=_SYSTEM + "\n\n" + _EXAMPLES,
+            ),
+        )
         try:
             from src import observability as _obs
             if resp.usage_metadata:

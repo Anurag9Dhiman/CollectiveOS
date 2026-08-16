@@ -17,9 +17,10 @@ import platform
 import subprocess
 import tempfile
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types as _gtypes
 
-_VISION_MODEL = "gemini-2.0-flash"
+_VISION_MODEL = "models/gemini-flash-latest"
 _MAX_PX = 1280  # resize longest dimension to this before sending
 
 
@@ -63,17 +64,16 @@ def capture_screen(question: str = "") -> str:
     )
 
     try:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        model = genai.GenerativeModel(_VISION_MODEL)
-        response = model.generate_content([
-            genai.protos.Part(
-                inline_data=genai.protos.Blob(
-                    mime_type="image/png",
-                    data=image_bytes,
-                )
-            ),
-            prompt,
-        ])
+        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+        response = client.models.generate_content(
+            model=_VISION_MODEL,
+            contents=[
+                _gtypes.Part(
+                    inline_data=_gtypes.Blob(mime_type="image/png", data=image_bytes)
+                ),
+                prompt,
+            ],
+        )
         return response.text
     except Exception as e:
         return f"Vision analysis error: {e}"

@@ -16,12 +16,13 @@ import json
 import os
 import threading
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types as _gtypes
 
 from src.db import connect, default_user_id
 
-_EXTRACT_MODEL = "gemini-2.0-flash"
-_extract_model: genai.GenerativeModel | None = None
+_EXTRACT_MODEL = "models/gemini-flash-latest"
+_extract_client: genai.Client | None = None
 
 # ---------------------------------------------------------------------------
 # Bootstrap — creates tables if they don't exist (safe for existing DBs)
@@ -89,21 +90,21 @@ _SYSTEM = (
 )
 
 
-def _get_model() -> genai.GenerativeModel:
-    global _extract_model
-    if _extract_model is None:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        _extract_model = genai.GenerativeModel(
-            _EXTRACT_MODEL,
-            system_instruction=_SYSTEM,
-        )
-    return _extract_model
+def _get_client() -> genai.Client:
+    global _extract_client
+    if _extract_client is None:
+        _extract_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _extract_client
 
 
 def extract_entities(text: str) -> dict:
     """Call Gemini to extract entities and relations from text. Returns parsed dict."""
     try:
-        resp = _get_model().generate_content(text[:2000])
+        resp = _get_client().models.generate_content(
+            model=_EXTRACT_MODEL,
+            contents=text[:2000],
+            config=_gtypes.GenerateContentConfig(system_instruction=_SYSTEM),
+        )
         try:
             from src import observability as _obs
             if resp.usage_metadata:

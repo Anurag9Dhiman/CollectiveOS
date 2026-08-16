@@ -24,9 +24,18 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+_client: genai.Client | None = None
+
+
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _client
+
 
 from src.connectors.google_calendar import get_calendar_events, create_event
 from src.connectors.gmail import get_recent_emails, search_emails, create_draft, send_email
@@ -52,7 +61,7 @@ from src.connectors import appliances as _appliances
 from src.connectors import ai_models as _ai
 from src import memory, graph_memory, router, permissions, observability as _obs
 
-MODEL = "gemini-2.0-flash"
+MODEL = "models/gemini-flash-latest"
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -1739,23 +1748,23 @@ TOOLS = [
 # Gemini tool schema converters
 # ---------------------------------------------------------------------------
 
-def _json_schema_to_gemini(schema: dict) -> genai.protos.Schema:
-    """Recursively convert a JSON Schema dict to a Gemini protos.Schema."""
+def _json_schema_to_gemini(schema: dict) -> types.Schema:
+    """Recursively convert a JSON Schema dict to a Gemini types.Schema."""
     type_map = {
-        "string":  genai.protos.Type.STRING,
-        "number":  genai.protos.Type.NUMBER,
-        "integer": genai.protos.Type.INTEGER,
-        "boolean": genai.protos.Type.BOOLEAN,
-        "array":   genai.protos.Type.ARRAY,
-        "object":  genai.protos.Type.OBJECT,
+        "string":  types.Type.STRING,
+        "number":  types.Type.NUMBER,
+        "integer": types.Type.INTEGER,
+        "boolean": types.Type.BOOLEAN,
+        "array":   types.Type.ARRAY,
+        "object":  types.Type.OBJECT,
     }
     raw_type = schema.get("type", "string")
     t = type_map.get(raw_type.lower() if isinstance(raw_type, str) else "string",
-                     genai.protos.Type.STRING)
+                     types.Type.STRING)
 
     kwargs: dict = {"type": t, "description": schema.get("description", "")}
 
-    if t == genai.protos.Type.OBJECT:
+    if t == types.Type.OBJECT:
         props = {
             k: _json_schema_to_gemini(v)
             for k, v in schema.get("properties", {}).items()
@@ -1765,28 +1774,28 @@ def _json_schema_to_gemini(schema: dict) -> genai.protos.Schema:
         if schema.get("required"):
             kwargs["required"] = list(schema["required"])
 
-    elif t == genai.protos.Type.ARRAY and "items" in schema:
+    elif t == types.Type.ARRAY and "items" in schema:
         kwargs["items"] = _json_schema_to_gemini(schema["items"])
 
     if "enum" in schema:
         kwargs["enum"] = [str(e) for e in schema["enum"]]
 
-    return genai.protos.Schema(**kwargs)
+    return types.Schema(**kwargs)
 
 
 def _to_gemini_tools(anthropic_tools: list[dict]) -> list:
-    """Convert the Anthropic tool-spec list to a Gemini Tool proto list."""
+    """Convert the Anthropic tool-spec list to a Gemini Tool list."""
     if not anthropic_tools:
         return []
     declarations = []
     for tool in anthropic_tools:
         schema = tool.get("input_schema", {"type": "object", "properties": {}})
-        declarations.append(genai.protos.FunctionDeclaration(
+        declarations.append(types.FunctionDeclaration(
             name=tool["name"],
             description=tool.get("description", ""),
             parameters=_json_schema_to_gemini(schema),
         ))
-    return [genai.protos.Tool(function_declarations=declarations)]
+    return [types.Tool(function_declarations=declarations)]
 
 
 def _convert_history(anthropic_history: list[dict]) -> list[dict]:
@@ -1850,11 +1859,11 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     return "[ERROR: unexpected retry exhaustion]"
 
 
-def _exec_one_gemini(fc: genai.protos.FunctionCall) -> genai.protos.Part:
+def _exec_one_gemini(fc) -> types.Part:
     """Execute a Gemini FunctionCall and wrap the result in a FunctionResponse Part."""
     result = _exec_tool_fn(fc.name, dict(fc.args))
-    return genai.protos.Part(
-        function_response=genai.protos.FunctionResponse(
+    return types.Part(
+        function_response=types.FunctionResponse(
             name=fc.name,
             response={"result": result},
         )
@@ -1870,13 +1879,16 @@ def _run_tools_parallel_gemini(fn_calls: list) -> list:
     return parts
 
 
-def _gemini_fn_calls(response) -> list:
+def _extract_fn_calls(response) -> list:
     """Extract all FunctionCall objects from a Gemini response."""
-    return [
-        part.function_call
-        for part in response.parts
-        if part.function_call and part.function_call.name
-    ]
+    calls = []
+    try:
+        for part in response.candidates[0].content.parts:
+            if part.function_call and part.function_call.name:
+                calls.append(part.function_call)
+    except (IndexError, AttributeError):
+        pass
+    return calls
 
 
 def run(user_message: str, system: str = "", history: list = []) -> str:
@@ -1890,12 +1902,15 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
     if categories:
         print(f"  [router: {', '.join(categories)}  →  {len(active_tools)}/{len(TOOLS)} tools]")
 
-    model = genai.GenerativeModel(
-        MODEL,
-        tools=_to_gemini_tools(active_tools) or None,
-        system_instruction=system or None,
+    gemini_tools = _to_gemini_tools(active_tools)
+    chat = _get_client().chats.create(
+        model=MODEL,
+        config=types.GenerateContentConfig(
+            tools=gemini_tools or None,
+            system_instruction=system or None,
+        ),
+        history=_convert_history(history),
     )
-    chat = model.start_chat(history=_convert_history(history))
 
     # First message is the user string; subsequent messages are FunctionResponse parts
     message = user_message
@@ -1903,14 +1918,17 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
     for _iter in range(MAX_LOOP):
         response = chat.send_message(message)
 
-        if response.usage_metadata:
-            _obs.log_api_call(
-                MODEL,
-                response.usage_metadata.prompt_token_count,
-                response.usage_metadata.candidates_token_count,
-            )
+        try:
+            if response.usage_metadata:
+                _obs.log_api_call(
+                    MODEL,
+                    response.usage_metadata.prompt_token_count,
+                    response.usage_metadata.candidates_token_count,
+                )
+        except Exception:
+            pass
 
-        fn_calls = _gemini_fn_calls(response)
+        fn_calls = _extract_fn_calls(response)
         if not fn_calls:
             return response.text or ""
 
@@ -1934,12 +1952,15 @@ def run_stream(user_message: str, system: str = "", history: list = []):
     if categories:
         yield f"_[routing: {', '.join(categories)}]_\n\n"
 
-    model = genai.GenerativeModel(
-        MODEL,
-        tools=_to_gemini_tools(active_tools) or None,
-        system_instruction=system or None,
+    gemini_tools = _to_gemini_tools(active_tools)
+    chat = _get_client().chats.create(
+        model=MODEL,
+        config=types.GenerateContentConfig(
+            tools=gemini_tools or None,
+            system_instruction=system or None,
+        ),
+        history=_convert_history(history),
     )
-    chat = model.start_chat(history=_convert_history(history))
 
     message = user_message
 
@@ -1947,16 +1968,14 @@ def run_stream(user_message: str, system: str = "", history: list = []):
         fn_calls: list = []
         last_chunk = None
 
-        response = chat.send_message(message, stream=True)
-        for chunk in response:
+        for chunk in chat.send_message_stream(message):
             if chunk.text:
                 yield chunk.text
             last_chunk = chunk
-            for part in chunk.parts:
-                if part.function_call and part.function_call.name:
-                    fn_calls.append(part.function_call)
 
-        # Log usage from the final chunk
+        # Function calls come in the last chunk's candidates
+        fn_calls = _extract_fn_calls(last_chunk) if last_chunk else []
+
         try:
             if last_chunk and last_chunk.usage_metadata:
                 _obs.log_api_call(
@@ -1978,8 +1997,7 @@ def run_stream(user_message: str, system: str = "", history: list = []):
     else:
         yield "\n\n_[iteration limit reached — summarising...]_\n\n"
         try:
-            response = chat.send_message(message, stream=True)
-            for chunk in response:
+            for chunk in chat.send_message_stream(message):
                 if chunk.text:
                     yield chunk.text
         except Exception:
