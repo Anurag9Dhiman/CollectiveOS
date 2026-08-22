@@ -14,22 +14,44 @@ Requires:
 """
 
 import datetime
+import threading
 from functools import lru_cache
 
 from src.db import connect, default_user_id
 
 # ---------------------------------------------------------------------------
-# Embedding model (loaded once, reused across calls)
+# Embedding model — loaded in a background thread so startup stays fast.
+# If the model isn't ready yet, _embed() raises RuntimeError (callers catch).
 # ---------------------------------------------------------------------------
 
-@lru_cache(maxsize=1)
-def _model():
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer("all-MiniLM-L6-v2")
+_model_ready = threading.Event()
+_model_instance = None
+_model_lock = threading.Lock()
+
+
+def _load_model_bg():
+    global _model_instance
+    try:
+        from sentence_transformers import SentenceTransformer
+        m = SentenceTransformer("all-MiniLM-L6-v2")
+        with _model_lock:
+            _model_instance = m
+        _model_ready.set()
+    except Exception:
+        _model_ready.set()  # unblock waiters even on failure
+
+
+threading.Thread(target=_load_model_bg, daemon=True, name="embed-model-loader").start()
 
 
 def _embed(text: str) -> list[float]:
-    return _model().encode(text, normalize_embeddings=True).tolist()
+    if not _model_ready.wait(timeout=0):
+        raise RuntimeError("embedding model not ready yet")
+    with _model_lock:
+        m = _model_instance
+    if m is None:
+        raise RuntimeError("embedding model failed to load")
+    return m.encode(text, normalize_embeddings=True).tolist()
 
 
 # ---------------------------------------------------------------------------
@@ -38,48 +60,54 @@ def _embed(text: str) -> list[float]:
 
 def save(user_message: str, assistant_reply: str, source: str = "conversation") -> None:
     """Embed and persist one exchange to memory, then trigger async entity extraction."""
-    from src import graph_memory as _gm
-
-    content = f"User: {user_message}\nAssistant: {assistant_reply}"
-    embedding = _embed(content)
-    now = datetime.datetime.utcnow()
-
-    conn = connect()
     try:
-        user_id = default_user_id(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO memory_chunks (user_id, source, content, embedding, created_at)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (user_id, source, content, embedding, now),
-            )
-            chunk_id = cur.fetchone()[0]
-        conn.commit()
-    finally:
-        conn.close()
+        from src import graph_memory as _gm
 
-    _gm.trigger_async(chunk_id, content)
+        content = f"User: {user_message}\nAssistant: {assistant_reply}"
+        embedding = _embed(content)
+        now = datetime.datetime.utcnow()
+
+        conn = connect()
+        try:
+            user_id = default_user_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO memory_chunks (user_id, source, content, embedding, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (user_id, source, content, embedding, now),
+                )
+                chunk_id = cur.fetchone()[0]
+            conn.commit()
+        finally:
+            conn.close()
+
+        _gm.trigger_async(chunk_id, content)
+    except Exception:
+        pass
 
 
 def save_fact(fact: str) -> None:
     """Save an explicit user fact (preference, name, detail) to memory."""
-    embedding = _embed(fact)
-    now = datetime.datetime.utcnow()
-    conn = connect()
     try:
-        user_id = default_user_id(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO memory_chunks (user_id, source, content, embedding, created_at) "
-                "VALUES (%s, 'fact', %s, %s, %s)",
-                (user_id, fact, embedding, now),
-            )
-        conn.commit()
-    finally:
-        conn.close()
+        embedding = _embed(fact)
+        now = datetime.datetime.utcnow()
+        conn = connect()
+        try:
+            user_id = default_user_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO memory_chunks (user_id, source, content, embedding, created_at) "
+                    "VALUES (%s, 'fact', %s, %s, %s)",
+                    (user_id, fact, embedding, now),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
 
 def list_facts() -> list[dict]:
@@ -139,26 +167,28 @@ def get_all_facts_str() -> str:
 
 def search(query: str, limit: int = 3) -> str:
     """Return the most semantically similar past exchanges for the query."""
-    embedding = _embed(query)
-
-    conn = connect()
     try:
-        user_id = default_user_id(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT content, created_at,
-                       1 - (embedding <=> %s::vector) AS similarity
-                FROM memory_chunks
-                WHERE user_id = %s
-                ORDER BY embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (embedding, user_id, embedding, limit),
-            )
-            rows = cur.fetchall()
-    finally:
-        conn.close()
+        embedding = _embed(query)
+        conn = connect()
+        try:
+            user_id = default_user_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT content, created_at,
+                           1 - (embedding <=> %s::vector) AS similarity
+                    FROM memory_chunks
+                    WHERE user_id = %s
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (embedding, user_id, embedding, limit),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return ""
 
     if not rows:
         return ""

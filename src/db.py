@@ -15,7 +15,7 @@ DEFAULT_URL = "postgresql://assistant:assistant@localhost:5432/assistant"
 
 def connect() -> psycopg2.extensions.connection:
     url = os.environ.get("DATABASE_URL", DEFAULT_URL)
-    conn = psycopg2.connect(url)
+    conn = psycopg2.connect(url, connect_timeout=5)
     conn.autocommit = False
     return conn
 

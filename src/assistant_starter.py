@@ -24,6 +24,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from google import genai
 from google.genai import types
 
@@ -61,7 +67,7 @@ from src.connectors import appliances as _appliances
 from src.connectors import ai_models as _ai
 from src import memory, graph_memory, router, permissions, observability as _obs
 
-MODEL = "models/gemini-flash-latest"
+MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-flash-latest")
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -1213,9 +1219,34 @@ TOOLS = [
     {
         "name": "telegram_get_messages",
         "description": (
-            "Read recent messages sent to your Telegram bot. "
-            "Returns sender name, chat_id, and message text for each update. "
-            "Requires TELEGRAM_BOT_TOKEN in the environment."
+            "Read recent messages sent to the Telegram bot. "
+            "Returns sender name, chat ID, and message text. "
+            "Use to proactively check for incoming Telegram messages."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max messages to return. Defaults to 10."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "telegram_send",
+        "description": (
+            "Send a Telegram message to a specific chat ID or to the configured default chat. "
+            "Requires explicit user confirmation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Message text (Markdown supported)."},
+                "chat_id": {"type": "string", "description": "Target chat ID (optional — uses TELEGRAM_CHAT_ID env var if omitted)."},
+            },
+            "required": ["message"],
+        },
+    },
+    # -----------------------------------------------------------------------
     # Finance (read-only)
     # -----------------------------------------------------------------------
     {
@@ -1337,7 +1368,6 @@ TOOLS = [
             "properties": {
                 "limit": {
                     "type": "integer",
-                    "description": "Max number of messages to return (default 10).",
                     "description": "Max channels to return. Defaults to 30.",
                 },
             },
@@ -1345,13 +1375,6 @@ TOOLS = [
         },
     },
     {
-        "name": "telegram_send",
-        "description": (
-            "Send a Telegram message to a specific chat. "
-            "Always confirm the recipient chat_id and full message text "
-            "with the user before calling. "
-            "If TELEGRAM_CHAT_ID is set in .env, leave chat_id blank to "
-            "message the user directly."
         "name": "slack_read_messages",
         "description": (
             "Read recent messages from a Slack channel. "
@@ -1361,19 +1384,6 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "chat_id": {
-                    "type": "string",
-                    "description": (
-                        "Telegram chat id to send to — visible in telegram_get_messages output. "
-                        "Leave blank to use the TELEGRAM_CHAT_ID env default."
-                    ),
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Message text to send (max 4096 chars).",
-                },
-            },
-            "required": ["text"],
                 "channel": {
                     "type": "string",
                     "description": "Channel name (with or without #) or Slack channel ID.",
@@ -1539,8 +1549,8 @@ TOOLS = [
                 },
                 "filter_type": {
                     "type": "string",
-                    "enum": ["page", "database", ""],
-                    "description": "Limit results to 'page', 'database', or '' for both. Defaults to ''.",
+                    "enum": ["page", "database", "all"],
+                    "description": "Limit results to 'page', 'database', or 'all' for both. Defaults to 'all'.",
                 },
             },
             "required": ["query"],
@@ -1604,37 +1614,6 @@ TOOLS = [
                 },
             },
             "required": ["page_id", "content"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Finance (read-only)
-    # -----------------------------------------------------------------------
-    {
-        "name": "finance_get_accounts",
-        "description": "List all connected bank and credit card accounts with current balances.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "finance_get_transactions",
-        "description": "Get recent transactions for a specific account or all accounts.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "account_id": {"type": "string", "description": "Plaid account ID (optional — omit for all accounts)."},
-                "days":       {"type": "integer", "description": "How many days back to fetch. Defaults to 30."},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "finance_get_spending_summary",
-        "description": "Get a spending breakdown by category for the last N days.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "days": {"type": "integer", "description": "How many days back to summarise. Defaults to 30."},
-            },
-            "required": [],
         },
     },
     # -----------------------------------------------------------------------
@@ -1709,39 +1688,6 @@ TOOLS = [
             "required": ["device_id", "command"],
         },
     },
-    # -----------------------------------------------------------------------
-    # Telegram bot (polling)
-    # -----------------------------------------------------------------------
-    {
-        "name": "telegram_get_messages",
-        "description": (
-            "Read recent messages sent to the Telegram bot. "
-            "Returns sender name, chat ID, and message text. "
-            "Use to proactively check for incoming Telegram messages."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Max messages to return. Defaults to 10."},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "telegram_send",
-        "description": (
-            "Send a Telegram message to a specific chat ID or to the configured default chat. "
-            "Requires explicit user confirmation."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "message": {"type": "string", "description": "Message text (Markdown supported)."},
-                "chat_id": {"type": "string", "description": "Target chat ID (optional — uses TELEGRAM_CHAT_ID env var if omitted)."},
-            },
-            "required": ["message"],
-        },
-    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -1778,7 +1724,7 @@ def _json_schema_to_gemini(schema: dict) -> types.Schema:
         kwargs["items"] = _json_schema_to_gemini(schema["items"])
 
     if "enum" in schema:
-        kwargs["enum"] = [str(e) for e in schema["enum"]]
+        kwargs["enum"] = [str(e) for e in schema["enum"] if e != ""]
 
     return types.Schema(**kwargs)
 

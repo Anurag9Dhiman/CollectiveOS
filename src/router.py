@@ -11,7 +11,7 @@ import os
 
 from google import genai
 
-ROUTER_MODEL = "models/gemini-flash-latest"
+ROUTER_MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-flash-latest")
 
 # Map intent category → tool names. Extend as connectors grow.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
