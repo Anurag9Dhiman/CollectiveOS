@@ -1,0 +1,273 @@
+"""
+Permission store — per-connector enable/disable, backed by Postgres.
+
+The table is created on first import, so no separate migration step is needed.
+
+Layers
+------
+1. Connector-level toggle  (this module) — hard block if connector is disabled.
+2. Write-tool confirmation  (system prompt) — model must ask before any write.
+3. UI visibility            (index.html)   — write-tool calls shown in amber.
+"""
+
+from collectiveos.db import connect
+
+# ---------------------------------------------------------------------------
+# Connector → tools mapping
+# ---------------------------------------------------------------------------
+
+CONNECTOR_TOOLS: dict[str, list[str]] = {
+    "memory":          ["memory_remember", "memory_list", "memory_forget", "memory_graph_query", "usage_summary"],
+    "google_calendar": ["get_calendar_events", "create_event"],
+    "gmail":           ["get_recent_emails", "search_emails", "create_draft", "send_email"],
+    "google_drive":    ["list_drive_files", "read_drive_file"],
+    "todoist":         ["get_tasks", "get_projects", "add_task", "complete_task", "update_task"],
+    "home_assistant":  ["get_devices", "get_device_state", "control_device", "set_light"],
+    "spotify":         ["spotify_now_playing", "spotify_get_devices", "spotify_control",
+                        "spotify_set_volume", "spotify_search_play"],
+    "mac_system":      ["get_system_info", "get_wifi_info", "show_notification",
+                        "open_application", "set_system_volume"],
+    "web_search":      ["web_search"],
+    "imessage":        ["imessage_get_messages", "imessage_send"],
+    "screen_capture":  ["capture_screen"],
+    "local_files":     ["list_directory", "read_local_file", "write_local_file"],
+    "browser":         ["browser_get_active_tab", "browser_list_tabs", "browser_open_url"],
+    "contacts":        ["contacts_search"],
+    "reminders":       ["reminders_list", "reminders_add", "reminders_complete"],
+    "notes":           ["notes_list", "notes_read", "notes_create", "notes_append"],
+    "clipboard":       ["clipboard_read", "clipboard_write"],
+    "telegram":        ["telegram_get_messages", "telegram_send"],
+    "notion":          ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
+    "github":          ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
+    "slack":           ["slack_list_channels", "slack_read_messages", "slack_send_message"],
+    "health":          ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "finance":         ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
+    "car":             ["car_get_status", "car_lock", "car_climate"],
+    "appliances":      ["appliances_list", "appliances_get_status", "appliances_control"],
+    "ai_models":       ["ai_ask", "ai_compare"],
+}
+
+# Reverse index: tool name → connector
+TOOL_CONNECTOR: dict[str, str] = {
+    tool: conn
+    for conn, tools in CONNECTOR_TOOLS.items()
+    for tool in tools
+}
+
+# Tools that modify state or perform real-world actions — require user confirmation
+WRITE_TOOLS: frozenset[str] = frozenset({
+    "create_event",
+    "create_draft", "send_email",
+    "add_task", "complete_task", "update_task",
+    "control_device", "set_light",
+    "spotify_control", "spotify_set_volume", "spotify_search_play",
+    "show_notification", "open_application", "set_system_volume",
+    "imessage_send",
+    "write_local_file",
+    "browser_open_url",
+    "reminders_add", "reminders_complete",
+    "notes_create", "notes_append",
+    "clipboard_write",
+    "telegram_send",
+    "notion_create_page", "notion_append_to_page",
+    "github_create_issue",
+    "slack_send_message",
+    "memory_remember", "memory_forget",
+    "car_lock", "car_climate",
+    "appliances_control",
+})
+
+CONNECTOR_LABELS: dict[str, str] = {
+    "google_calendar": "Google Calendar",
+    "gmail":           "Gmail",
+    "google_drive":    "Google Drive",
+    "todoist":         "Todoist",
+    "home_assistant":  "Home Assistant",
+    "spotify":         "Spotify",
+    "mac_system":      "Mac System",
+    "web_search":      "Web Search",
+    "imessage":        "iMessage",
+    "screen_capture":  "Screen Capture",
+    "local_files":     "Local Files",
+    "browser":         "Browser",
+    "contacts":        "Contacts",
+    "reminders":       "Reminders",
+    "notes":           "Notes",
+    "clipboard":       "Clipboard",
+    "memory":          "Long-term Memory",
+    "telegram":        "Telegram",
+    "notion":          "Notion",
+    "github":          "GitHub",
+    "slack":           "Slack",
+    "health":          "Health",
+    "finance":         "Finance",
+    "car":             "Car",
+    "appliances":      "Smart Appliances",
+    "ai_models":       "AI Models",
+}
+
+# ---------------------------------------------------------------------------
+# Table bootstrap (runs once on import)
+# ---------------------------------------------------------------------------
+
+_CREATE_TABLE = """
+CREATE TABLE IF NOT EXISTS connector_permissions (
+    connector  TEXT PRIMARY KEY,
+    enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    config     JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+_ADD_CONFIG_COL = """
+ALTER TABLE connector_permissions
+    ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}';
+"""
+
+_SEED = """
+INSERT INTO connector_permissions (connector, enabled)
+VALUES (%(connector)s, TRUE)
+ON CONFLICT (connector) DO NOTHING;
+"""
+
+
+def _bootstrap() -> None:
+    try:
+        conn = connect()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(_CREATE_TABLE)
+                cur.execute(_ADD_CONFIG_COL)
+                for name in CONNECTOR_TOOLS:
+                    cur.execute(_SEED, {"connector": name})
+        conn.close()
+    except Exception:
+        pass  # Degrade gracefully — DB may not be available in every environment
+
+
+_bootstrap()
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def is_enabled(connector: str) -> bool:
+    """Return True if the connector is allowed to run tools."""
+    try:
+        conn = connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT enabled FROM connector_permissions WHERE connector = %s",
+                (connector,),
+            )
+            row = cur.fetchone()
+        conn.close()
+        return bool(row[0]) if row else True
+    except Exception:
+        return True  # Fail open — don't block tools if DB is unreachable
+
+
+def check_tool(tool_name: str) -> tuple[bool, str]:
+    """
+    Return (allowed, error_message).
+    allowed=True means the tool may run; error_message is empty.
+    allowed=False means the connector is disabled; error_message explains why.
+    """
+    connector = TOOL_CONNECTOR.get(tool_name)
+    if not connector:
+        return True, ""
+
+    if not is_enabled(connector):
+        label = CONNECTOR_LABELS.get(connector, connector)
+        return False, (
+            f"Access to {label} is currently disabled. "
+            f"Enable it in Settings (⚙) to use this feature."
+        )
+    return True, ""
+
+
+def set_permission(connector: str, enabled: bool) -> None:
+    """Enable or disable a connector. Raises ValueError for unknown connectors."""
+    if connector not in CONNECTOR_TOOLS:
+        raise ValueError(f"Unknown connector: {connector!r}")
+
+    conn = connect()
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO connector_permissions (connector, enabled, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (connector) DO UPDATE
+                    SET enabled    = EXCLUDED.enabled,
+                        updated_at = EXCLUDED.updated_at
+                """,
+                (connector, enabled),
+            )
+    conn.close()
+
+
+def get_config(connector: str) -> dict:
+    """Return the stored config dict for a connector (empty dict if none)."""
+    try:
+        conn = connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT config FROM connector_permissions WHERE connector = %s",
+                (connector,),
+            )
+            row = cur.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else {}
+    except Exception:
+        return {}
+
+
+def set_config(connector: str, updates: dict) -> None:
+    """Merge *updates* into the connector's config JSONB. Raises ValueError for unknown connectors."""
+    import json as _json
+    if connector not in CONNECTOR_TOOLS:
+        raise ValueError(f"Unknown connector: {connector!r}")
+    conn = connect()
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO connector_permissions (connector, enabled, config, updated_at)
+                VALUES (%s, TRUE, %s::jsonb, NOW())
+                ON CONFLICT (connector) DO UPDATE
+                    SET config     = connector_permissions.config || EXCLUDED.config,
+                        updated_at = EXCLUDED.updated_at
+                """,
+                (connector, _json.dumps(updates)),
+            )
+    conn.close()
+
+
+def list_all() -> list[dict]:
+    """
+    Return all connectors with their current permission state.
+    Each entry: {connector, label, enabled, config, read_tools, write_tools}.
+    """
+    try:
+        conn = connect()
+        with conn.cursor() as cur:
+            cur.execute("SELECT connector, enabled, config FROM connector_permissions")
+            rows = {r[0]: {"enabled": r[1], "config": r[2] or {}} for r in cur.fetchall()}
+        conn.close()
+    except Exception:
+        rows = {}
+
+    result = []
+    for connector, tools in CONNECTOR_TOOLS.items():
+        row = rows.get(connector, {})
+        result.append({
+            "connector":   connector,
+            "label":       CONNECTOR_LABELS.get(connector, connector),
+            "enabled":     row.get("enabled", True),
+            "config":      row.get("config", {}),
+            "read_tools":  [t for t in tools if t not in WRITE_TOOLS],
+            "write_tools": [t for t in tools if t in WRITE_TOOLS],
+        })
+    return result

@@ -17,7 +17,7 @@ import datetime
 import threading
 from functools import lru_cache
 
-from src.db import connect, default_user_id
+from collectiveos.db import connect, default_user_id
 
 # ---------------------------------------------------------------------------
 # Embedding model — loaded in a background thread so startup stays fast.

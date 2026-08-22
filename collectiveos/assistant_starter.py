@@ -22,8 +22,6 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -43,29 +41,29 @@ def _get_client() -> genai.Client:
     return _client
 
 
-from src.connectors.google_calendar import get_calendar_events, create_event
-from src.connectors.gmail import get_recent_emails, search_emails, create_draft, send_email
-from src.connectors.google_drive import list_files, read_file
-from src.connectors.todoist import get_tasks, get_projects, add_task, complete_task, update_task
-from src.connectors.home_assistant import get_devices, get_device_state, control_device
-from src.connectors import spotify as _spotify
-from src.connectors import mac_system as _mac
-from src.connectors.web_search import search as web_search
-from src.connectors import imessage as _imessage
-from src.connectors.screen_capture import capture_screen
-from src.connectors import local_files as _fs
-from src.connectors import browser as _browser
-from src.connectors import apple_native as _apple
-from src.connectors import telegram_bot as _telegram
-from src.connectors import notion as _notion
-from src.connectors import github as _github
-from src.connectors import slack_bot as _slack
-from src.connectors import health as _health
-from src.connectors import finance as _finance
-from src.connectors import car as _car
-from src.connectors import appliances as _appliances
-from src.connectors import ai_models as _ai
-from src import memory, graph_memory, router, permissions, observability as _obs
+from collectiveos.connectors.google_calendar import get_calendar_events, create_event
+from collectiveos.connectors.gmail import get_recent_emails, search_emails, create_draft, send_email
+from collectiveos.connectors.google_drive import list_files, read_file
+from collectiveos.connectors.todoist import get_tasks, get_projects, add_task, complete_task, update_task
+from collectiveos.connectors.home_assistant import get_devices, get_device_state, control_device
+from collectiveos.connectors import spotify as _spotify
+from collectiveos.connectors import mac_system as _mac
+from collectiveos.connectors.web_search import search as web_search
+from collectiveos.connectors import imessage as _imessage
+from collectiveos.connectors.screen_capture import capture_screen
+from collectiveos.connectors import local_files as _fs
+from collectiveos.connectors import browser as _browser
+from collectiveos.connectors import apple_native as _apple
+from collectiveos.connectors import telegram_bot as _telegram
+from collectiveos.connectors import notion as _notion
+from collectiveos.connectors import github as _github
+from collectiveos.connectors import slack_bot as _slack
+from collectiveos.connectors import health as _health
+from collectiveos.connectors import finance as _finance
+from collectiveos.connectors import car as _car
+from collectiveos.connectors import appliances as _appliances
+from collectiveos.connectors import ai_models as _ai
+from collectiveos import memory, graph_memory, router, permissions, observability as _obs
 
 MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-flash-latest")
 
@@ -1689,6 +1687,14 @@ TOOLS = [
         },
     },
 ]
+
+# Filter tool list to only those available on this device/platform
+try:
+    from collectiveos.platform_profile import enabled_tool_names
+    _enabled = enabled_tool_names()
+    TOOLS = [t for t in TOOLS if t["name"] in _enabled]
+except Exception:
+    pass  # if profile detection fails, keep all tools
 
 # ---------------------------------------------------------------------------
 # Gemini tool schema converters

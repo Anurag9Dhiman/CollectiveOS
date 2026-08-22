@@ -19,7 +19,7 @@ import threading
 from google import genai
 from google.genai import types as _gtypes
 
-from src.db import connect, default_user_id
+from collectiveos.db import connect, default_user_id
 
 _EXTRACT_MODEL = "models/gemini-flash-latest"
 _extract_client: genai.Client | None = None
