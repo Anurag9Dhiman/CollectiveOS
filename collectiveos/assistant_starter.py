@@ -1822,12 +1822,54 @@ def _exec_one_gemini(fc) -> types.Part:
     )
 
 
+def _cancelled_part(fc) -> types.Part:
+    return types.Part(
+        function_response=types.FunctionResponse(
+            name=fc.name,
+            response={"result": "[Action cancelled by user.]"},
+        )
+    )
+
+
 def _run_tools_parallel_gemini(fn_calls: list) -> list:
     """Execute all Gemini FunctionCall objects concurrently (up to 8 threads)."""
     if not fn_calls:
         return []
     with ThreadPoolExecutor(max_workers=min(len(fn_calls), 8)) as pool:
         parts = list(pool.map(_exec_one_gemini, fn_calls))
+    return parts
+
+
+def _run_tools_with_confirm(fn_calls: list, confirm_fn) -> list:
+    """Execute tool calls, gating every write tool through confirm_fn.
+
+    confirm_fn(tool_name, args) must be synchronous and return True (proceed)
+    or False (cancel). Write tools are executed sequentially so confirmation
+    requests don't overlap; read tools are batched in parallel between them.
+    """
+    parts = []
+    read_batch = []
+
+    def flush_reads():
+        if read_batch:
+            parts.extend(_run_tools_parallel_gemini(read_batch))
+            read_batch.clear()
+
+    for fc in fn_calls:
+        if fc.name in permissions.WRITE_TOOLS:
+            flush_reads()
+            print(f"  [tool: {fc.name} — awaiting confirmation]")
+            if confirm_fn(fc.name, dict(fc.args)):
+                print(f"  [tool: {fc.name} — approved, executing]")
+                parts.append(_exec_one_gemini(fc))
+            else:
+                print(f"  [tool: {fc.name} — cancelled by user]")
+                parts.append(_cancelled_part(fc))
+        else:
+            print(f"  [tool: {fc.name}({dict(fc.args)})]")
+            read_batch.append(fc)
+
+    flush_reads()
     return parts
 
 
@@ -1843,10 +1885,15 @@ def _extract_fn_calls(response) -> list:
     return calls
 
 
-def run(user_message: str, system: str = "", history: list = []) -> str:
+def run(user_message: str, system: str = "", history: list = [],
+        confirm_fn=None) -> str:
     """Run one user message through the Gemini tool-use loop; return the full reply.
 
-    history: prior turns in Anthropic format — converted automatically.
+    history:    prior turns in Anthropic format — converted automatically.
+    confirm_fn: optional sync callable(tool_name, args) -> bool. When set,
+                every write tool call is gated through it before execution.
+                Use this in voice sessions so the user must approve each action.
+                Read tools always run immediately.
     Independent tool calls within a single turn execute in parallel threads.
     Capped at MAX_LOOP iterations; if hit, returns whatever text is available.
     """
@@ -1884,10 +1931,12 @@ def run(user_message: str, system: str = "", history: list = []) -> str:
         if not fn_calls:
             return response.text or ""
 
-        for fc in fn_calls:
-            print(f"  [tool: {fc.name}({dict(fc.args)})]")
-
-        message = _run_tools_parallel_gemini(fn_calls)
+        if confirm_fn is not None:
+            message = _run_tools_with_confirm(fn_calls, confirm_fn)
+        else:
+            for fc in fn_calls:
+                print(f"  [tool: {fc.name}({dict(fc.args)})]")
+            message = _run_tools_parallel_gemini(fn_calls)
 
     return response.text or "[Reached the iteration limit. Please try a more focused request.]"
 

@@ -214,52 +214,53 @@ class VoiceSession:
     # ------------------------------------------------------------------
 
     async def _run_agent(self, task_id: str, text: str, quick: bool = False):
-        """Run the CollectiveOS agent loop and stream events back."""
+        """Run the CollectiveOS agent loop and stream events back.
+
+        Write tools are hard-gated: the agent thread pauses before each one,
+        sends a confirmation_request over the WebSocket, and only proceeds
+        after the user explicitly approves. This is a code-level lock —
+        the model cannot bypass it even if it ignores the system prompt.
+        """
         from collectiveos import assistant_starter as agent
         from collectiveos import memory
 
         system_prompt = self._system_prompt(quick)
 
-        # Save memory context async
         past = await asyncio.to_thread(memory.search, text)
         if past:
             system_prompt += "\n\nRelevant context from past conversations:\n" + past
 
+        # Build the sync confirm bridge: called from the agent thread, blocks
+        # until the user responds via the WebSocket confirmation_response event.
+        loop = asyncio.get_event_loop()
+
+        def sync_confirm(tool_name: str, args: dict) -> bool:
+            desc = _describe_action(tool_name, args)
+            future = asyncio.run_coroutine_threadsafe(
+                self._ask_confirmation(task_id, desc), loop
+            )
+            try:
+                return future.result(timeout=45)
+            except Exception:
+                return False  # timeout or error → cancel
+
         try:
             await self.progress(task_id, "Working on it…")
 
-            # Run agent in thread so WebSocket isn't blocked
             reply = await asyncio.to_thread(
                 agent.run, text,
                 system=system_prompt,
                 history=self.history,
+                confirm_fn=sync_confirm,
             )
-
-            # If reply contains a confirmation prompt (write tool), ask voice layer
-            if _needs_voice_confirmation(reply):
-                confirmed = await self._ask_confirmation(task_id, reply)
-                if not confirmed:
-                    msg = "Okay, I've cancelled that."
-                    await self.speak(task_id, msg)
-                    await self.done(task_id, outcome="failed", summary=msg)
-                    return
-                # Re-run with explicit approval in context
-                system_prompt += "\n\nThe user has approved this action verbally. Proceed."
-                reply = await asyncio.to_thread(
-                    agent.run, text,
-                    system=system_prompt,
-                    history=self.history,
-                )
 
             await self.speak(task_id, reply)
             await self.done(task_id, outcome="completed", summary=reply[:200])
 
-            # Update in-session history
             self.history.append({"role": "user", "content": text})
             self.history.append({"role": "assistant", "content": reply})
             self.history = self.history[-20:]
 
-            # Persist to memory
             await asyncio.to_thread(memory.save, text, reply)
 
         except asyncio.CancelledError:
@@ -320,6 +321,60 @@ class VoiceSession:
 
 def _new_id() -> str:
     return str(uuid.uuid4())
+
+
+def _describe_action(tool_name: str, args: dict) -> str:
+    """Human-readable description of what a write tool is about to do."""
+    t = tool_name
+    a = args
+    if t == "send_email":
+        return f"Send email to {a.get('to','?')} — subject: {a.get('subject','?')}"
+    if t == "create_draft":
+        return f"Create email draft to {a.get('to','?')} — subject: {a.get('subject','?')}"
+    if t == "slack_send_message":
+        body = str(a.get('text', ''))[:80]
+        return f"Send Slack message to #{a.get('channel','?')}: \"{body}\""
+    if t == "telegram_send":
+        body = str(a.get('message', ''))[:80]
+        return f"Send Telegram message: \"{body}\""
+    if t == "imessage_send":
+        return f"Send iMessage to {a.get('to','?')}: \"{str(a.get('message',''))[:60]}\""
+    if t == "create_event":
+        return f"Create calendar event \"{a.get('title','?')}\" on {a.get('start','?')}"
+    if t == "add_task":
+        return f"Add Todoist task: \"{a.get('content','?')}\""
+    if t == "complete_task":
+        return f"Complete task {a.get('task_id','?')}"
+    if t == "control_device":
+        return f"Control {a.get('entity_id','?')}: {a.get('action','?')}"
+    if t == "spotify_search_play":
+        return f"Play \"{a.get('query','?')}\" on Spotify"
+    if t == "spotify_control":
+        return f"Spotify: {a.get('action','?')}"
+    if t == "open_application":
+        return f"Open {a.get('app_name','?')}"
+    if t == "write_local_file":
+        return f"Write file: {a.get('path','?')}"
+    if t == "notes_create":
+        return f"Create note: \"{a.get('title','?')}\""
+    if t == "notes_append":
+        return f"Append to note \"{a.get('title','?')}\""
+    if t == "reminders_add":
+        return f"Add reminder: \"{a.get('title','?')}\""
+    if t == "github_create_issue":
+        return f"Create GitHub issue in {a.get('repo','?')}: \"{a.get('title','?')}\""
+    if t == "notion_create_page":
+        return f"Create Notion page: \"{a.get('title','?')}\""
+    if t == "car_lock":
+        return f"Lock/unlock car — action: {a.get('action','?')}"
+    if t == "appliances_control":
+        return f"Control {a.get('device_id','?')}: {a.get('action','?')}"
+    if t == "memory_remember":
+        return f"Save to memory: \"{str(a.get('fact',''))[:80]}\""
+    if t == "memory_forget":
+        return f"Delete from memory: \"{a.get('query','?')}\""
+    # Fallback
+    return f"{t.replace('_', ' ').capitalize()}"
 
 
 def _resolve_user_id(conn, voice_user_id: str) -> int:
