@@ -215,3 +215,35 @@ ON CONFLICT (connector) DO NOTHING;
 INSERT INTO users (name, prefs)
 SELECT 'default', '{}'
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE name = 'default');
+
+-- -------------------------------------------------------------------------
+-- Voice support  (VoiceOS integration — github.com/Anurag9Dhiman/VoiceOS)
+-- -------------------------------------------------------------------------
+
+-- Tracks live voice sessions; one row per connected voice-service client.
+CREATE TABLE IF NOT EXISTS voice_sessions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    active_task_ids JSONB NOT NULL DEFAULT '[]'::JSONB,
+    entity_stack    JSONB NOT NULL DEFAULT '[]'::JSONB,
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at        TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS voice_sessions_open_by_user
+    ON voice_sessions (user_id)
+    WHERE ended_at IS NULL;
+
+-- Tells the voice layer whether a waiting task needs spoken confirmation,
+-- a clarification question, or is merely blocked on an external service.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'tasks' AND column_name = 'waiting_reason'
+    ) THEN
+        ALTER TABLE tasks
+            ADD COLUMN waiting_reason TEXT
+                CHECK (waiting_reason IN ('user_confirm', 'user_clarify', 'external'));
+    END IF;
+END $$;
