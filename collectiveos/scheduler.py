@@ -20,7 +20,7 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from src import routines as _db
+from collectiveos import routines as _db
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def _run_routine(routine_id: int, name: str, prompt: str, notify_via: str) -> No
     # Import here to avoid circular imports at module load
     from collectiveos.assistant_starter import run
     from collectiveos.api import _system_prompt
-    from src import memory
+    from collectiveos import memory
 
     try:
         past = memory.search(prompt)

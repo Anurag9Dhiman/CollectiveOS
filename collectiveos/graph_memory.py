@@ -106,7 +106,7 @@ def extract_entities(text: str) -> dict:
             config=_gtypes.GenerateContentConfig(system_instruction=_SYSTEM),
         )
         try:
-            from src import observability as _obs
+            from collectiveos import observability as _obs
             if resp.usage_metadata:
                 _obs.log_api_call(
                     _EXTRACT_MODEL,
