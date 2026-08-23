@@ -543,3 +543,9 @@ async def voice_websocket(websocket: WebSocket):
               confirmation_request, clarification_request, task_update
     """
     await voice_ws_endpoint(websocket)
+
+
+@app.websocket("/v1/ws")
+async def voice_websocket_v1(websocket: WebSocket):
+    """Alias for /voice/ws — matches VoiceOS's default COLLECTIVEOS_WS_URL."""
+    await voice_ws_endpoint(websocket)

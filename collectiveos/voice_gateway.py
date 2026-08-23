@@ -63,25 +63,31 @@ class VoiceSession:
     async def ack(self, task_id: str, text: str = "On it"):
         await self._send({"type": "ack", "task_id": task_id, "text": text})
 
-    async def speak(self, task_id: str, text: str, priority: int = 5):
+    async def speak(self, task_id: str, text: str, priority: str = "low"):
         await self._send({"type": "speak", "task_id": task_id, "text": text, "priority": priority})
 
-    async def done(self, task_id: str, outcome: str = "completed"):
-        await self._send({"type": "done", "task_id": task_id, "outcome": outcome})
+    async def done(self, task_id: str, outcome: str = "completed", summary: str = ""):
+        await self._send({
+            "type": "done",
+            "task_id": task_id,
+            "outcome": outcome,
+            "summary_speak": summary,
+        })
 
     async def error(self, task_id: str, text: str, recoverable: bool = True):
-        await self._send({"type": "error", "task_id": task_id, "text": text, "recoverable": recoverable})
+        await self._send({"type": "error", "task_id": task_id, "speak": text, "recoverable": recoverable})
 
-    async def progress(self, task_id: str, text: str, priority: int = 3):
+    async def progress(self, task_id: str, text: str, priority: str = "low"):
         await self._send({"type": "progress", "task_id": task_id, "text": text, "priority": priority})
 
-    async def confirmation_request(self, task_id: str, text: str, risk: str = "write"):
+    async def confirmation_request(self, task_id: str, text: str, risk_class: str = "write"):
         await self._send({
             "type": "confirmation_request",
             "task_id": task_id,
-            "text": text,
-            "priority": 9,
-            "risk": risk,
+            "speak": text,
+            "priority": "high",
+            "options": ["approve", "reject", "modify"],
+            "risk_class": risk_class,
         })
 
     # ------------------------------------------------------------------
@@ -182,8 +188,8 @@ class VoiceSession:
             text = "There is one task in progress."
         else:
             text = f"There are {n} tasks in progress."
-        await self.speak(task_id, text, priority=10)
-        await self.done(task_id)
+        await self.speak(task_id, text, priority="high")
+        await self.done(task_id, summary=text)
 
     async def _on_session_end(self, event: dict):
         for t in self._tasks.values():
@@ -233,8 +239,9 @@ class VoiceSession:
             if _needs_voice_confirmation(reply):
                 confirmed = await self._ask_confirmation(task_id, reply)
                 if not confirmed:
-                    await self.speak(task_id, "Okay, I've cancelled that.", priority=5)
-                    await self.done(task_id, outcome="cancelled")
+                    msg = "Okay, I've cancelled that."
+                    await self.speak(task_id, msg)
+                    await self.done(task_id, outcome="failed", summary=msg)
                     return
                 # Re-run with explicit approval in context
                 system_prompt += "\n\nThe user has approved this action verbally. Proceed."
@@ -244,8 +251,8 @@ class VoiceSession:
                     history=self.history,
                 )
 
-            await self.speak(task_id, reply, priority=5)
-            await self.done(task_id, outcome="completed")
+            await self.speak(task_id, reply)
+            await self.done(task_id, outcome="completed", summary=reply[:200])
 
             # Update in-session history
             self.history.append({"role": "user", "content": text})
