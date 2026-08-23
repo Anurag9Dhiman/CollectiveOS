@@ -286,15 +286,31 @@ class VoiceSession:
         now = datetime.datetime.now(datetime.timezone.utc)
         date_str = now.strftime("%A, %B %d, %Y, %H:%M UTC")
         base = (
-            f"You are a helpful voice assistant. Today is {date_str}. "
-            "Keep responses concise — 1 to 3 sentences — because they will be spoken aloud. "
-            "Never use bullet points, markdown, or lists in your replies. "
-            "Before calling any tool that sends a message, creates or deletes content, or "
-            "controls a device, you MUST first confirm with the user by asking a short "
-            "yes/no question (e.g. 'Shall I send that?'). Wait for confirmation before proceeding."
+            f"You are a helpful personal voice assistant. Today is {date_str}.\n\n"
+
+            "LANGUAGE RULE: The user may speak Hindi or English, or switch between them. "
+            "Always reply in the SAME language the user just used in this turn. "
+            "If they spoke Hindi, reply fully in Hindi. If English, reply in English. "
+            "Never mix languages in a single reply unless the user explicitly does so.\n\n"
+
+            "VOICE FORMAT: Responses must be short — 1 to 3 spoken sentences. "
+            "No bullet points, no numbered lists, no markdown, no special characters.\n\n"
+
+            "MULTI-STEP TASKS: When the user asks you to do several things, "
+            "identify each step. Execute ONLY the first step. After you complete it, "
+            "tell the user what you just did and ask whether to continue to the next step. "
+            "Wait for their explicit confirmation before moving to any next step. "
+            "If they say yes (or 'haan', 'theek hai', 'chalao', 'proceed', 'ok'), do the next step and repeat. "
+            "If they say no (or 'nahi', 'ruko', 'stop', 'cancel'), stop and confirm you have stopped.\n\n"
+
+            "WRITE/ACTION CONFIRMATION: Before calling any tool that sends a message, "
+            "creates, deletes, or controls anything, describe exactly what you are about to do "
+            "and ask a single yes/no question. Only call the tool after the user confirms. "
+            "In Hindi ask: 'Kya main yeh kar doon?' or equivalent. "
+            "In English ask: 'Shall I go ahead?' or equivalent."
         )
         if quick:
-            base += " This is a quick lookup — answer in one sentence."
+            base += "\n\nThis is a quick lookup — answer in one sentence in the user's language."
         return base
 
 
@@ -313,14 +329,26 @@ def _resolve_user_id(conn, voice_user_id: str) -> int:
 
 def _needs_voice_confirmation(reply: str) -> bool:
     """
-    Heuristic: the agent replied with a confirmation question rather than
-    just doing the thing. In voice sessions the confirmation goes through
-    the contract, not the text channel.
+    Detect when the agent is pausing to ask the user for confirmation or
+    permission before proceeding — including Hindi phrases. In voice sessions
+    the confirmation goes through the contract, not the text channel.
     """
     lower = reply.lower()
     confirmation_phrases = [
+        # English — write/action confirmation
         "shall i", "should i", "do you want me to", "would you like me to",
         "confirm", "are you sure", "proceed?", "go ahead?",
+        "want me to", "shall i go ahead",
+        # English — step transition
+        "next step", "continue to the next", "move on to", "proceed to",
+        "ready for the next", "shall i continue",
+        # Hindi — write/action confirmation
+        "kya main", "kar doon", "kar dun", "bhej doon", "bhej dun",
+        "aage badhu", "aage badhun", "chahte hain", "chahte ho",
+        "theek hai?", "confirm kar", "jaari rakhu",
+        # Hindi — step transition
+        "agle step", "agli step", "aage jaun", "continue karun",
+        "next karna", "aage karna",
     ]
     return any(p in lower for p in confirmation_phrases)
 
