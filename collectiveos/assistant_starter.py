@@ -1,26 +1,26 @@
 """
-assistant_starter.py
----------------------
-Personal-assistant agent loop powered by Google Gemini with tool use.
+assistant_starter.py (LangGraph edition)
+-----------------------------------------
+Personal-assistant agent loop — LangGraph orchestration over Google Gemini.
 
-Pattern:
-    retrieve relevant memory
-    -> build system prompt with context
-    -> user asks -> model calls tools -> your code runs them -> loop
-    -> model gives final answer
-    -> save exchange to memory
+Graph: START → router → agent ⟷ tools → END
 
-SETUP (do this once):
-    1. pip install -r requirements.txt
-    2. export GEMINI_API_KEY="AIza..."
-    3. python src/assistant_starter.py
+  router : classify intent, narrow the 85-tool list to the relevant subset
+  agent  : call Gemini (via langchain-google-genai) with bound tools
+  tools  : execute tool calls in parallel; gate write tools through confirm_fn
+
+Public API (unchanged from the raw-loop version):
+    run(user_message, system, history, confirm_fn) -> str
+    run_stream(user_message, system, history)      -> Generator[str]
 """
 
+import contextvars
 import datetime
 import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Annotated, Optional, Callable
 
 try:
     from dotenv import load_dotenv
@@ -28,17 +28,31 @@ try:
 except ImportError:
     pass
 
-from google import genai
-from google.genai import types
+# LangGraph / LangChain
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langchain_core.messages import (
+    HumanMessage, AIMessage, ToolMessage, SystemMessage,
+)
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, create_model, Field
+from typing import TypedDict
 
-_client: genai.Client | None = None
+# ── LLM singleton ─────────────────────────────────────────────────────────────
+MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-flash-latest")
+
+_llm: Optional[ChatGoogleGenerativeAI] = None
 
 
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    return _client
+def _get_llm() -> ChatGoogleGenerativeAI:
+    global _llm
+    if _llm is None:
+        _llm = ChatGoogleGenerativeAI(
+            model=MODEL,
+            google_api_key=os.environ["GEMINI_API_KEY"],
+        )
+    return _llm
 
 
 from collectiveos.connectors.google_calendar import get_calendar_events, create_event
@@ -64,8 +78,6 @@ from collectiveos.connectors import car as _car
 from collectiveos.connectors import appliances as _appliances
 from collectiveos.connectors import ai_models as _ai
 from collectiveos import memory, graph_memory, router, permissions, observability as _obs
-
-MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-flash-latest")
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -1697,94 +1709,15 @@ except Exception:
     pass  # if profile detection fails, keep all tools
 
 # ---------------------------------------------------------------------------
-# Gemini tool schema converters
+# Tool execution — permission checks, observability, retry (unchanged)
 # ---------------------------------------------------------------------------
 
-def _json_schema_to_gemini(schema: dict) -> types.Schema:
-    """Recursively convert a JSON Schema dict to a Gemini types.Schema."""
-    type_map = {
-        "string":  types.Type.STRING,
-        "number":  types.Type.NUMBER,
-        "integer": types.Type.INTEGER,
-        "boolean": types.Type.BOOLEAN,
-        "array":   types.Type.ARRAY,
-        "object":  types.Type.OBJECT,
-    }
-    raw_type = schema.get("type", "string")
-    t = type_map.get(raw_type.lower() if isinstance(raw_type, str) else "string",
-                     types.Type.STRING)
-
-    kwargs: dict = {"type": t, "description": schema.get("description", "")}
-
-    if t == types.Type.OBJECT:
-        props = {
-            k: _json_schema_to_gemini(v)
-            for k, v in schema.get("properties", {}).items()
-        }
-        if props:
-            kwargs["properties"] = props
-        if schema.get("required"):
-            kwargs["required"] = list(schema["required"])
-
-    elif t == types.Type.ARRAY and "items" in schema:
-        kwargs["items"] = _json_schema_to_gemini(schema["items"])
-
-    if "enum" in schema:
-        kwargs["enum"] = [str(e) for e in schema["enum"] if e != ""]
-
-    return types.Schema(**kwargs)
-
-
-def _to_gemini_tools(anthropic_tools: list[dict]) -> list:
-    """Convert the Anthropic tool-spec list to a Gemini Tool list."""
-    if not anthropic_tools:
-        return []
-    declarations = []
-    for tool in anthropic_tools:
-        schema = tool.get("input_schema", {"type": "object", "properties": {}})
-        declarations.append(types.FunctionDeclaration(
-            name=tool["name"],
-            description=tool.get("description", ""),
-            parameters=_json_schema_to_gemini(schema),
-        ))
-    return [types.Tool(function_declarations=declarations)]
-
-
-def _convert_history(anthropic_history: list[dict]) -> list[dict]:
-    """Convert Anthropic-format message history to Gemini format."""
-    gemini = []
-    for msg in anthropic_history:
-        role = "model" if msg["role"] == "assistant" else "user"
-        content = msg["content"]
-        if isinstance(content, str):
-            gemini.append({"role": role, "parts": [{"text": content}]})
-        elif isinstance(content, list):
-            texts = [
-                b.get("text", "")
-                for b in content
-                if isinstance(b, dict) and b.get("type") == "text"
-            ]
-            if texts:
-                gemini.append({"role": role, "parts": [{"text": " ".join(texts)}]})
-    return gemini
-
-
-# ---------------------------------------------------------------------------
-# Agent loop — batch (CLI) and streaming (API) variants
-# ---------------------------------------------------------------------------
-
-MAX_LOOP = 10  # hard cap on tool-use iterations per user message
-
+MAX_LOOP = 10
 _TRANSIENT_MARKERS = ("Timeout", "Connection", "Network", "Reset", "BrokenPipe")
 
 
 def _exec_tool_fn(name: str, args: dict) -> str:
-    """
-    Execute a single tool by name+args and return its string output.
-    Permission checks, retries on transient errors, and observability logging
-    are all handled here. Errors are returned as [ERROR: ...] strings so the
-    model can decide what to do rather than crashing the loop.
-    """
+    """Execute one tool by name+args; return string result or [ERROR: ...] string."""
     allowed, err = permissions.check_tool(name)
     if not allowed:
         return err
@@ -1811,201 +1744,329 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     return "[ERROR: unexpected retry exhaustion]"
 
 
-def _exec_one_gemini(fc) -> types.Part:
-    """Execute a Gemini FunctionCall and wrap the result in a FunctionResponse Part."""
-    result = _exec_tool_fn(fc.name, dict(fc.args))
-    return types.Part(
-        function_response=types.FunctionResponse(
-            name=fc.name,
-            response={"result": result},
+# ---------------------------------------------------------------------------
+# LangChain tool wrapping (lazy — built on first use)
+# ---------------------------------------------------------------------------
+
+def _json_schema_to_pydantic(schema: dict, model_name: str) -> type[BaseModel]:
+    """Build a Pydantic BaseModel from a JSON Schema properties dict."""
+    props = schema.get("properties", {})
+    required_set = set(schema.get("required", []))
+    type_map = {
+        "string": str, "integer": int, "number": float,
+        "boolean": bool, "object": dict, "array": list,
+    }
+    fields: dict = {}
+    for field_name, prop in props.items():
+        py_type = type_map.get(prop.get("type", "string"), str)
+        desc = prop.get("description", "")
+        enum_vals = prop.get("enum")
+        if enum_vals:
+            desc = f"{desc} Allowed values: {', '.join(str(e) for e in enum_vals)}."
+        if field_name in required_set:
+            fields[field_name] = (py_type, Field(description=desc))
+        else:
+            fields[field_name] = (Optional[py_type], Field(default=None, description=desc))
+    return create_model(model_name, **fields)
+
+
+_langchain_tools: Optional[list] = None
+
+
+def _get_langchain_tools() -> list[StructuredTool]:
+    """Return LangChain StructuredTool list (built once, cached)."""
+    global _langchain_tools
+    if _langchain_tools is not None:
+        return _langchain_tools
+
+    tools = []
+    for tool_def in TOOLS:
+        tname = tool_def["name"]
+        if tname not in TOOL_FUNCTIONS:
+            continue
+        args_schema = _json_schema_to_pydantic(
+            tool_def.get("input_schema", {}), f"{tname}_schema"
         )
+        # Capture tname in default arg to avoid closure-over-loop-variable
+        def _make_fn(captured_name: str):
+            def _fn(**kwargs) -> str:
+                clean_args = {k: v for k, v in kwargs.items() if v is not None}
+                return _exec_tool_fn(captured_name, clean_args)
+            _fn.__name__ = captured_name
+            return _fn
+
+        tools.append(StructuredTool(
+            name=tname,
+            description=tool_def.get("description", ""),
+            func=_make_fn(tname),
+            args_schema=args_schema,
+        ))
+
+    _langchain_tools = tools
+    return tools
+
+
+# Name → StructuredTool lookup (built lazily alongside the list)
+def _tool_by_name() -> dict[str, StructuredTool]:
+    return {t.name: t for t in _get_langchain_tools()}
+
+
+# ---------------------------------------------------------------------------
+# LangGraph state
+# ---------------------------------------------------------------------------
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+    tool_categories: list[str]   # active tool names selected by router
+    iteration: int
+    system_prompt: str
+
+
+# confirm_fn is not serialisable — pass out-of-band via ContextVar
+_confirm_fn_ctx: contextvars.ContextVar[Optional[Callable]] = \
+    contextvars.ContextVar("confirm_fn", default=None)
+
+
+# ---------------------------------------------------------------------------
+# Graph nodes
+# ---------------------------------------------------------------------------
+
+def _router_node(state: AgentState) -> dict:
+    """Classify intent; store the names of the relevant tool subset."""
+    last_human = next(
+        (m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)),
+        None,
     )
+    text = last_human.content if last_human else ""
+    active_tool_defs, categories = router.select_tools(text, TOOLS)
+    if categories:
+        print(f"  [router: {', '.join(categories)}  →  {len(active_tool_defs)}/{len(TOOLS)} tools]")
+    active_names = [t["name"] for t in active_tool_defs]
+    return {"tool_categories": active_names, "iteration": 0}
 
 
-def _cancelled_part(fc) -> types.Part:
-    return types.Part(
-        function_response=types.FunctionResponse(
-            name=fc.name,
-            response={"result": "[Action cancelled by user.]"},
-        )
-    )
+def _agent_node(state: AgentState) -> dict:
+    """Call Gemini with the narrowed tool set; return the AI message."""
+    selected = set(state.get("tool_categories") or [])
+    all_tools = _get_langchain_tools()
+    active_tools = [t for t in all_tools if t.name in selected] if selected else all_tools
+
+    llm = _get_llm().bind_tools(active_tools)
+
+    # Prepend system message without storing it in state (avoids accumulation)
+    system = state.get("system_prompt", "")
+    msgs = list(state["messages"])
+    if system and not any(isinstance(m, SystemMessage) for m in msgs):
+        msgs = [SystemMessage(content=system)] + msgs
+
+    response = llm.invoke(msgs)
+
+    # Observability
+    try:
+        um = getattr(response, "usage_metadata", None)
+        if um:
+            _obs.log_api_call(
+                MODEL,
+                um.get("input_tokens", 0),
+                um.get("output_tokens", 0),
+            )
+    except Exception:
+        pass
+
+    return {"messages": [response], "iteration": state.get("iteration", 0) + 1}
 
 
-def _run_tools_parallel_gemini(fn_calls: list) -> list:
-    """Execute all Gemini FunctionCall objects concurrently (up to 8 threads)."""
-    if not fn_calls:
+def _exec_one_lc(tool_call: dict) -> ToolMessage:
+    """Execute a single LangChain tool call dict; return a ToolMessage."""
+    name = tool_call["name"]
+    args = tool_call.get("args", {})
+    tc_id = tool_call["id"]
+    print(f"  [tool: {name}({args})]")
+    result = _exec_tool_fn(name, args)
+    return ToolMessage(content=result, tool_call_id=tc_id, name=name)
+
+
+def _exec_parallel_lc(tool_calls: list) -> list[ToolMessage]:
+    if not tool_calls:
         return []
-    with ThreadPoolExecutor(max_workers=min(len(fn_calls), 8)) as pool:
-        parts = list(pool.map(_exec_one_gemini, fn_calls))
-    return parts
+    with ThreadPoolExecutor(max_workers=min(len(tool_calls), 8)) as pool:
+        return list(pool.map(_exec_one_lc, tool_calls))
 
 
-def _run_tools_with_confirm(fn_calls: list, confirm_fn) -> list:
-    """Execute tool calls, gating every write tool through confirm_fn.
-
-    confirm_fn(tool_name, args) must be synchronous and return True (proceed)
-    or False (cancel). Write tools are executed sequentially so confirmation
-    requests don't overlap; read tools are batched in parallel between them.
-    """
-    parts = []
-    read_batch = []
+def _exec_with_confirm_lc(tool_calls: list, confirm_fn: Callable) -> list[ToolMessage]:
+    """Gate write tools through confirm_fn; run reads in parallel batches."""
+    results: list[ToolMessage] = []
+    read_batch: list = []
 
     def flush_reads():
         if read_batch:
-            parts.extend(_run_tools_parallel_gemini(read_batch))
+            results.extend(_exec_parallel_lc(read_batch))
             read_batch.clear()
 
-    for fc in fn_calls:
-        if fc.name in permissions.WRITE_TOOLS:
+    for tc in tool_calls:
+        name = tc["name"]
+        if name in permissions.WRITE_TOOLS:
             flush_reads()
-            print(f"  [tool: {fc.name} — awaiting confirmation]")
-            if confirm_fn(fc.name, dict(fc.args)):
-                print(f"  [tool: {fc.name} — approved, executing]")
-                parts.append(_exec_one_gemini(fc))
+            print(f"  [tool: {name} — awaiting confirmation]")
+            if confirm_fn(name, tc.get("args", {})):
+                print(f"  [tool: {name} — approved]")
+                results.append(_exec_one_lc(tc))
             else:
-                print(f"  [tool: {fc.name} — cancelled by user]")
-                parts.append(_cancelled_part(fc))
+                print(f"  [tool: {name} — cancelled]")
+                results.append(ToolMessage(
+                    content="[Action cancelled by user.]",
+                    tool_call_id=tc["id"],
+                    name=name,
+                ))
         else:
-            print(f"  [tool: {fc.name}({dict(fc.args)})]")
-            read_batch.append(fc)
+            read_batch.append(tc)
 
     flush_reads()
-    return parts
+    return results
 
 
-def _extract_fn_calls(response) -> list:
-    """Extract all FunctionCall objects from a Gemini response."""
-    calls = []
-    try:
-        for part in response.candidates[0].content.parts:
-            if part.function_call and part.function_call.name:
-                calls.append(part.function_call)
-    except (IndexError, AttributeError):
-        pass
-    return calls
+def _tools_node(state: AgentState) -> dict:
+    """Execute all tool calls from the last AI message."""
+    last = state["messages"][-1]
+    tool_calls = getattr(last, "tool_calls", None) or []
+    if not tool_calls:
+        return {}
 
+    confirm_fn = _confirm_fn_ctx.get()
+    if confirm_fn is not None:
+        tool_msgs = _exec_with_confirm_lc(tool_calls, confirm_fn)
+    else:
+        tool_msgs = _exec_parallel_lc(tool_calls)
+
+    return {"messages": tool_msgs}
+
+
+def _should_continue(state: AgentState) -> str:
+    last = state["messages"][-1]
+    if (
+        isinstance(last, AIMessage)
+        and getattr(last, "tool_calls", None)
+        and state.get("iteration", 0) < MAX_LOOP
+    ):
+        return "tools"
+    return END
+
+
+# ---------------------------------------------------------------------------
+# Graph compilation (lazy singleton)
+# ---------------------------------------------------------------------------
+
+_graph = None
+
+
+def _get_graph():
+    global _graph
+    if _graph is not None:
+        return _graph
+    g = StateGraph(AgentState)
+    g.add_node("router", _router_node)
+    g.add_node("agent", _agent_node)
+    g.add_node("tools", _tools_node)
+    g.add_edge(START, "router")
+    g.add_edge("router", "agent")
+    g.add_conditional_edges("agent", _should_continue, {"tools": "tools", END: END})
+    g.add_edge("tools", "agent")
+    _graph = g.compile()
+    return _graph
+
+
+# ---------------------------------------------------------------------------
+# History conversion (Anthropic format → LangChain messages)
+# ---------------------------------------------------------------------------
+
+def _history_to_langchain(history: list[dict]) -> list:
+    msgs = []
+    for msg in history:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+        if role == "user":
+            msgs.append(HumanMessage(content=content))
+        elif role == "assistant":
+            msgs.append(AIMessage(content=content))
+    return msgs
+
+
+# ---------------------------------------------------------------------------
+# Public API — same signatures as the old raw-loop version
+# ---------------------------------------------------------------------------
 
 def run(user_message: str, system: str = "", history: list = [],
         confirm_fn=None) -> str:
-    """Run one user message through the Gemini tool-use loop; return the full reply.
+    """Run one user message through the LangGraph agent; return the full reply.
 
-    history:    prior turns in Anthropic format — converted automatically.
-    confirm_fn: optional sync callable(tool_name, args) -> bool. When set,
-                every write tool call is gated through it before execution.
-                Use this in voice sessions so the user must approve each action.
-                Read tools always run immediately.
-    Independent tool calls within a single turn execute in parallel threads.
-    Capped at MAX_LOOP iterations; if hit, returns whatever text is available.
+    confirm_fn: optional sync callable(tool_name, args) -> bool.
+                When set, write tools are gated through it before execution.
+                Used by the voice gateway so the user must approve each action.
     """
-    active_tools, categories = router.select_tools(user_message, TOOLS)
-    if categories:
-        print(f"  [router: {', '.join(categories)}  →  {len(active_tools)}/{len(TOOLS)} tools]")
-
-    gemini_tools = _to_gemini_tools(active_tools)
-    chat = _get_client().chats.create(
-        model=MODEL,
-        config=types.GenerateContentConfig(
-            tools=gemini_tools or None,
-            system_instruction=system or None,
-        ),
-        history=_convert_history(history),
-    )
-
-    # First message is the user string; subsequent messages are FunctionResponse parts
-    message = user_message
-
-    for _iter in range(MAX_LOOP):
-        response = chat.send_message(message)
-
-        try:
-            if response.usage_metadata:
-                _obs.log_api_call(
-                    MODEL,
-                    response.usage_metadata.prompt_token_count,
-                    response.usage_metadata.candidates_token_count,
-                )
-        except Exception:
-            pass
-
-        fn_calls = _extract_fn_calls(response)
-        if not fn_calls:
-            return response.text or ""
-
-        if confirm_fn is not None:
-            message = _run_tools_with_confirm(fn_calls, confirm_fn)
-        else:
-            for fc in fn_calls:
-                print(f"  [tool: {fc.name}({dict(fc.args)})]")
-            message = _run_tools_parallel_gemini(fn_calls)
-
-    return response.text or "[Reached the iteration limit. Please try a more focused request.]"
+    token = _confirm_fn_ctx.set(confirm_fn)
+    try:
+        messages = _history_to_langchain(history) + [HumanMessage(content=user_message)]
+        result = _get_graph().invoke({
+            "messages": messages,
+            "tool_categories": [],
+            "iteration": 0,
+            "system_prompt": system,
+        })
+        last = result["messages"][-1]
+        content = getattr(last, "content", "")
+        if isinstance(content, list):
+            # Gemini sometimes returns content as a list of blocks
+            content = "".join(
+                b.get("text", "") if isinstance(b, dict) else str(b)
+                for b in content
+            )
+        return content or ""
+    finally:
+        _confirm_fn_ctx.reset(token)
 
 
 def run_stream(user_message: str, system: str = "", history: list = []):
+    """Generator — yields text and status markers as the graph executes.
+
+    Uses LangGraph stream_mode="updates" (message-level, not token-level).
+    Token-by-token streaming requires async astream_events and can be added later.
     """
-    Generator — yields text tokens as they arrive, then executes any tool calls
-    and continues. Status markers are yielded before tool execution so the UI
-    stays responsive. Capped at MAX_LOOP iterations.
+    messages = _history_to_langchain(history) + [HumanMessage(content=user_message)]
+    state = {
+        "messages": messages,
+        "tool_categories": [],
+        "iteration": 0,
+        "system_prompt": system,
+    }
 
-    history: prior turns in Anthropic format — converted automatically.
-    """
-    active_tools, categories = router.select_tools(user_message, TOOLS)
-    if categories:
-        yield f"_[routing: {', '.join(categories)}]_\n\n"
+    for update in _get_graph().stream(state, stream_mode="updates"):
+        for node_name, node_update in update.items():
+            if node_name == "agent":
+                for msg in node_update.get("messages", []):
+                    if not isinstance(msg, AIMessage):
+                        continue
+                    # Yield tool-call markers before tool execution
+                    for tc in (getattr(msg, "tool_calls", None) or []):
+                        marker = "ACTION" if tc["name"] in permissions.WRITE_TOOLS else "reading"
+                        yield f"\n\n_[{marker}: {tc['name']}...]_\n\n"
+                    # Yield final text (no tool calls means it's the answer)
+                    if not getattr(msg, "tool_calls", None):
+                        content = msg.content
+                        if isinstance(content, str):
+                            yield content
+                        elif isinstance(content, list):
+                            for block in content:
+                                if isinstance(block, dict):
+                                    yield block.get("text", "")
 
-    gemini_tools = _to_gemini_tools(active_tools)
-    chat = _get_client().chats.create(
-        model=MODEL,
-        config=types.GenerateContentConfig(
-            tools=gemini_tools or None,
-            system_instruction=system or None,
-        ),
-        history=_convert_history(history),
-    )
-
-    message = user_message
-
-    for _iter in range(MAX_LOOP):
-        fn_calls: list = []
-        last_chunk = None
-
-        for chunk in chat.send_message_stream(message):
-            if chunk.text:
-                yield chunk.text
-            last_chunk = chunk
-
-        # Function calls come in the last chunk's candidates
-        fn_calls = _extract_fn_calls(last_chunk) if last_chunk else []
-
-        try:
-            if last_chunk and last_chunk.usage_metadata:
-                _obs.log_api_call(
-                    MODEL,
-                    last_chunk.usage_metadata.prompt_token_count,
-                    last_chunk.usage_metadata.candidates_token_count,
-                )
-        except Exception:
-            pass
-
-        if not fn_calls:
-            break
-
-        for fc in fn_calls:
-            marker = "ACTION" if fc.name in permissions.WRITE_TOOLS else "reading"
-            yield f"\n\n_[{marker}: {fc.name}...]_\n\n"
-
-        message = _run_tools_parallel_gemini(fn_calls)
-    else:
-        yield "\n\n_[iteration limit reached — summarising...]_\n\n"
-        try:
-            for chunk in chat.send_message_stream(message):
-                if chunk.text:
-                    yield chunk.text
-        except Exception:
-            pass
 
 # ---------------------------------------------------------------------------
-# Main loop
+# Main loop (CLI)
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -2021,25 +2082,18 @@ if __name__ == "__main__":
         if user_input.lower() in {"quit", "exit"}:
             break
 
-        # 1. Build system prompt with current date + semantic memory.
         past = memory.search(user_input)
         now = datetime.datetime.now(datetime.timezone.utc)
         date_str = now.strftime("%A, %B %-d, %Y, %H:%M UTC")
-        system_prompt = (
-            f"You are a helpful personal assistant.\n"
-            f"Today is {date_str}."
-        )
+        system_prompt = f"You are a helpful personal assistant.\nToday is {date_str}."
         if past:
             system_prompt += "\n\nRelevant context from past conversations:\n" + past
 
-        # 2. Run the agent with in-session history so it remembers prior turns.
         reply = run(user_input, system=system_prompt, history=cli_history)
         print(f"assistant> {reply}\n")
 
-        # 3. Extend in-session history (keep last 20 messages = 10 turns).
         cli_history.append({"role": "user", "content": user_input})
         cli_history.append({"role": "assistant", "content": reply})
         cli_history = cli_history[-20:]
 
-        # 4. Save this exchange so future sessions can recall it.
         memory.save(user_input, reply)
