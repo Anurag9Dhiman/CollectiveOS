@@ -41,7 +41,14 @@ def _load_model_bg():
         _model_ready.set()  # unblock waiters even on failure
 
 
-threading.Thread(target=_load_model_bg, daemon=True, name="embed-model-loader").start()
+import os as _os
+# DISABLE_EMBEDDINGS=1 skips sentence-transformers loading entirely — use this
+# when running the voice server to avoid a PyTorch/gRPC mutex that freezes
+# the asyncio event loop after startup.
+if not _os.environ.get("DISABLE_EMBEDDINGS"):
+    threading.Thread(target=_load_model_bg, daemon=True, name="embed-model-loader").start()
+else:
+    _model_ready.set()  # mark ready so _embed() fails fast with "model failed to load"
 
 
 def _embed(text: str) -> list[float]:
@@ -61,7 +68,7 @@ def _embed(text: str) -> list[float]:
 def save(user_message: str, assistant_reply: str, source: str = "conversation") -> None:
     """Embed and persist one exchange to memory, then trigger async entity extraction."""
     try:
-        from src import graph_memory as _gm
+        from collectiveos import graph_memory as _gm
 
         content = f"User: {user_message}\nAssistant: {assistant_reply}"
         embedding = _embed(content)

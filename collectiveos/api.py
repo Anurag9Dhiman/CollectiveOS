@@ -40,9 +40,7 @@ import sys
 import threading
 from contextlib import asynccontextmanager
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from fastapi import FastAPI, HTTPException, Depends, Query, Request
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -50,9 +48,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from collectiveos.assistant_starter import run, run_stream
-from src import conversations, memory, permissions, routines as _routines
-from src import scheduler as _scheduler
-from src import observability as _obs
+from collectiveos import conversations, memory, permissions, routines as _routines
+from collectiveos import scheduler as _scheduler
+from collectiveos import observability as _obs
+from collectiveos.voice_gateway import voice_ws_endpoint
 
 _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
 
@@ -525,3 +524,28 @@ async def telegram_webhook(secret: str, request: Request):
         daemon=True,
     ).start()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Voice WebSocket  (VoiceOS contract)
+# ---------------------------------------------------------------------------
+
+@app.websocket("/voice/ws")
+async def voice_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for the VoiceOS voice-service.
+
+    Contract: https://github.com/Anurag9Dhiman/VoiceOS/tree/main/contract
+
+    Receives: session_start, user_utterance, interrupt,
+              confirmation_response, session_query, session_end
+    Sends:    ack, progress, speak, done, error,
+              confirmation_request, clarification_request, task_update
+    """
+    await voice_ws_endpoint(websocket)
+
+
+@app.websocket("/v1/ws")
+async def voice_websocket_v1(websocket: WebSocket):
+    """Alias for /voice/ws — matches VoiceOS's default COLLECTIVEOS_WS_URL."""
+    await voice_ws_endpoint(websocket)

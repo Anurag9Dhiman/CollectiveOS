@@ -172,7 +172,7 @@ def select_tools(user_message: str, all_tools: list[dict]) -> tuple[list[dict], 
             ),
         )
         try:
-            from src import observability as _obs
+            from collectiveos import observability as _obs
             if resp.usage_metadata:
                 _obs.log_api_call(
                     ROUTER_MODEL,

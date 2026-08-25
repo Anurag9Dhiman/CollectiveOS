@@ -202,6 +202,63 @@ def info():
 
 
 # ---------------------------------------------------------------------------
+# collectiveos voice
+# ---------------------------------------------------------------------------
+
+@app.command()
+def voice(
+    host: str = typer.Option("0.0.0.0", help="Host for the CollectiveOS API server"),
+    port: int = typer.Option(8000, help="Port for the CollectiveOS API server"),
+    setup: bool = typer.Option(False, "--setup", help="Print VoiceOS setup instructions and exit"),
+):
+    """
+    Start CollectiveOS in voice mode.
+
+    Launches the API server with the /voice/ws WebSocket endpoint active.
+    Point the VoiceOS voice-service at ws://<this-host>:<port>/voice/ws.
+
+    VoiceOS repo: https://github.com/Anurag9Dhiman/VoiceOS
+    """
+    _load_env()
+
+    if setup:
+        _print_voice_setup(host, port)
+        return
+
+    if not os.environ.get("GEMINI_API_KEY"):
+        rprint("[red]Error:[/red] GEMINI_API_KEY not set.")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold green]CollectiveOS[/bold green] — voice mode\n")
+    console.print(f"  WebSocket endpoint: [cyan]ws://{host}:{port}/voice/ws[/cyan]")
+    console.print(f"  Point VoiceOS voice-service at this address.\n")
+    console.print("  Run [bold]collectiveos voice --setup[/bold] for full VoiceOS setup instructions.\n")
+
+    import uvicorn
+    uvicorn.run("collectiveos.api:app", host=host, port=port, reload=False)
+
+
+def _print_voice_setup(host: str, port: int):
+    console.print("\n[bold]VoiceOS Integration Setup[/bold]\n")
+    console.print("1. Clone VoiceOS:")
+    console.print("   [dim]git clone https://github.com/Anurag9Dhiman/VoiceOS[/dim]\n")
+    console.print("2. Install the voice-service:")
+    console.print("   [dim]cd VoiceOS/services/voice-service && pip install -e .[/dim]\n")
+    console.print("3. Set environment variables in VoiceOS/.env:")
+    console.print("   [dim]GOOGLE_API_KEY=<your Gemini API key for realtime audio>[/dim]")
+    console.print("   [dim]GEMINI_API_KEY=<same key, used for ack/router>[/dim]")
+    console.print(f"   [dim]COLLECTIVEOS_WS_URL=ws://{host}:{port}/voice/ws[/dim]\n")
+    console.print("4. Start CollectiveOS in voice mode:")
+    console.print(f"   [dim]collectiveos voice --host {host} --port {port}[/dim]\n")
+    console.print("5. Start the VoiceOS voice-service:")
+    console.print("   [dim]cd VoiceOS/services/voice-service && python -m voice_service[/dim]\n")
+    console.print("[bold]Flow:[/bold] Mic → Gemini Live (VoiceOS) → WebSocket → CollectiveOS agent → reply → TTS (VoiceOS) → Speaker\n")
+    console.print("[bold]Multi-step commands:[/bold] Say something like:")
+    console.print('   [italic]"Send a Slack message, then summarise my emails, then add a calendar event"[/italic]')
+    console.print("   CollectiveOS will ask for confirmation before each write action.\n")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
