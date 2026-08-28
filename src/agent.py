@@ -37,6 +37,27 @@ from google.genai import types as _gtypes
 from langsmith import traceable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+
+# ---------------------------------------------------------------------------
+# Write-tool set — require interrupt_before HITL confirmation
+# ---------------------------------------------------------------------------
+
+WRITE_TOOLS: frozenset[str] = frozenset({
+    "memory_remember", "memory_forget",
+    "create_event", "create_draft", "send_email",
+    "add_task", "complete_task", "update_task",
+    "control_device", "set_light",
+    "spotify_control", "spotify_set_volume", "spotify_search_play",
+    "show_notification", "open_application", "set_system_volume",
+    "imessage_send", "write_local_file", "browser_open_url",
+    "reminders_add", "reminders_complete",
+    "notes_create", "notes_append", "clipboard_write", "telegram_send",
+    "notion_create_page", "notion_append_to_page",
+    "github_create_issue", "slack_send_message",
+    "car_lock", "car_climate", "appliances_control",
+    "push_notification",
+    "computer_use",
+})
 from src.tool_registry import WRITE_TOOLS, DESTRUCTIVE_TOOLS, is_destructive
 
 MAX_ITER = 10
