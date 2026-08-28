@@ -657,6 +657,46 @@ def delete_memory_fact(fact_id: int, _token: str = Depends(_verify_token)):
         raise HTTPException(status_code=404, detail="Fact not found.")
 
 
+@app.get("/export")
+def export_data(
+    sections: Optional[str] = Query(None, description="Comma-separated sections: conversations,facts,entities,routines,watchers"),
+    _token: str = Depends(_verify_token),
+):
+    """
+    Export all user data as a single JSON bundle for backup or migration.
+
+    By default all sections are included.  Pass ?sections= to limit:
+      conversations, facts, entities, routines, watchers
+
+    The response carries Content-Disposition: attachment so browsers download
+    it directly as collectiveos-YYYY-MM-DD.json.
+    """
+    from fastapi.responses import JSONResponse
+    from src import exporter
+
+    include = None
+    if sections:
+        include = {s.strip() for s in sections.split(",") if s.strip()}
+        unknown = include - exporter.ALL_SECTIONS
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown sections: {sorted(unknown)}. Valid: {sorted(exporter.ALL_SECTIONS)}",
+            )
+
+    try:
+        payload = exporter.build(include)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    filename = f"collectiveos-{date_str}.json"
+    return JSONResponse(
+        content=payload,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/memory/graph")
 def get_memory_graph(_token: str = Depends(_verify_token)):
     """
