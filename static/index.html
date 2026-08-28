@@ -730,6 +730,115 @@
       padding: 7px 14px; font-size: 0.82rem; cursor: pointer; white-space: nowrap;
     }
     #save-fact-btn:hover { background: #388bfd; }
+
+    /* ── Knowledge graph panel ───────────────────────────────────────────── */
+    #graph-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); z-index: 100;
+    }
+    #graph-overlay.open { display: block; }
+    #graph-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 560px; background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #graph-panel > header {
+      padding: 16px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #graph-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #graph-close {
+      background: none; border: none; color: #8b949e;
+      font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    #graph-close:hover { color: #e1e4e8; background: #21262d; }
+
+    #graph-search-row {
+      padding: 10px 18px; border-bottom: 1px solid #21262d;
+      display: flex; gap: 8px; align-items: center;
+    }
+    #graph-search {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.84rem; padding: 6px 10px; outline: none;
+    }
+    #graph-search:focus { border-color: #1f6feb; }
+    #graph-type-filter {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      color: #8b949e; font-size: 0.78rem; padding: 6px 8px; outline: none; cursor: pointer;
+    }
+
+    /* Canvas graph area */
+    #graph-canvas-wrap {
+      flex-shrink: 0; height: 260px; background: #0d1117;
+      border-bottom: 1px solid #21262d; position: relative;
+    }
+    #graph-canvas { width: 100%; height: 100%; display: block; }
+    #graph-empty-hint {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; color: #484f58; font-size: 0.8rem; pointer-events: none;
+    }
+
+    /* Entity list + relation detail split */
+    #graph-body {
+      flex: 1; overflow: hidden; display: flex;
+    }
+    #graph-entity-list {
+      width: 200px; border-right: 1px solid #21262d;
+      overflow-y: auto; padding: 8px 0;
+    }
+    .graph-entity-item {
+      padding: 6px 14px; font-size: 0.82rem; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      border-left: 2px solid transparent;
+    }
+    .graph-entity-item:hover { background: #1c2128; }
+    .graph-entity-item.selected {
+      background: #1c2128; border-left-color: #58a6ff;
+    }
+    .graph-entity-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .graph-type-badge {
+      font-size: 0.62rem; padding: 1px 5px; border-radius: 3px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0;
+    }
+    .graph-type-person       { background: #1f3a5f; color: #58a6ff; }
+    .graph-type-place        { background: #1f4030; color: #3fb950; }
+    .graph-type-project      { background: #3a2d1f; color: #f0883e; }
+    .graph-type-organization { background: #2d1f3a; color: #bc8cff; }
+    .graph-type-product      { background: #1f2d3a; color: #56d364; }
+    .graph-type-concept      { background: #21262d; color: #8b949e; }
+
+    .graph-mention-count {
+      font-size: 0.68rem; color: #484f58; flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #graph-detail {
+      flex: 1; overflow-y: auto; padding: 14px 16px;
+    }
+    #graph-detail-empty {
+      color: #484f58; font-size: 0.82rem; margin-top: 8px;
+    }
+    .graph-detail-name {
+      font-size: 1rem; font-weight: 600; color: #e1e4e8; margin-bottom: 4px;
+    }
+    .graph-detail-type {
+      font-size: 0.72rem; color: #8b949e; margin-bottom: 12px;
+    }
+    .graph-detail-section {
+      font-size: 0.7rem; color: #484f58; text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 6px;
+    }
+    .graph-relation-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 5px 0; border-bottom: 1px solid #21262d; font-size: 0.82rem;
+    }
+    .graph-relation-row:last-child { border-bottom: none; }
+    .graph-relation-label {
+      color: #8b949e; flex-shrink: 0; min-width: 90px; font-size: 0.78rem;
+    }
+    .graph-relation-target { color: #58a6ff; cursor: pointer; }
+    .graph-relation-target:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -743,6 +852,7 @@
   <button id="routines-btn" class="header-btn" title="Scheduled routines">⏱ Routines</button>
   <button id="metrics-btn" class="header-btn" title="Token usage and cost">📊 Metrics</button>
   <button id="memory-btn"   class="header-btn" title="Saved memory facts">🧠 Memory</button>
+  <button id="graph-btn"    class="header-btn" title="Knowledge graph">🕸 Graph</button>
 </header>
 
 <div id="chat"></div>
@@ -829,6 +939,38 @@
     <div id="add-fact-form">
       <input id="fact-input" type="text" placeholder="Remember that I prefer dark mode…" />
       <button id="save-fact-btn">+ Remember</button>
+    </div>
+  </div>
+</div>
+
+<!-- Knowledge graph panel -->
+<div id="graph-overlay">
+  <div id="graph-panel">
+    <header>
+      <h2>🕸 Knowledge Graph</h2>
+      <button id="graph-close">✕</button>
+    </header>
+    <div id="graph-search-row">
+      <input id="graph-search" type="search" placeholder="Filter entities…" />
+      <select id="graph-type-filter">
+        <option value="">All types</option>
+        <option value="person">Person</option>
+        <option value="place">Place</option>
+        <option value="project">Project</option>
+        <option value="organization">Organization</option>
+        <option value="product">Product</option>
+        <option value="concept">Concept</option>
+      </select>
+    </div>
+    <div id="graph-canvas-wrap">
+      <canvas id="graph-canvas"></canvas>
+      <div id="graph-empty-hint">No entities yet — have a few conversations first.</div>
+    </div>
+    <div id="graph-body">
+      <div id="graph-entity-list"></div>
+      <div id="graph-detail">
+        <div id="graph-detail-empty">Select an entity to see its connections.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -1763,6 +1905,302 @@
   memoryBtn.addEventListener("click", () => { memoryOvl.classList.add("open"); loadFacts(); });
   memoryClose.addEventListener("click", () => memoryOvl.classList.remove("open"));
   memoryOvl.addEventListener("click", e => { if (e.target === memoryOvl) memoryOvl.classList.remove("open"); });
+
+  // ── Knowledge Graph panel ──────────────────────────────────────────────────
+  const graphBtn      = document.getElementById("graph-btn");
+  const graphOvl      = document.getElementById("graph-overlay");
+  const graphClose    = document.getElementById("graph-close");
+  const graphSearch   = document.getElementById("graph-search");
+  const graphFilter   = document.getElementById("graph-type-filter");
+  const graphList     = document.getElementById("graph-entity-list");
+  const graphDetail   = document.getElementById("graph-detail");
+  const graphCanvas   = document.getElementById("graph-canvas");
+  const graphEmptyHint = document.getElementById("graph-empty-hint");
+
+  let _gNodes = [], _gLinks = [], _gSelected = null;
+
+  const TYPE_COLORS = {
+    person: "#58a6ff", place: "#3fb950", project: "#f0883e",
+    organization: "#bc8cff", product: "#56d364", concept: "#8b949e",
+  };
+
+  function typeClass(t) {
+    const k = (t || "concept").toLowerCase();
+    return "graph-type-" + (TYPE_COLORS[k] ? k : "concept");
+  }
+
+  async function loadGraph() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) return;
+    try {
+      const r = await fetch("/memory/graph", { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      _gNodes = d.nodes || [];
+      _gLinks = d.links || [];
+      renderGraphList();
+      runForceGraph();
+    } catch (_) {}
+  }
+
+  function renderGraphList() {
+    const q = graphSearch.value.trim().toLowerCase();
+    const tf = graphFilter.value;
+    const filtered = _gNodes.filter(n =>
+      (!q || n.name.toLowerCase().includes(q)) &&
+      (!tf || (n.type || "concept") === tf)
+    );
+    graphList.innerHTML = "";
+    if (!filtered.length) {
+      graphList.innerHTML = `<div style="padding:12px 14px;font-size:0.78rem;color:#484f58">No entities match.</div>`;
+      return;
+    }
+    for (const n of filtered) {
+      const item = document.createElement("div");
+      item.className = "graph-entity-item" + (n === _gSelected ? " selected" : "");
+      item.dataset.id = n.id;
+      const tc = typeClass(n.type);
+      item.innerHTML = `
+        <span class="graph-type-badge ${tc}">${(n.type || "concept")[0].toUpperCase()}</span>
+        <span class="graph-entity-name" title="${n.name}">${n.name}</span>
+        <span class="graph-mention-count">${n.mention_count}</span>
+      `;
+      item.addEventListener("click", () => selectEntity(n));
+      graphList.appendChild(item);
+    }
+  }
+
+  function selectEntity(node) {
+    _gSelected = node;
+    // highlight in list
+    graphList.querySelectorAll(".graph-entity-item").forEach(el => {
+      el.classList.toggle("selected", parseInt(el.dataset.id) === node.id);
+    });
+    renderDetail(node);
+    highlightCanvas(node.id);
+  }
+
+  function renderDetail(node) {
+    const outgoing = _gLinks.filter(l => l.source === node.id);
+    const incoming = _gLinks.filter(l => l.target === node.id);
+    const nodeById = id => _gNodes.find(n => n.id === id);
+
+    let html = `
+      <div class="graph-detail-name">${node.name}</div>
+      <div class="graph-detail-type">${(node.type || "concept").charAt(0).toUpperCase() + (node.type || "concept").slice(1)} · ${node.mention_count} mention${node.mention_count !== 1 ? "s" : ""}</div>
+    `;
+
+    if (!outgoing.length && !incoming.length) {
+      html += `<div class="graph-detail-section">No connections recorded yet.</div>`;
+    } else {
+      if (outgoing.length) {
+        html += `<div class="graph-detail-section" style="margin-top:10px">Connections from this entity</div>`;
+        html += outgoing.map(l => {
+          const target = nodeById(l.target);
+          const tname = target ? target.name : `#${l.target}`;
+          return `<div class="graph-relation-row">
+            <span class="graph-relation-label">${l.relation}</span>
+            <span class="graph-relation-target" data-id="${l.target}">${tname}</span>
+          </div>`;
+        }).join("");
+      }
+      if (incoming.length) {
+        html += `<div class="graph-detail-section" style="margin-top:10px">Referenced by</div>`;
+        html += incoming.map(l => {
+          const src = nodeById(l.source);
+          const sname = src ? src.name : `#${l.source}`;
+          return `<div class="graph-relation-row">
+            <span class="graph-relation-label">${l.relation}</span>
+            <span class="graph-relation-target" data-id="${l.source}">${sname}</span>
+          </div>`;
+        }).join("");
+      }
+    }
+    graphDetail.innerHTML = html;
+    graphDetail.querySelectorAll(".graph-relation-target").forEach(el => {
+      el.addEventListener("click", () => {
+        const id = parseInt(el.dataset.id);
+        const n = _gNodes.find(x => x.id === id);
+        if (n) { selectEntity(n); renderGraphList(); }
+      });
+    });
+  }
+
+  // ── Minimal canvas force graph ─────────────────────────────────────────────
+  let _animFrame = null, _simNodes = [], _simLinks = [];
+
+  function runForceGraph() {
+    if (_animFrame) cancelAnimationFrame(_animFrame);
+    const wrap = document.getElementById("graph-canvas-wrap");
+    graphCanvas.width  = wrap.clientWidth  * devicePixelRatio;
+    graphCanvas.height = wrap.clientHeight * devicePixelRatio;
+    const ctx = graphCanvas.getContext("2d");
+    const W = graphCanvas.width / devicePixelRatio;
+    const H = graphCanvas.height / devicePixelRatio;
+
+    graphEmptyHint.style.display = _gNodes.length ? "none" : "flex";
+    if (!_gNodes.length) return;
+
+    // Clone node positions for simulation
+    _simNodes = _gNodes.map(n => ({
+      ...n,
+      x: W / 2 + (Math.random() - 0.5) * W * 0.6,
+      y: H / 2 + (Math.random() - 0.5) * H * 0.6,
+      vx: 0, vy: 0,
+    }));
+    _simLinks = _gLinks.map(l => ({
+      source: _simNodes.findIndex(n => n.id === l.source),
+      target: _simNodes.findIndex(n => n.id === l.target),
+      relation: l.relation,
+    })).filter(l => l.source >= 0 && l.target >= 0);
+
+    const idxById = {};
+    _simNodes.forEach((n, i) => { idxById[n.id] = i; });
+
+    let tick = 0;
+    function step() {
+      tick++;
+      const alpha = Math.max(0.005, 0.3 * Math.exp(-tick / 60));
+      const k = Math.sqrt(W * H / Math.max(1, _simNodes.length));
+
+      // Repulsion
+      for (let i = 0; i < _simNodes.length; i++) {
+        for (let j = i + 1; j < _simNodes.length; j++) {
+          const a = _simNodes[i], b = _simNodes[j];
+          let dx = b.x - a.x, dy = b.y - a.y;
+          const d = Math.max(1, Math.hypot(dx, dy));
+          const f = alpha * k * k / d;
+          a.vx -= dx * f / d; a.vy -= dy * f / d;
+          b.vx += dx * f / d; b.vy += dy * f / d;
+        }
+      }
+      // Attraction along links
+      for (const l of _simLinks) {
+        const a = _simNodes[l.source], b = _simNodes[l.target];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.max(1, Math.hypot(dx, dy));
+        const f = alpha * (d - k * 2) / d;
+        a.vx += dx * f; a.vy += dy * f;
+        b.vx -= dx * f; b.vy -= dy * f;
+      }
+      // Gravity toward center
+      for (const n of _simNodes) {
+        n.vx += alpha * (W / 2 - n.x) * 0.01;
+        n.vy += alpha * (H / 2 - n.y) * 0.01;
+        n.vx *= 0.7; n.vy *= 0.7;
+        n.x = Math.max(14, Math.min(W - 14, n.x + n.vx));
+        n.y = Math.max(14, Math.min(H - 14, n.y + n.vy));
+      }
+
+      // Draw
+      ctx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
+      ctx.save();
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+
+      // Edges
+      ctx.strokeStyle = "#21262d";
+      ctx.lineWidth = 1;
+      for (const l of _simLinks) {
+        const a = _simNodes[l.source], b = _simNodes[l.target];
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+      // Nodes
+      for (const n of _simNodes) {
+        const r = 4 + Math.min(n.mention_count, 10);
+        const color = TYPE_COLORS[(n.type || "concept").toLowerCase()] || "#8b949e";
+        const selected = _gSelected && n.id === _gSelected.id;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
+        ctx.fillStyle = selected ? "#fff" : color;
+        ctx.globalAlpha = selected ? 1 : 0.75;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        if (selected) { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke(); }
+        // Label for larger nodes or selected
+        if (r > 7 || selected) {
+          ctx.font = selected ? "bold 9px sans-serif" : "9px sans-serif";
+          ctx.fillStyle = "#e1e4e8";
+          ctx.textAlign = "center";
+          ctx.fillText(n.name.length > 14 ? n.name.slice(0, 13) + "…" : n.name, n.x, n.y - r - 3);
+        }
+      }
+      ctx.restore();
+
+      if (tick < 200) _animFrame = requestAnimationFrame(step);
+    }
+    _animFrame = requestAnimationFrame(step);
+
+    // Click on canvas → select node
+    graphCanvas.onclick = (e) => {
+      const rect = graphCanvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left), my = (e.clientY - rect.top);
+      let best = null, bestD = 18;
+      for (const n of _simNodes) {
+        const d = Math.hypot(n.x - mx, n.y - my);
+        if (d < bestD) { bestD = d; best = n; }
+      }
+      if (best) {
+        const orig = _gNodes.find(n => n.id === best.id);
+        if (orig) { selectEntity(orig); renderGraphList(); }
+      }
+    };
+  }
+
+  function highlightCanvas(nodeId) {
+    // Nudge the selected node and re-run a few frames
+    const n = _simNodes.find(x => x.id === nodeId);
+    if (n) { n.vx += 2; n.vy += 2; }
+    if (_animFrame) cancelAnimationFrame(_animFrame);
+    let t2 = 0;
+    function step2() { t2++; runForceGraphFrame(); if (t2 < 60) _animFrame = requestAnimationFrame(step2); }
+    _animFrame = requestAnimationFrame(step2);
+  }
+
+  function runForceGraphFrame() {
+    // Single draw pass (no physics) to redraw with new selection highlight
+    const wrap = document.getElementById("graph-canvas-wrap");
+    const ctx = graphCanvas.getContext("2d");
+    const W = graphCanvas.width / devicePixelRatio, H = graphCanvas.height / devicePixelRatio;
+    ctx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
+    ctx.save(); ctx.scale(devicePixelRatio, devicePixelRatio);
+    ctx.strokeStyle = "#21262d"; ctx.lineWidth = 1;
+    for (const l of _simLinks) {
+      const a = _simNodes[l.source], b = _simNodes[l.target];
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    for (const n of _simNodes) {
+      const r = 4 + Math.min(n.mention_count, 10);
+      const color = TYPE_COLORS[(n.type || "concept").toLowerCase()] || "#8b949e";
+      const selected = _gSelected && n.id === _gSelected.id;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = selected ? "#fff" : color;
+      ctx.globalAlpha = selected ? 1 : 0.75; ctx.fill(); ctx.globalAlpha = 1;
+      if (selected) { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke(); }
+      if (r > 7 || selected) {
+        ctx.font = selected ? "bold 9px sans-serif" : "9px sans-serif";
+        ctx.fillStyle = "#e1e4e8"; ctx.textAlign = "center";
+        ctx.fillText(n.name.length > 14 ? n.name.slice(0, 13) + "…" : n.name, n.x, n.y - r - 3);
+      }
+    }
+    ctx.restore();
+  }
+
+  graphBtn.addEventListener("click", () => {
+    graphOvl.classList.add("open");
+    loadGraph();
+  });
+  graphClose.addEventListener("click", () => {
+    graphOvl.classList.remove("open");
+    if (_animFrame) { cancelAnimationFrame(_animFrame); _animFrame = null; }
+  });
+  graphOvl.addEventListener("click", e => {
+    if (e.target === graphOvl) {
+      graphOvl.classList.remove("open");
+      if (_animFrame) { cancelAnimationFrame(_animFrame); _animFrame = null; }
+    }
+  });
+  graphSearch.addEventListener("input", renderGraphList);
+  graphFilter.addEventListener("change", renderGraphList);
 </script>
 
 </body>
