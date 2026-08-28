@@ -32,6 +32,9 @@ async def handle_voice_ws(ws: WebSocket) -> None:
     await ws.accept()
     session_id: str | None = None
     user_id: str = "unknown"
+    # Maps voice task_id → LangGraph thread_id for pending HITL approvals.
+    # All asyncio tasks for this session share this dict by reference.
+    _pending_hitl: dict[str, str] = {}
 
     try:
         while True:
@@ -63,14 +66,14 @@ async def handle_voice_ws(ws: WebSocket) -> None:
                     continue
                 task_id = str(uuid.uuid4())
                 await _send(ws, {"type": "ack", "task_id": task_id, "text": "On it.", "ts": _now()})
-                asyncio.create_task(_run_task(ws, task_id, text, entity_refs, user_id))
+                asyncio.create_task(
+                    _run_task(ws, task_id, text, entity_refs, user_id, _pending_hitl)
+                )
 
             elif event_type == "interrupt":
                 target = event.get("target_task_id")
                 mod_text = event.get("text", "")
                 logger.info("Interrupt: target=%s text=%r", target, mod_text)
-                # Task cancellation is not yet wired into the LangGraph checkpointer;
-                # acknowledge receipt and let the inflight task finish naturally.
                 await _send(ws, {
                     "type": "task_update",
                     "task_id": target or str(uuid.uuid4()),
@@ -82,16 +85,29 @@ async def handle_voice_ws(ws: WebSocket) -> None:
             elif event_type == "confirmation_response":
                 task_id = event.get("task_id", "")
                 decision = event.get("decision")
-                logger.info("Confirmation response: task=%s decision=%s", task_id, decision)
-                # Wired into interrupt_before HITL in a future milestone.
+                approved = str(decision).lower() in ("yes", "approved", "true", "1")
+                thread_id = _pending_hitl.pop(task_id, None)
+                if thread_id:
+                    logger.info("HITL response: task=%s approved=%s", task_id, approved)
+                    asyncio.create_task(
+                        _resume_task(ws, task_id, thread_id, approved)
+                    )
+                else:
+                    logger.warning("confirmation_response for unknown task: %s", task_id)
 
             elif event_type == "session_query":
-                query = event.get("query", "")
-                logger.info("Session query: %r", query)
+                pending_count = len(_pending_hitl)
+                if pending_count:
+                    speak = (
+                        f"I have {pending_count} action(s) waiting for your approval. "
+                        "Say 'yes' to approve or 'no' to cancel."
+                    )
+                else:
+                    speak = "No actions waiting for your input."
                 await _send(ws, {
                     "type": "speak",
                     "task_id": str(uuid.uuid4()),
-                    "text": "No tasks currently waiting on your input.",
+                    "text": speak,
                     "priority": "low",
                     "ts": _now(),
                 })
@@ -126,6 +142,7 @@ async def _run_task(
     text: str,
     entity_refs: dict,
     user_id: str,
+    pending_hitl: dict[str, str],
 ) -> None:
     from src.agent import run as agent_run
     from src import memory
@@ -138,11 +155,24 @@ async def _run_task(
 
         past = memory.search(text)
         system = _system_prompt(past)
+        thread_id = f"voice_{user_id}"
 
         loop = asyncio.get_event_loop()
-        reply, _interrupted, _destructive = await loop.run_in_executor(
-            None, agent_run, prefix + text, system, f"voice_{user_id}"
+        reply, interrupted, _destructive = await loop.run_in_executor(
+            None, agent_run, prefix + text, system, thread_id
         )
+
+        if interrupted:
+            # Agent paused before a write action — ask VoiceOS to confirm.
+            pending_hitl[task_id] = thread_id
+            await _send(ws, {
+                "type": "confirmation_request",
+                "task_id": task_id,
+                "speak": reply,
+                "ts": _now(),
+            })
+            # Do not send speak/done yet; _resume_task will do that on response.
+            return
 
         memory.save_smart(text, reply)
 
@@ -167,6 +197,45 @@ async def _run_task(
             "task_id": task_id,
             "code": "agent_error",
             "speak": f"I ran into a problem: {exc}",
+            "recoverable": True,
+            "ts": _now(),
+        })
+
+
+async def _resume_task(
+    ws: WebSocket,
+    task_id: str,
+    thread_id: str,
+    approved: bool,
+) -> None:
+    """Resume a LangGraph thread after a HITL approval/rejection."""
+    from src.agent import approve as agent_approve
+
+    try:
+        loop = asyncio.get_event_loop()
+        reply = await loop.run_in_executor(None, agent_approve, thread_id, approved)
+
+        await _send(ws, {
+            "type": "speak",
+            "task_id": task_id,
+            "text": reply,
+            "priority": "high",
+            "ts": _now(),
+        })
+        await _send(ws, {
+            "type": "done",
+            "task_id": task_id,
+            "summary_speak": "Done." if approved else "Action cancelled.",
+            "ts": _now(),
+        })
+
+    except Exception as exc:
+        logger.exception("Resume task failed: task=%s", task_id)
+        await _send(ws, {
+            "type": "error",
+            "task_id": task_id,
+            "code": "resume_error",
+            "speak": f"Failed to resume: {exc}",
             "recoverable": True,
             "ts": _now(),
         })
