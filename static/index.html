@@ -755,6 +755,76 @@
     }
     #save-fact-btn:hover { background: #388bfd; }
 
+    /* ── Condition watchers panel ───────────────────────────────────────── */
+    #watchers-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); z-index: 100;
+    }
+    #watchers-overlay.open { display: block; }
+    #watchers-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 480px; background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #watchers-panel > header {
+      padding: 16px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #watchers-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #watchers-close {
+      background: none; border: none; color: #8b949e;
+      font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    #watchers-close:hover { color: #e1e4e8; background: #21262d; }
+    #watchers-body { flex: 1; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+    .watcher-row {
+      background: #0d1117; border: 1px solid #21262d; border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .watcher-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .watcher-name { font-size: 0.87rem; font-weight: 500; flex: 1; }
+    .watcher-badge {
+      font-size: 0.68rem; padding: 2px 6px; border-radius: 3px; font-weight: 600;
+      background: #1f3a1f; color: #3fb950;
+    }
+    .watcher-badge.disabled { background: #1a1a1a; color: #484f58; }
+    .watcher-interval { font-size: 0.72rem; color: #484f58; }
+    .watcher-prompt  { font-size: 0.78rem; color: #8b949e; margin: 3px 0 1px; }
+    .watcher-condition { font-size: 0.78rem; color: #58a6ff; font-style: italic; }
+    .watcher-last { font-size: 0.7rem; color: #484f58; margin-top: 5px; }
+    .watcher-actions { display: flex; gap: 6px; margin-top: 7px; }
+    .watcher-btn {
+      background: none; border: 1px solid #30363d; border-radius: 5px;
+      color: #8b949e; font-size: 0.75rem; padding: 3px 10px; cursor: pointer;
+    }
+    .watcher-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    .watcher-btn.danger:hover { border-color: #f85149; color: #f85149; }
+    .watcher-btn.check-now:hover { border-color: #3fb950; color: #3fb950; }
+
+    #add-watcher-form {
+      border-top: 1px solid #21262d; padding: 14px 18px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    #add-watcher-form .form-row { display: flex; flex-direction: column; gap: 3px; }
+    #add-watcher-form label { font-size: 0.72rem; color: #8b949e; }
+    #add-watcher-form input,
+    #add-watcher-form textarea,
+    #add-watcher-form select {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.82rem; padding: 6px 9px; outline: none;
+    }
+    #add-watcher-form input:focus,
+    #add-watcher-form textarea:focus { border-color: #1f6feb; }
+    #add-watcher-form textarea { resize: vertical; min-height: 48px; font-family: inherit; }
+    #add-watcher-form .interval-row { display: flex; gap: 8px; }
+    #add-watcher-form .interval-row input { width: 70px; }
+    #save-watcher-btn {
+      background: #1f6feb; color: #fff; border: none; border-radius: 6px;
+      padding: 7px 14px; font-size: 0.82rem; cursor: pointer; align-self: flex-end;
+    }
+    #save-watcher-btn:hover { background: #388bfd; }
+
     /* ── Conversation history panel ─────────────────────────────────────── */
     #history-overlay {
       display: none; position: fixed; inset: 0;
@@ -969,6 +1039,7 @@
   <button id="memory-btn"   class="header-btn" title="Saved memory facts">🧠 Memory</button>
   <button id="graph-btn"    class="header-btn" title="Knowledge graph">🕸 Graph</button>
   <button id="history-btn"  class="header-btn" title="Conversation history">📖 History</button>
+  <button id="watchers-btn" class="header-btn" title="Condition watchers">👁 Watch</button>
 </header>
 
 <div id="chat"></div>
@@ -1063,6 +1134,50 @@
     <div id="add-fact-form">
       <input id="fact-input" type="text" placeholder="Remember that I prefer dark mode…" />
       <button id="save-fact-btn">+ Remember</button>
+    </div>
+  </div>
+</div>
+
+<!-- Condition watchers panel -->
+<div id="watchers-overlay">
+  <div id="watchers-panel">
+    <header>
+      <h2>👁 Condition Watchers</h2>
+      <button id="watchers-close">✕</button>
+    </header>
+    <div id="watchers-body">
+      <div id="watchers-list">Loading…</div>
+    </div>
+    <div id="add-watcher-form">
+      <div class="form-row">
+        <label>Name</label>
+        <input id="watcher-name" type="text" placeholder="VIP email alert" />
+      </div>
+      <div class="form-row">
+        <label>What to check (prompt)</label>
+        <textarea id="watcher-prompt" placeholder="Check my recent emails"></textarea>
+      </div>
+      <div class="form-row">
+        <label>Condition to fire on</label>
+        <textarea id="watcher-condition" placeholder="Is there an unread email from Alice or Bob?"></textarea>
+      </div>
+      <div class="interval-row">
+        <div class="form-row" style="flex:1">
+          <label>Check every (minutes)</label>
+          <input id="watcher-interval" type="number" value="60" min="1" />
+        </div>
+        <div class="form-row" style="flex:1">
+          <label>Notify via</label>
+          <select id="watcher-notify">
+            <option value="notification">Mac notification</option>
+            <option value="telegram">Telegram</option>
+            <option value="push">iOS push</option>
+            <option value="both">Mac + Telegram</option>
+            <option value="none">None (log only)</option>
+          </select>
+        </div>
+      </div>
+      <button id="save-watcher-btn">+ Add watcher</button>
     </div>
   </div>
 </div>
@@ -2125,6 +2240,134 @@
   memoryBtn.addEventListener("click", () => { memoryOvl.classList.add("open"); loadFacts(); });
   memoryClose.addEventListener("click", () => memoryOvl.classList.remove("open"));
   memoryOvl.addEventListener("click", e => { if (e.target === memoryOvl) memoryOvl.classList.remove("open"); });
+
+  // ── Condition Watchers panel ──────────────────────────────────────────────
+  const watchersBtn   = document.getElementById("watchers-btn");
+  const watchersOvl   = document.getElementById("watchers-overlay");
+  const watchersClose = document.getElementById("watchers-close");
+  const watchersList  = document.getElementById("watchers-list");
+  const watcherName   = document.getElementById("watcher-name");
+  const watcherPrompt = document.getElementById("watcher-prompt");
+  const watcherCond   = document.getElementById("watcher-condition");
+  const watcherInt    = document.getElementById("watcher-interval");
+  const watcherNotify = document.getElementById("watcher-notify");
+  const saveWatcherBtn = document.getElementById("save-watcher-btn");
+
+  function fmtRelTime(iso) {
+    if (!iso) return "never";
+    const d = new Date(iso);
+    const ago = Math.round((Date.now() - d) / 60000);
+    if (ago < 2)  return "just now";
+    if (ago < 60) return `${ago}m ago`;
+    const hrs = Math.round(ago / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.round(hrs / 24)}d ago`;
+  }
+
+  async function loadWatchers() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) return;
+    try {
+      const r = await fetch("/watchers", { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      renderWatchers(d.watchers || []);
+    } catch (_) {
+      watchersList.textContent = "Failed to load.";
+    }
+  }
+
+  function renderWatchers(list) {
+    if (!list.length) {
+      watchersList.innerHTML = `<div style="color:#484f58;font-size:0.82rem">No watchers yet. Add one below.</div>`;
+      return;
+    }
+    watchersList.innerHTML = "";
+    for (const w of list) {
+      const row = document.createElement("div");
+      row.className = "watcher-row";
+      const badgeClass = w.enabled ? "watcher-badge" : "watcher-badge disabled";
+      const badgeText  = w.enabled ? "ON" : "OFF";
+      row.innerHTML = `
+        <div class="watcher-header">
+          <span class="watcher-name">${w.name}</span>
+          <span class="${badgeClass}">${badgeText}</span>
+          <span class="watcher-interval">every ${w.interval_min}m</span>
+        </div>
+        <div class="watcher-prompt">📋 ${w.prompt}</div>
+        <div class="watcher-condition">❓ ${w.condition}</div>
+        <div class="watcher-last">
+          checked ${fmtRelTime(w.last_checked)} ·
+          triggered ${fmtRelTime(w.last_triggered)} ·
+          ${w.notify_via}
+        </div>
+        <div class="watcher-actions">
+          <button class="watcher-btn check-now" data-id="${w.id}">▶ Check now</button>
+          <button class="watcher-btn toggle-watcher" data-id="${w.id}" data-enabled="${w.enabled}">${w.enabled ? "Disable" : "Enable"}</button>
+          <button class="watcher-btn danger delete-watcher" data-id="${w.id}">Delete</button>
+        </div>
+      `;
+      watchersList.appendChild(row);
+    }
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    watchersList.querySelectorAll(".check-now").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        btn.disabled = true; btn.textContent = "Running…";
+        await fetch(`/watchers/${btn.dataset.id}/check`, {
+          method: "POST", headers: { Authorization: `Bearer ${token}` },
+        });
+        btn.textContent = "✓ Triggered";
+        setTimeout(loadWatchers, 3000);
+      });
+    });
+    watchersList.querySelectorAll(".toggle-watcher").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const enabled = btn.dataset.enabled === "true";
+        await fetch(`/watchers/${btn.dataset.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ enabled: !enabled }),
+        });
+        loadWatchers();
+      });
+    });
+    watchersList.querySelectorAll(".delete-watcher").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Delete this watcher?")) return;
+        await fetch(`/watchers/${btn.dataset.id}`, {
+          method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+        });
+        loadWatchers();
+      });
+    });
+  }
+
+  saveWatcherBtn.addEventListener("click", async () => {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    const name  = watcherName.value.trim();
+    const prompt = watcherPrompt.value.trim();
+    const condition = watcherCond.value.trim();
+    if (!name || !prompt || !condition) { showError("Fill in name, prompt, and condition."); return; }
+    if (!token) { showError("Enter your API token first."); return; }
+    try {
+      const r = await fetch("/watchers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name, prompt, condition,
+          interval_min: parseInt(watcherInt.value) || 60,
+          notify_via: watcherNotify.value,
+        }),
+      });
+      if (!r.ok) { const e = await r.json(); showError(e.detail || "Error saving."); return; }
+      watcherName.value = ""; watcherPrompt.value = ""; watcherCond.value = "";
+      watcherInt.value = "60";
+      loadWatchers();
+    } catch (_) { showError("Network error."); }
+  });
+
+  watchersBtn.addEventListener("click", () => { watchersOvl.classList.add("open"); loadWatchers(); });
+  watchersClose.addEventListener("click", () => watchersOvl.classList.remove("open"));
+  watchersOvl.addEventListener("click", e => { if (e.target === watchersOvl) watchersOvl.classList.remove("open"); });
 
   // ── Conversation History panel ────────────────────────────────────────────
   const historyBtn        = document.getElementById("history-btn");

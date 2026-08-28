@@ -50,7 +50,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from src.assistant_starter import run_stream
-from src import conversations, memory, permissions, routines as _routines
+from src import conversations, memory, permissions, routines as _routines, watchers as _watchers
 from src import scheduler as _scheduler
 from src import observability as _obs
 from src import redis_client as _cache
@@ -425,6 +425,73 @@ def run_routine_now(routine_id: int, _token: str = Depends(_verify_token)):
 def get_permissions(_token: str = Depends(_verify_token)):
     """Return all connectors with their current enabled/disabled state."""
     return {"permissions": permissions.list_all()}
+
+
+# ---------------------------------------------------------------------------
+# Proactive condition watchers
+# ---------------------------------------------------------------------------
+
+class WatcherCreate(BaseModel):
+    name: str
+    prompt: str
+    condition: str
+    interval_min: int = 60
+    notify_via: str = "notification"
+
+class WatcherUpdate(BaseModel):
+    name: Optional[str]        = None
+    prompt: Optional[str]      = None
+    condition: Optional[str]   = None
+    interval_min: Optional[int]= None
+    enabled: Optional[bool]    = None
+    notify_via: Optional[str]  = None
+
+
+@app.get("/watchers")
+def list_watchers(_token: str = Depends(_verify_token)):
+    return {"watchers": _watchers.list_all()}
+
+
+@app.post("/watchers", status_code=201)
+def create_watcher(body: WatcherCreate, _token: str = Depends(_verify_token)):
+    valid_channels = {"notification", "telegram", "push", "both", "none"}
+    if body.notify_via not in valid_channels:
+        raise HTTPException(status_code=400, detail=f"notify_via must be one of {sorted(valid_channels)}")
+    if body.interval_min < 1:
+        raise HTTPException(status_code=400, detail="interval_min must be ≥ 1")
+    row = _watchers.create(
+        name=body.name,
+        prompt=body.prompt,
+        condition=body.condition,
+        interval_min=body.interval_min,
+        notify_via=body.notify_via,
+    )
+    return row
+
+
+@app.patch("/watchers/{watcher_id}")
+def update_watcher(watcher_id: int, body: WatcherUpdate, _token: str = Depends(_verify_token)):
+    row = _watchers.update(watcher_id, **body.model_dump(exclude_none=True))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Watcher not found.")
+    return row
+
+
+@app.delete("/watchers/{watcher_id}", status_code=204)
+def delete_watcher(watcher_id: int, _token: str = Depends(_verify_token)):
+    if not _watchers.delete(watcher_id):
+        raise HTTPException(status_code=404, detail="Watcher not found.")
+
+
+@app.post("/watchers/{watcher_id}/check")
+def check_watcher_now(watcher_id: int, _token: str = Depends(_verify_token)):
+    """Evaluate a watcher immediately (runs in background thread)."""
+    w = _watchers.get(watcher_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail="Watcher not found.")
+    import threading
+    threading.Thread(target=_watchers.evaluate, args=(w,), daemon=True).start()
+    return {"message": f"Watcher '{w['name']}' evaluation triggered."}
 
 
 @app.patch("/permissions/{connector}")

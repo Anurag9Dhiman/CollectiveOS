@@ -158,7 +158,23 @@ def remove_job(routine_id: int) -> None:
 def start() -> None:
     if not _scheduler.running:
         _scheduler.start()
+        # Watcher polling — runs every 60 s, then each watcher decides if it's due
+        _scheduler.add_job(
+            _run_watchers,
+            "interval",
+            seconds=60,
+            id="watcher_poll",
+            replace_existing=True,
+        )
         log.info("APScheduler started")
+
+
+def _run_watchers() -> None:
+    try:
+        from src import watchers as _watchers
+        _watchers.check_due()
+    except Exception as exc:
+        log.warning("Watcher poll error: %s", exc)
 
 
 def shutdown() -> None:
