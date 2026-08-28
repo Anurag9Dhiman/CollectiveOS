@@ -140,7 +140,7 @@ async def _run_task(
         system = _system_prompt(past)
 
         loop = asyncio.get_event_loop()
-        reply, _interrupted = await loop.run_in_executor(
+        reply, _interrupted, _destructive = await loop.run_in_executor(
             None, agent_run, prefix + text, system, f"voice_{user_id}"
         )
 

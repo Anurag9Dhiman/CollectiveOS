@@ -53,8 +53,11 @@ from src.assistant_starter import run_stream
 from src import conversations, memory, permissions, routines as _routines
 from src import scheduler as _scheduler
 from src import observability as _obs
+from src import redis_client as _cache
 from src.agent import run as agent_run, approve as agent_approve
 from src.voice_gateway import handle_voice_ws
+
+_REPLY_CACHE_TTL = 3600  # keep last chat reply in Redis for 1 hour
 
 _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
 
@@ -148,7 +151,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: int
-    interrupted: bool = False  # True when write-tool HITL approval is needed
+    interrupted: bool = False    # True when write-tool HITL approval is needed
+    destructive: bool = False    # True when pending action is DESTRUCTIVE tier (sends msg / controls hardware)
 
 
 class ApproveRequest(BaseModel):
@@ -193,7 +197,7 @@ def index():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "redis": "ok" if _cache.ping() else "unavailable"}
 
 
 @app.get("/ask", response_class=PlainTextResponse)
@@ -228,6 +232,8 @@ def ask(
 
     reply, _interrupted = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
     memory.save_smart(user_message, reply)
+    reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
+    memory.save(user_message, reply)
     return reply
 
 
@@ -254,7 +260,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     # The LangGraph agent carries full history via PostgresSaver — no need to
     # load and pass history manually; it's restored from the checkpoint.
-    reply, interrupted = agent_run(
+    reply, interrupted, destructive = agent_run(
         user_message,
         system_prompt=system_prompt,
         thread_id=thread_id,
@@ -264,7 +270,33 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     if not interrupted:
         memory.save_smart(user_message, reply)
 
+    return ChatResponse(
+        reply=reply,
+        conversation_id=conv_id,
+        interrupted=interrupted,
+        destructive=destructive,
+    )
+    _cache.set(
+        f"chat:status:{thread_id}",
+        {"reply": reply, "interrupted": interrupted, "conversation_id": conv_id},
+        ttl=_REPLY_CACHE_TTL,
+    )
+
     return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=interrupted)
+
+
+@app.get("/chat/status/{conversation_id}", response_model=ChatResponse)
+def chat_status(conversation_id: int, _token: str = Depends(_verify_token)):
+    """Return the last cached reply for a conversation.
+
+    Useful for clients that want to poll after receiving interrupted=true,
+    or for reconnecting voice/mobile clients that lost their response.
+    Returns 404 if the conversation has no cached entry (expired or never started).
+    """
+    cached = _cache.get(f"chat:status:{conversation_id}")
+    if cached is None:
+        raise HTTPException(status_code=404, detail="No cached status for this conversation.")
+    return ChatResponse(**cached)
 
 
 @app.post("/chat/approve", response_model=ChatResponse)
@@ -280,6 +312,13 @@ def chat_approve(body: ApproveRequest, _token: str = Depends(_verify_token)):
     conversations.save_message(conv_id, "assistant", reply)
     if body.approved:
         memory.save("", reply)
+
+    _cache.set(
+        f"chat:status:{thread_id}",
+        {"reply": reply, "interrupted": False, "conversation_id": conv_id},
+        ttl=_REPLY_CACHE_TTL,
+    )
+
     return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=False)
 
 

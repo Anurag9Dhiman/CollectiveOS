@@ -37,26 +37,7 @@ from google.genai import types as _gtypes
 from langsmith import traceable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
-
-# ---------------------------------------------------------------------------
-# Write-tool set — require interrupt_before HITL confirmation
-# ---------------------------------------------------------------------------
-
-WRITE_TOOLS: frozenset[str] = frozenset({
-    "memory_remember", "memory_forget",
-    "create_event", "create_draft", "send_email",
-    "add_task", "complete_task", "update_task",
-    "control_device", "set_light",
-    "spotify_control", "spotify_set_volume", "spotify_search_play",
-    "show_notification", "open_application", "set_system_volume",
-    "imessage_send", "write_local_file", "browser_open_url",
-    "reminders_add", "reminders_complete",
-    "notes_create", "notes_append", "clipboard_write", "telegram_send",
-    "notion_create_page", "notion_append_to_page",
-    "github_create_issue", "slack_send_message",
-    "car_lock", "car_climate", "appliances_control",
-    "push_notification",
-})
+from src.tool_registry import WRITE_TOOLS, DESTRUCTIVE_TOOLS, is_destructive
 
 MAX_ITER = 10
 
@@ -75,6 +56,7 @@ class AgentState(TypedDict):
     pending_write: list[dict]  # fn-call dicts awaiting HITL approval
     approved: bool | None      # set by /chat/approve; None until asked
     iteration: int             # loop-count guard
+    has_destructive: bool      # True when any pending_write tool is DESTRUCTIVE
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +193,11 @@ def agent_node(state: AgentState) -> dict:
         new_history = _execute_calls(read_calls, new_history)
 
     if write_calls:
+        destructive = any(is_destructive(c["name"]) for c in write_calls)
         return {
             "history": new_history,
             "pending_write": write_calls,
+            "has_destructive": destructive,
             "iteration": iteration,
         }
 
@@ -221,6 +205,7 @@ def agent_node(state: AgentState) -> dict:
     return {
         "history": new_history,
         "pending_write": [],
+        "has_destructive": False,
         "iteration": iteration,
     }
 
@@ -268,6 +253,7 @@ def write_tools_node(state: AgentState) -> dict:
         return {
             "history": state["history"] + [{"role": "user", "parts": cancel_parts}],
             "pending_write": [],
+            "has_destructive": False,
             "approved": None,
         }
 
@@ -275,6 +261,7 @@ def write_tools_node(state: AgentState) -> dict:
     return {
         "history": new_history,
         "pending_write": [],
+        "has_destructive": False,
         "approved": None,
     }
 
@@ -401,6 +388,7 @@ def run(
         "pending_write": [],
         "approved": None,
         "iteration": 0,
+        "has_destructive": False,
     }
 
     graph = get_graph()
@@ -411,15 +399,15 @@ def run(
     # Check if we stopped at an interrupt
     state = graph.get_state(config)
     interrupted = bool(state.next)   # non-empty .next means graph is paused
+    has_destructive = bool(result.get("has_destructive"))
 
     reply = result.get("reply") or ""
     if interrupted and not reply:
-        # Describe what the agent wants to do so the user can approve/reject
         pending = result.get("pending_write") or []
         descriptions = ", ".join(f"{c['name']}({c['args']})" for c in pending)
         reply = f"I'd like to perform: {descriptions}\nShall I go ahead? (yes / no)"
 
-    return reply, interrupted
+    return reply, interrupted, has_destructive
 
 
 def approve(thread_id: str, approved: bool) -> str:
