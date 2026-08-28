@@ -467,43 +467,93 @@ def health_ingest(body: HealthIngest, _token: str = Depends(_verify_token)):
 @app.post("/chat/stream")
 async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     """
-    Stream reply tokens as Server-Sent Events.
-    First event:  data: {"meta": {"conversation_id": <int>}}\n\n
-    Each chunk:   data: {"chunk": "..."}\n\n
-    Final event:  data: {"done": true}\n\n
+    Stream reply via Server-Sent Events backed by the LangGraph agent.
+
+    Event sequence:
+      {"meta": {"conversation_id": N}}          — first, always
+      {"progress": "tool name"}                 — per tool call, 0 or more
+      {"chunk": "text fragment"}                — word-by-word reply, 0 or more
+      {"done": true, "interrupted": false}      — final, always
+        or
+      {"done": true, "interrupted": true}       — if HITL approval needed
     """
+    import queue as _queue
+
+    from src.agent import get_graph
+    from src.assistant_starter import TOOLS
+    from src import router as _router
+
     user_message = body.message.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="message must not be empty.")
 
     conv_id = body.conversation_id or conversations.create()
-
-    # Load recent turns so the model has conversational context.
-    history = conversations.load_history(conv_id, limit=20)
-    conversations.save_message(conv_id, "user", user_message)
+    thread_id = str(conv_id)
 
     past = memory.search(user_message)
     system_prompt = _system_prompt(past)
+    conversations.save_message(conv_id, "user", user_message)
 
-    # run_stream is a sync generator; bridge it to this async endpoint via a queue.
-    queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    active_tools, _ = _router.select_tools(user_message, TOOLS)
+    initial_state = {
+        "history": [{"role": "user", "parts": [{"text": user_message}]}],
+        "system_prompt": system_prompt,
+        "active_tools": active_tools,
+        "reply": "",
+        "pending_write": [],
+        "approved": None,
+        "iteration": 0,
+    }
+    config = {"configurable": {"thread_id": thread_id}}
 
-    def _producer():
+    event_q: _queue.Queue = _queue.Queue()
+
+    def _stream_agent():
         try:
-            for chunk in run_stream(user_message, system=system_prompt, history=history):
-                loop.call_soon_threadsafe(queue.put_nowait, chunk)
-        finally:
-            loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+            graph = get_graph()
+            prev_len = 0
+            for update in graph.stream(initial_state, config, stream_mode="updates"):
+                agent_up = update.get("agent", {})
+                history = agent_up.get("history", [])
+                new_entries = history[prev_len:]
+                prev_len = len(history)
+                for entry in new_entries:
+                    if entry.get("role") == "model":
+                        for part in entry.get("parts", []):
+                            if "function_call" in part:
+                                event_q.put(("progress", part["function_call"].get("name", "")))
 
-    threading.Thread(target=_producer, daemon=True).start()
+            state = graph.get_state(config)
+            interrupted = bool(state.next)
+            reply = state.values.get("reply", "")
+            if interrupted and not reply:
+                pending = state.values.get("pending_write") or []
+                descs = ", ".join(c["name"] for c in pending)
+                reply = f"I'd like to perform: {descs}\nShall I go ahead? (yes / no)"
+            event_q.put(("done", reply, interrupted))
+        except Exception as exc:
+            event_q.put(("done", f"[Error: {exc}]", False))
 
-    async def _event_generator():
-        # Send conversation_id first so the client can persist it before tokens arrive.
+    threading.Thread(target=_stream_agent, daemon=True).start()
+
+    async def _generate():
         yield f"data: {json.dumps({'meta': {'conversation_id': conv_id}})}\n\n"
 
-        collected = []
+        reply = ""
+        interrupted = False
+
         while True:
+            try:
+                item = event_q.get_nowait()
+            except _queue.Empty:
+                await asyncio.sleep(0.05)
+                continue
+
+            if item[0] == "progress":
+                label = item[1].replace("_", " ")
+                yield f"data: {json.dumps({'progress': label})}\n\n"
+            else:
+                _, reply, interrupted = item
             chunk = await queue.get()
             if chunk is None:
                 full_reply = "".join(collected)
@@ -511,11 +561,22 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
                 memory.save_smart(user_message, full_reply)
                 yield f"data: {json.dumps({'done': True})}\n\n"
                 break
-            collected.append(chunk)
+
+        # Stream reply word-by-word so the client renders it progressively.
+        words = reply.split(" ")
+        for i, word in enumerate(words):
+            chunk = word + (" " if i < len(words) - 1 else "")
             yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            await asyncio.sleep(0.02)
+
+        conversations.save_message(conv_id, "assistant", reply)
+        if not interrupted:
+            memory.save(user_message, reply)
+
+        yield f"data: {json.dumps({'done': True, 'interrupted': interrupted})}\n\n"
 
     return StreamingResponse(
-        _event_generator(),
+        _generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -319,6 +319,40 @@
       font-style: normal;
     }
 
+    /* Progress chips container (above the reply bubble) */
+    .tool-progress {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 0 4px 4px;
+    }
+
+    /* HITL approval UI */
+    .hitl-badge {
+      font-size: 0.7rem;
+      background: #3d2c00;
+      color: #e3a000;
+      border-radius: 4px;
+      padding: 2px 7px;
+      margin-left: 7px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      vertical-align: middle;
+    }
+    .msg.interrupted .bubble { border-color: #9e6a03; }
+    .hitl-actions { display: flex; gap: 8px; margin-top: 8px; padding: 0 4px; }
+    .hitl-btn {
+      border: none; border-radius: 6px;
+      font-size: 0.84rem; padding: 6px 18px;
+      cursor: pointer; font-weight: 500;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .hitl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .hitl-btn.approve { background: #238636; color: #fff; }
+    .hitl-btn.approve:hover:not(:disabled) { background: #2ea043; }
+    .hitl-btn.reject  { background: #161b22; color: #f85149; border: 1px solid #f85149; }
+    .hitl-btn.reject:hover:not(:disabled)  { background: #220d0d; }
+
     /* Settings panel */
     #settings-overlay {
       display: none;
@@ -882,6 +916,11 @@
   // ---------------------------------------------------------------------------
   // Send message
   // ---------------------------------------------------------------------------
+  let pendingApproval = false;
+
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    if (pendingApproval) return;
   let pendingApproval = false;  // true while waiting for HITL approve/reject
 
   form.addEventListener("submit", async e => {
@@ -920,6 +959,72 @@
         return;
       }
 
+      // Build the assistant message container with a progress row above the bubble.
+      const wrap      = document.createElement("div");
+      wrap.className  = "msg assistant";
+      const label     = document.createElement("div");
+      label.className = "label";
+      label.textContent = "Assistant";
+      const progressDiv = document.createElement("div");
+      progressDiv.className = "tool-progress";
+      const bubble    = document.createElement("div");
+      bubble.className = "bubble";
+      wrap.appendChild(label);
+      wrap.appendChild(progressDiv);
+      wrap.appendChild(bubble);
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+
+      const reader  = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = "";
+      let   rawText = "";
+      let   hitl    = false;
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = JSON.parse(line.slice(6));
+
+          if (payload.meta) {
+            conversationId = payload.meta.conversation_id;
+            localStorage.setItem(STORAGE_CONV, String(conversationId));
+            continue;
+          }
+
+          if (payload.progress) {
+            const chip = document.createElement("span");
+            chip.className = "tool-read";
+            chip.textContent = "↳ " + payload.progress;
+            progressDiv.appendChild(chip);
+            chat.scrollTop = chat.scrollHeight;
+            continue;
+          }
+
+          if (payload.chunk) {
+            rawText += payload.chunk;
+            bubble.innerHTML = marked.parse(injectToolMarkers(rawText));
+            chat.scrollTop = chat.scrollHeight;
+            continue;
+          }
+
+          if (payload.done) {
+            hitl = !!payload.interrupted;
+            if (hitl) {
+              _convertToHitlCard(wrap, label, bubble, rawText, conversationId, token);
+            } else {
+              speak(rawText);
+            }
+            break outer;
+          }
+        }
       const data = await resp.json();
       conversationId = data.conversation_id;
       localStorage.setItem(STORAGE_CONV, String(conversationId));
@@ -943,6 +1048,16 @@
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // HITL approve/reject helpers
+  // ---------------------------------------------------------------------------
+
+  function _convertToHitlCard(wrap, label, bubble, replyText, convId, token) {
+    pendingApproval = true;
+
+    wrap.className = "msg assistant interrupted";
+    label.innerHTML = 'Assistant <span class="hitl-badge">Awaiting approval</span>';
+
   function _showInterruptedMessage(replyText, convId, token) {
     pendingApproval = true;
 
@@ -965,6 +1080,7 @@
     approveBtn.className = "hitl-btn approve";
     approveBtn.textContent = "Approve";
 
+    const rejectBtn = document.createElement("button");
     const rejectBtn  = document.createElement("button");
     rejectBtn.className = "hitl-btn reject";
     rejectBtn.textContent = "Reject";
@@ -974,6 +1090,11 @@
 
     actions.appendChild(approveBtn);
     actions.appendChild(rejectBtn);
+    wrap.appendChild(actions);
+    chat.scrollTop = chat.scrollHeight;
+
+    submitBtn.disabled = true;
+    micBtn.disabled    = true;
     wrap.appendChild(label);
     wrap.appendChild(bubble);
     wrap.appendChild(actions);
@@ -983,6 +1104,12 @@
 
   async function _sendApproval(convId, token, approved, hitlEl) {
     hitlEl.querySelectorAll(".hitl-btn").forEach(b => b.disabled = true);
+    try {
+      const resp = await fetch("/chat/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ conversation_id: convId, approved }),
+      });
 
     try {
       const resp = await fetch("/chat/approve", {
