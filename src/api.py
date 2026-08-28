@@ -243,6 +243,12 @@ def ask(
     return reply
 
 
+@app.get("/conversations")
+def list_conversations(limit: int = Query(50, ge=1, le=200), _token: str = Depends(_verify_token)):
+    """List past conversations, newest first, with a snippet and message count."""
+    return {"conversations": conversations.list_conversations(limit)}
+
+
 @app.get("/history/{conversation_id}")
 def get_history(conversation_id: int, _token: str = Depends(_verify_token)):
     """Return the stored messages for a conversation."""
