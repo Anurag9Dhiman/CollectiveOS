@@ -65,6 +65,59 @@ def save(user_message: str, assistant_reply: str, source: str = "conversation") 
         pass
 
 
+def save_smart(user_message: str, assistant_reply: str) -> None:
+    """Extract structured facts via LangMem then persist them, with raw fallback.
+
+    Preferred over save() for new conversations: LangMem identifies what is
+    actually worth remembering (preferences, facts, relationships) and
+    deduplicates against existing facts before writing.
+
+    Falls back to save() if LangMem extraction returns nothing or fails.
+    """
+    try:
+        from src import lang_memory as _lm
+
+        existing = [(str(f["id"]), f["content"]) for f in list_facts()]
+        existing_ids = {e[0] for e in existing}
+
+        extracted = _lm.extract_facts(user_message, assistant_reply, existing)
+
+        if not extracted:
+            save(user_message, assistant_reply)
+            return
+
+        now = datetime.datetime.utcnow()
+        conn = connect()
+        try:
+            user_id = default_user_id(conn)
+            with conn.cursor() as cur:
+                for fact_id, content in extracted:
+                    embedding = _embed(content)
+                    if fact_id in existing_ids:
+                        cur.execute(
+                            "UPDATE memory_chunks "
+                            "SET content = %s, embedding = %s::vector, created_at = %s "
+                            "WHERE id::text = %s AND user_id = %s AND source = 'fact'",
+                            (content, embedding, now, fact_id, user_id),
+                        )
+                    else:
+                        cur.execute(
+                            "INSERT INTO memory_chunks "
+                            "(user_id, source, content, embedding, created_at) "
+                            "VALUES (%s, 'fact', %s, %s::vector, %s)",
+                            (user_id, content, embedding, now),
+                        )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Still store the raw exchange for semantic search context
+        save(user_message, assistant_reply)
+
+    except Exception:
+        save(user_message, assistant_reply)
+
+
 def save_fact(fact: str) -> None:
     """Save an explicit user fact (preference, name, detail) to memory."""
     try:
@@ -129,6 +182,23 @@ def delete_fact(query: str) -> str:
             cur.execute("DELETE FROM memory_chunks WHERE id = %s", (chunk_id,))
         conn.commit()
         return content
+    finally:
+        conn.close()
+
+
+def delete_fact_by_id(fact_id: int) -> bool:
+    """Delete a fact by its primary key. Returns True if a row was deleted."""
+    conn = connect()
+    try:
+        user_id = default_user_id(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM memory_chunks WHERE id = %s AND user_id = %s AND source = 'fact' RETURNING id",
+                (fact_id, user_id),
+            )
+            deleted = cur.fetchone() is not None
+        conn.commit()
+        return deleted
     finally:
         conn.close()
 

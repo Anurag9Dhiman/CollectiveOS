@@ -67,8 +67,13 @@ from src.connectors.lens_analyze import lens_analyze as _lens_analyze
 from src.connectors import appliances as _appliances
 from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
+from src.connectors.computer import computer_use
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
+from src import orchestrator as _orchestrator
+from src import mcp_client as _mcp
+
+_mcp.load()  # connect to any configured MCP servers at import time
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
@@ -119,6 +124,51 @@ def notify_user(message: str, channel: str = "notification") -> str:
         return f"[ERROR: unknown channel '{channel}'. Use: notification, telegram, push, both]"
     _output_bus.deliver(title="Assistant", body=message, channel=channel)
     return f"Delivered via {channel}."
+# ---------------------------------------------------------------------------
+# Orchestrator wrappers
+# ---------------------------------------------------------------------------
+
+def task_plan(description: str) -> str:
+    """Plan and execute a multi-step agentic task using the orchestrator."""
+    return _orchestrator.plan_and_run(description)
+
+
+def task_status(task_id: int) -> str:
+    """Return the current status of a planned task and its steps."""
+    task = _orchestrator.get_task(task_id)
+    if not task:
+        return f"Task #{task_id} not found."
+    lines = [f"Task #{task['id']} [{task['status']}]: {task['description']}"]
+    for s in task.get("steps", []):
+        mark = {"completed": "✓", "failed": "✗", "running": "⟳", "pending": "·"}.get(s["status"], "?")
+        out = f" → {s['output'][:100]}" if s.get("output") else ""
+        lines.append(f"  {mark} {s['tool']}{out}")
+    return "\n".join(lines)
+
+
+def task_list() -> str:
+    """List the 10 most recent tasks and their statuses."""
+    tasks = _orchestrator.list_tasks(limit=10)
+    if not tasks:
+        return "No tasks found."
+    lines = [f"#{t['id']} [{t['status']}] {t['description'][:80]}" for t in tasks]
+    return "\n".join(lines)
+
+
+def task_cancel(task_id: int) -> str:
+    """Cancel a pending or running task."""
+    return _orchestrator.cancel_task(task_id)
+
+
+def mcp_list_servers() -> str:
+    """List connected MCP servers and the tools they expose."""
+    servers = _mcp.list_servers()
+    if not servers:
+        return "No MCP servers connected. Add servers to mcp_servers.json to enable them."
+    lines = [f"Connected MCP servers ({len(servers)}):"]
+    for s in servers:
+        lines.append(f"  • {s['server']} — {s['tools']} tool(s)")
+    return "\n".join(lines)
 
 
 TOOL_FUNCTIONS = {
@@ -127,6 +177,7 @@ TOOL_FUNCTIONS = {
     "memory_forget":      memory_forget,
     "memory_graph_query": memory_graph_query,
     "usage_summary":      usage_summary,
+    "mcp_list_servers":   mcp_list_servers,
     "ai_ask":             _ai.ai_ask,
     "ai_compare":         _ai.ai_compare,
     "get_calendar_events": get_calendar_events,
@@ -207,7 +258,14 @@ TOOL_FUNCTIONS = {
     "lens_analyze":          _lens_analyze,
     "push_notification":     _push_notification,
     "notify_user":           notify_user,
+    "task_plan":             task_plan,
+    "task_status":           task_status,
+    "task_list":             task_list,
+    "task_cancel":           task_cancel,
+    "computer_use":          computer_use,
+    # MCP server tools are merged in below
 }
+TOOL_FUNCTIONS.update(_mcp.tool_callables())
 
 TOOLS = [
     # -----------------------------------------------------------------------
@@ -1780,6 +1838,29 @@ TOOLS = [
             "background work. "
             "Channels: notification (Mac banner), telegram (Telegram message), "
             "push (iOS APNs), both (Mac + Telegram)."
+    # Task orchestrator
+    # -----------------------------------------------------------------------
+    {
+        "name": "task_plan",
+        "description": (
+            "Plan and execute a complex multi-step task using the task orchestrator. "
+            "Use when the user asks for something that requires several sequential tool calls — "
+            "for example 'research X, summarise it, and save to Notion', or "
+            "'check my emails and add follow-up tasks to Todoist'. "
+            "The orchestrator creates a plan (up to 10 steps), runs each step, "
+            "and returns a summary of what was done. "
+            "Results are stored in the tasks database so you can check them later with task_status."
+    {
+        "name": "computer_use",
+        "description": (
+            "Control this Mac's desktop to complete a multi-step task: take screenshots, "
+            "move the mouse, click, type, scroll, and navigate apps. "
+            "Use for tasks that require interacting with an app's UI directly — "
+            "e.g. 'fill in this web form', 'click through this wizard', 'resize this window', "
+            "'copy text from this app'. "
+            "Gemini Vision analyzes each screenshot and decides what to do next, "
+            "repeating until the task is done. "
+            "IMPORTANT: this is a write-tier action — always confirm with the user before calling it."
         ),
         "input_schema": {
             "type": "object",
@@ -1796,8 +1877,81 @@ TOOLS = [
             },
             "required": ["message"],
         },
+                "description": {
+                    "type": "string",
+                    "description": "Full description of the task to accomplish, including any specific constraints or output requirements.",
+                },
+            },
+            "required": ["description"],
+        },
+    },
+    {
+        "name": "task_status",
+        "description": (
+            "Check the status of a previously created task, including each step's result. "
+            "Use after task_plan to confirm completion, or when the user asks 'how did that task go'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "The task ID returned by task_plan or task_list.",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "task_list",
+        "description": "List the 10 most recent tasks and their statuses (completed, failed, running, cancelled).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "task_cancel",
+        "description": "Cancel a task that is still pending, planning, or running.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "The task ID to cancel.",
+                },
+            },
+            "required": ["task_id"],
+        },
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "Clear description of what to do on screen. Be specific: name the app, "
+                        "the target element, and the desired outcome. "
+                        "Example: 'Open Safari, go to example.com, click the Sign Up button, "
+                        "fill in the email field with test@test.com, and click Submit.'"
+                    ),
+                },
+            },
+            "required": ["task"],
+        },
+    # -----------------------------------------------------------------------
+    # MCP server management
+    # -----------------------------------------------------------------------
+    {
+        "name": "mcp_list_servers",
+        "description": (
+            "List all connected MCP (Model Context Protocol) servers and the number of tools "
+            "each one exposes. Use when the user asks what MCP servers are running, or to "
+            "diagnose why an MCP-backed tool isn't available."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
     },
 ]
+
+# Merge MCP-discovered tool schemas (populated once mcp.load() ran above)
+TOOLS.extend(_mcp.list_tools())
 
 # ---------------------------------------------------------------------------
 # Gemini tool schema converters
@@ -1880,6 +2034,37 @@ MAX_LOOP = 10  # hard cap on tool-use iterations per user message
 
 _TRANSIENT_MARKERS = ("Timeout", "Connection", "Network", "Reset", "BrokenPipe")
 
+# Read-only tools whose results can be cached in Redis.
+# TTL in seconds — chosen conservatively to balance freshness vs. API load.
+CACHE_TTL: dict[str, int] = {
+    "health_get_sleep":              300,
+    "health_get_activity":           300,
+    "health_get_readiness":          300,
+    "finance_get_accounts":          120,
+    "finance_get_transactions":      120,
+    "finance_get_spending_summary":  120,
+    "car_get_status":                 30,
+    "get_devices":                    60,
+    "get_device_state":               15,
+    "appliances_list":                60,
+    "appliances_get_status":          30,
+    "web_search":                     60,
+    "github_list_repos":             300,
+    "github_list_prs":                60,
+    "github_list_issues":             60,
+    "github_get_ci_status":           30,
+    "slack_list_channels":           300,
+    "slack_read_messages":            30,
+    "notion_search":                  60,
+    "notion_read_page":               60,
+    "get_tasks":                      30,
+    "get_projects":                  300,
+    "get_recent_emails":              30,
+    "search_emails":                  30,
+    "list_drive_files":               60,
+    "get_calendar_events":            30,
+}
+
 
 def _exec_tool_fn(name: str, args: dict) -> str:
     """
@@ -1887,6 +2072,10 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     Permission checks, retries on transient errors, and observability logging
     are all handled here. Errors are returned as [ERROR: ...] strings so the
     model can decide what to do rather than crashing the loop.
+
+    Read-only tools listed in CACHE_TTL are served from Redis (or the
+    in-process fallback) when a matching result exists; the live API is
+    called on a cache miss and the result is stored for the configured TTL.
     """
     allowed, err = permissions.check_tool(name)
     if not allowed:
@@ -1896,11 +2085,23 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     if func is None:
         return f"[ERROR: unknown tool '{name}']"
 
+    # Cache read-only tool results to reduce external API calls
+    ttl = CACHE_TTL.get(name, 0)
+    if ttl > 0:
+        import json as _json
+        from src import redis_client as _cache
+        cache_key = f"tool:{name}:{_json.dumps(args, sort_keys=True)}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return str(cached)
+
     t0 = time.monotonic()
     for attempt in range(2):
         try:
             result = str(func(**args))
             _obs.log_tool_call(name, int((time.monotonic() - t0) * 1000), success=True)
+            if ttl > 0:
+                _cache.set(cache_key, result, ttl=ttl)
             return result
         except Exception as exc:
             exc_type = type(exc).__name__

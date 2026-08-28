@@ -51,6 +51,54 @@ def _run_routine(routine_id: int, name: str, prompt: str, notify_via: str) -> No
     _db.record_run(routine_id, result)
     output_bus.deliver(name, result, channel=notify_via)
 
+    if notify_via in ("notification", "both"):
+        _send_notification(name, result)
+    if notify_via in ("telegram", "both"):
+        _send_telegram(name, result)
+
+
+def _send_notification(title: str, body: str) -> None:
+    import platform
+    import subprocess
+
+    if platform.system() != "Darwin":
+        return
+
+    safe_title = title.replace('"', "'")
+    # Trim body for the notification banner (250 chars is a practical limit)
+    safe_body = body[:250].replace("\\", "\\\\").replace('"', '\\"')
+    script = f'display notification "{safe_body}" with title "{safe_title}"'
+    try:
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, timeout=10,
+        )
+    except Exception as exc:
+        log.warning("Notification failed: %s", exc)
+
+
+def _send_telegram(title: str, body: str) -> None:
+    """Send routine result to the configured Telegram chat."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        log.warning("Telegram notify skipped — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
+        return
+
+    import requests
+
+    # Telegram messages: 4096 char limit; trim body so title + separator fits
+    max_body = 4000 - len(title) - 10
+    text = f"*{title}*\n\n{body[:max_body]}"
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("Telegram send failed: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Public API

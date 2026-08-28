@@ -53,8 +53,11 @@ from src.assistant_starter import run_stream
 from src import conversations, memory, permissions, routines as _routines
 from src import scheduler as _scheduler
 from src import observability as _obs
+from src import redis_client as _cache
 from src.agent import run as agent_run, approve as agent_approve
 from src.voice_gateway import handle_voice_ws
+
+_REPLY_CACHE_TTL = 3600  # keep last chat reply in Redis for 1 hour
 
 _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
 
@@ -148,7 +151,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: int
-    interrupted: bool = False  # True when write-tool HITL approval is needed
+    interrupted: bool = False    # True when write-tool HITL approval is needed
+    destructive: bool = False    # True when pending action is DESTRUCTIVE tier (sends msg / controls hardware)
 
 
 class ApproveRequest(BaseModel):
@@ -158,7 +162,7 @@ class ApproveRequest(BaseModel):
 class PermissionUpdate(BaseModel):
     enabled: bool
 
-_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram"}
+_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram", "both"}
 
 class RoutineCreate(BaseModel):
     name: str
@@ -193,7 +197,13 @@ def index():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "redis": "ok" if _cache.ping() else "unavailable"}
+
+
+@app.get("/metrics")
+def metrics(days: int = Query(1, ge=1, le=90), _token: str = Depends(_verify_token)):
+    """Return token usage and tool latency metrics for the last N days."""
+    return _obs.usage_data(days)
 
 
 @app.get("/ask", response_class=PlainTextResponse)
@@ -227,6 +237,8 @@ def ask(
     system_prompt = _system_prompt(past)
 
     reply, _interrupted = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
+    memory.save_smart(user_message, reply)
+    reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
     memory.save(user_message, reply)
     return reply
 
@@ -254,7 +266,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     # The LangGraph agent carries full history via PostgresSaver — no need to
     # load and pass history manually; it's restored from the checkpoint.
-    reply, interrupted = agent_run(
+    reply, interrupted, destructive = agent_run(
         user_message,
         system_prompt=system_prompt,
         thread_id=thread_id,
@@ -262,9 +274,35 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     conversations.save_message(conv_id, "assistant", reply)
     if not interrupted:
-        memory.save(user_message, reply)
+        memory.save_smart(user_message, reply)
+
+    return ChatResponse(
+        reply=reply,
+        conversation_id=conv_id,
+        interrupted=interrupted,
+        destructive=destructive,
+    )
+    _cache.set(
+        f"chat:status:{thread_id}",
+        {"reply": reply, "interrupted": interrupted, "conversation_id": conv_id},
+        ttl=_REPLY_CACHE_TTL,
+    )
 
     return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=interrupted)
+
+
+@app.get("/chat/status/{conversation_id}", response_model=ChatResponse)
+def chat_status(conversation_id: int, _token: str = Depends(_verify_token)):
+    """Return the last cached reply for a conversation.
+
+    Useful for clients that want to poll after receiving interrupted=true,
+    or for reconnecting voice/mobile clients that lost their response.
+    Returns 404 if the conversation has no cached entry (expired or never started).
+    """
+    cached = _cache.get(f"chat:status:{conversation_id}")
+    if cached is None:
+        raise HTTPException(status_code=404, detail="No cached status for this conversation.")
+    return ChatResponse(**cached)
 
 
 @app.post("/chat/approve", response_model=ChatResponse)
@@ -280,6 +318,13 @@ def chat_approve(body: ApproveRequest, _token: str = Depends(_verify_token)):
     conversations.save_message(conv_id, "assistant", reply)
     if body.approved:
         memory.save("", reply)
+
+    _cache.set(
+        f"chat:status:{thread_id}",
+        {"reply": reply, "interrupted": False, "conversation_id": conv_id},
+        ttl=_REPLY_CACHE_TTL,
+    )
+
     return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=False)
 
 
@@ -425,58 +470,151 @@ def health_ingest(body: HealthIngest, _token: str = Depends(_verify_token)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Memory facts — direct CRUD for the facts injected into every system prompt
+# ---------------------------------------------------------------------------
+
+class FactCreate(BaseModel):
+    content: str
+
+
+@app.get("/memory/facts")
+def list_memory_facts(_token: str = Depends(_verify_token)):
+    """Return all saved facts, newest first."""
+    return {"facts": memory.list_facts()}
+
+
+@app.post("/memory/facts", status_code=201)
+def create_memory_fact(body: FactCreate, _token: str = Depends(_verify_token)):
+    """Save a new fact into persistent memory."""
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content must not be empty.")
+    memory.save_fact(content)
+    return {"message": "Fact saved.", "facts": memory.list_facts()}
+
+
+@app.delete("/memory/facts/{fact_id}", status_code=204)
+def delete_memory_fact(fact_id: int, _token: str = Depends(_verify_token)):
+    """Delete a specific fact by ID."""
+    deleted = memory.delete_fact_by_id(fact_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Fact not found.")
+
+
 @app.post("/chat/stream")
 async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     """
-    Stream reply tokens as Server-Sent Events.
-    First event:  data: {"meta": {"conversation_id": <int>}}\n\n
-    Each chunk:   data: {"chunk": "..."}\n\n
-    Final event:  data: {"done": true}\n\n
+    Stream reply via Server-Sent Events backed by the LangGraph agent.
+
+    Event sequence:
+      {"meta": {"conversation_id": N}}          — first, always
+      {"progress": "tool name"}                 — per tool call, 0 or more
+      {"chunk": "text fragment"}                — word-by-word reply, 0 or more
+      {"done": true, "interrupted": false}      — final, always
+        or
+      {"done": true, "interrupted": true}       — if HITL approval needed
     """
+    import queue as _queue
+
+    from src.agent import get_graph
+    from src.assistant_starter import TOOLS
+    from src import router as _router
+
     user_message = body.message.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="message must not be empty.")
 
     conv_id = body.conversation_id or conversations.create()
-
-    # Load recent turns so the model has conversational context.
-    history = conversations.load_history(conv_id, limit=20)
-    conversations.save_message(conv_id, "user", user_message)
+    thread_id = str(conv_id)
 
     past = memory.search(user_message)
     system_prompt = _system_prompt(past)
+    conversations.save_message(conv_id, "user", user_message)
 
-    # run_stream is a sync generator; bridge it to this async endpoint via a queue.
-    queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    active_tools, _ = _router.select_tools(user_message, TOOLS)
+    initial_state = {
+        "history": [{"role": "user", "parts": [{"text": user_message}]}],
+        "system_prompt": system_prompt,
+        "active_tools": active_tools,
+        "reply": "",
+        "pending_write": [],
+        "approved": None,
+        "iteration": 0,
+    }
+    config = {"configurable": {"thread_id": thread_id}}
 
-    def _producer():
+    event_q: _queue.Queue = _queue.Queue()
+
+    def _stream_agent():
         try:
-            for chunk in run_stream(user_message, system=system_prompt, history=history):
-                loop.call_soon_threadsafe(queue.put_nowait, chunk)
-        finally:
-            loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+            graph = get_graph()
+            prev_len = 0
+            for update in graph.stream(initial_state, config, stream_mode="updates"):
+                agent_up = update.get("agent", {})
+                history = agent_up.get("history", [])
+                new_entries = history[prev_len:]
+                prev_len = len(history)
+                for entry in new_entries:
+                    if entry.get("role") == "model":
+                        for part in entry.get("parts", []):
+                            if "function_call" in part:
+                                event_q.put(("progress", part["function_call"].get("name", "")))
 
-    threading.Thread(target=_producer, daemon=True).start()
+            state = graph.get_state(config)
+            interrupted = bool(state.next)
+            reply = state.values.get("reply", "")
+            if interrupted and not reply:
+                pending = state.values.get("pending_write") or []
+                descs = ", ".join(c["name"] for c in pending)
+                reply = f"I'd like to perform: {descs}\nShall I go ahead? (yes / no)"
+            event_q.put(("done", reply, interrupted))
+        except Exception as exc:
+            event_q.put(("done", f"[Error: {exc}]", False))
 
-    async def _event_generator():
-        # Send conversation_id first so the client can persist it before tokens arrive.
+    threading.Thread(target=_stream_agent, daemon=True).start()
+
+    async def _generate():
         yield f"data: {json.dumps({'meta': {'conversation_id': conv_id}})}\n\n"
 
-        collected = []
+        reply = ""
+        interrupted = False
+
         while True:
+            try:
+                item = event_q.get_nowait()
+            except _queue.Empty:
+                await asyncio.sleep(0.05)
+                continue
+
+            if item[0] == "progress":
+                label = item[1].replace("_", " ")
+                yield f"data: {json.dumps({'progress': label})}\n\n"
+            else:
+                _, reply, interrupted = item
             chunk = await queue.get()
             if chunk is None:
                 full_reply = "".join(collected)
                 conversations.save_message(conv_id, "assistant", full_reply)
-                memory.save(user_message, full_reply)
+                memory.save_smart(user_message, full_reply)
                 yield f"data: {json.dumps({'done': True})}\n\n"
                 break
-            collected.append(chunk)
+
+        # Stream reply word-by-word so the client renders it progressively.
+        words = reply.split(" ")
+        for i, word in enumerate(words):
+            chunk = word + (" " if i < len(words) - 1 else "")
             yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            await asyncio.sleep(0.02)
+
+        conversations.save_message(conv_id, "assistant", reply)
+        if not interrupted:
+            memory.save(user_message, reply)
+
+        yield f"data: {json.dumps({'done': True, 'interrupted': interrupted})}\n\n"
 
     return StreamingResponse(
-        _event_generator(),
+        _generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -509,7 +647,7 @@ def _handle_tg_message(chat_id: str, text: str) -> None:
         reply = run(text, system=_system_prompt(past))
     except Exception as exc:
         reply = f"Sorry, something went wrong: {exc}"
-    memory.save(text, reply)
+    memory.save_smart(text, reply)
     _tg_send(chat_id, reply)
 
 

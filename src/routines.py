@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS routines (
     enabled     BOOLEAN NOT NULL DEFAULT TRUE,
     notify_via  TEXT NOT NULL DEFAULT 'notification'
                 CHECK (notify_via IN ('notification', 'none', 'telegram', 'both', 'push')),
+                CHECK (notify_via IN ('notification', 'none', 'telegram', 'both')),
     last_run_at TIMESTAMPTZ,
     last_result TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -26,12 +27,14 @@ CREATE TABLE IF NOT EXISTS routines (
 """
 
 # Widens the notify_via CHECK to include all output-bus channels on existing DBs.
+# Widens the notify_via CHECK to include 'telegram' and 'both' on existing databases.
 _MIGRATE_NOTIFY_VIA = """
 DO $$
 BEGIN
     ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_notify_via_check;
     ALTER TABLE routines ADD CONSTRAINT routines_notify_via_check
         CHECK (notify_via IN ('notification', 'none', 'telegram', 'both', 'push'));
+        CHECK (notify_via IN ('notification', 'none', 'telegram', 'both'));
 EXCEPTION WHEN others THEN NULL;
 END $$;
 """
