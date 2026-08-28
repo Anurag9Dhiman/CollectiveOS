@@ -230,6 +230,8 @@ def ask(
     past = memory.search(user_message)
     system_prompt = _system_prompt(past)
 
+    reply, _interrupted = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
+    memory.save_smart(user_message, reply)
     reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
     memory.save(user_message, reply)
     return reply
@@ -266,7 +268,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     conversations.save_message(conv_id, "assistant", reply)
     if not interrupted:
-        memory.save(user_message, reply)
+        memory.save_smart(user_message, reply)
 
     return ChatResponse(
         reply=reply,
@@ -506,7 +508,7 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
             if chunk is None:
                 full_reply = "".join(collected)
                 conversations.save_message(conv_id, "assistant", full_reply)
-                memory.save(user_message, full_reply)
+                memory.save_smart(user_message, full_reply)
                 yield f"data: {json.dumps({'done': True})}\n\n"
                 break
             collected.append(chunk)
@@ -546,7 +548,7 @@ def _handle_tg_message(chat_id: str, text: str) -> None:
         reply = run(text, system=_system_prompt(past))
     except Exception as exc:
         reply = f"Sorry, something went wrong: {exc}"
-    memory.save(text, reply)
+    memory.save_smart(text, reply)
     _tg_send(chat_id, reply)
 
 

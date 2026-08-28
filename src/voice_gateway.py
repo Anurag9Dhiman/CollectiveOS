@@ -144,7 +144,7 @@ async def _run_task(
             None, agent_run, prefix + text, system, f"voice_{user_id}"
         )
 
-        memory.save(text, reply)
+        memory.save_smart(text, reply)
 
         await _send(ws, {
             "type": "speak",
