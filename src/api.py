@@ -147,6 +147,8 @@ def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[int] = None
+    image_b64: Optional[str] = None        # base64-encoded image for this turn only
+    image_mime: str = "image/jpeg"         # MIME type: image/jpeg, image/png, image/webp, image/gif
 
 class ChatResponse(BaseModel):
     reply: str
@@ -256,11 +258,24 @@ def get_history(conversation_id: int, _token: str = Depends(_verify_token)):
     return {"messages": msgs}
 
 
+_ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_MAX_IMAGE_B64_BYTES = 5 * 1024 * 1024  # 5 MB base64 ≈ 3.75 MB raw
+
+def _validate_image(body: ChatRequest) -> None:
+    if not body.image_b64:
+        return
+    if body.image_mime not in _ALLOWED_IMAGE_MIMES:
+        raise HTTPException(status_code=400, detail=f"image_mime must be one of {sorted(_ALLOWED_IMAGE_MIMES)}")
+    if len(body.image_b64) > _MAX_IMAGE_B64_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large; max 5 MB base64.")
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     user_message = body.message.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="message must not be empty.")
+    _validate_image(body)
 
     conv_id = body.conversation_id or conversations.create()
     thread_id = str(conv_id)
@@ -272,10 +287,13 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     # The LangGraph agent carries full history via PostgresSaver — no need to
     # load and pass history manually; it's restored from the checkpoint.
+    # image_b64 is forwarded for this turn only and is NOT persisted to DB.
     reply, interrupted, destructive = agent_run(
         user_message,
         system_prompt=system_prompt,
         thread_id=thread_id,
+        image_b64=body.image_b64 or None,
+        image_mime=body.image_mime or "image/jpeg",
     )
 
     conversations.save_message(conv_id, "assistant", reply)
@@ -614,6 +632,7 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     user_message = body.message.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="message must not be empty.")
+    _validate_image(body)
 
     conv_id = body.conversation_id or conversations.create()
     thread_id = str(conv_id)
@@ -623,8 +642,19 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     conversations.save_message(conv_id, "user", user_message)
 
     active_tools, _ = _router.select_tools(user_message, TOOLS)
+
+    # Build user parts — text plus optional inline image (not persisted to DB)
+    user_parts: list[dict] = [{"text": user_message}]
+    if body.image_b64:
+        user_parts.append({
+            "inline_data": {
+                "mime_type": body.image_mime or "image/jpeg",
+                "data": body.image_b64,
+            }
+        })
+
     initial_state = {
-        "history": [{"role": "user", "parts": [{"text": user_message}]}],
+        "history": [{"role": "user", "parts": user_parts}],
         "system_prompt": system_prompt,
         "active_tools": active_tools,
         "reply": "",

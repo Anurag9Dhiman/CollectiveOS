@@ -120,6 +120,14 @@ def _history_to_gemini(history: list[dict]) -> list[Any]:
                         response=fr.get("response", {}),
                     )
                 ))
+            elif "inline_data" in p:
+                id_ = p["inline_data"]
+                parts.append(_gtypes.Part(
+                    inline_data=_gtypes.Blob(
+                        mime_type=id_.get("mime_type", "image/jpeg"),
+                        data=id_["data"],
+                    )
+                ))
         if parts:
             contents.append(_gtypes.Content(role=msg["role"], parts=parts))
     return contents
@@ -462,12 +470,16 @@ def run(
     system_prompt: str = "",
     thread_id: str = "default",
     history: list[dict] | None = None,
+    image_b64: str | None = None,
+    image_mime: str = "image/jpeg",
 ) -> tuple[str, bool]:
     """Run one user message through the LangGraph agent.
 
     Returns (reply, interrupted):
       reply: the assistant's text response
       interrupted: True if the graph paused before write_tools (needs /chat/approve)
+    image_b64: optional base64-encoded image bytes for the current turn only
+               (not persisted to DB — just passed as context for this call).
     """
     from src import router
 
@@ -475,9 +487,14 @@ def run(
     from src.assistant_starter import TOOLS
     active_tools, _ = router.select_tools(user_message, TOOLS)
 
+    # Build user parts — text plus optional inline image
+    user_parts: list[dict] = [{"text": user_message}]
+    if image_b64:
+        user_parts.append({"inline_data": {"mime_type": image_mime, "data": image_b64}})
+
     # Seed state: prepend prior history + new user message
     prior = history or []
-    init_history = prior + [{"role": "user", "parts": [{"text": user_message}]}]
+    init_history = prior + [{"role": "user", "parts": user_parts}]
 
     initial_state: AgentState = {
         "history": init_history,
