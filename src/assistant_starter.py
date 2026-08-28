@@ -68,6 +68,9 @@ from src.connectors import appliances as _appliances
 from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
 from src import memory, graph_memory, router, permissions, observability as _obs
+from src import mcp_client as _mcp
+
+_mcp.load()  # connect to any configured MCP servers at import time
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
@@ -112,12 +115,24 @@ def set_light(room: str, state: str) -> str:
     return f"OK, the {room} light is now {state} (pretend action)."
 
 
+def mcp_list_servers() -> str:
+    """List connected MCP servers and the tools they expose."""
+    servers = _mcp.list_servers()
+    if not servers:
+        return "No MCP servers connected. Add servers to mcp_servers.json to enable them."
+    lines = [f"Connected MCP servers ({len(servers)}):"]
+    for s in servers:
+        lines.append(f"  • {s['server']} — {s['tools']} tool(s)")
+    return "\n".join(lines)
+
+
 TOOL_FUNCTIONS = {
     "memory_remember":    memory_remember,
     "memory_list":        memory_list,
     "memory_forget":      memory_forget,
     "memory_graph_query": memory_graph_query,
     "usage_summary":      usage_summary,
+    "mcp_list_servers":   mcp_list_servers,
     "ai_ask":             _ai.ai_ask,
     "ai_compare":         _ai.ai_compare,
     "get_calendar_events": get_calendar_events,
@@ -197,7 +212,9 @@ TOOL_FUNCTIONS = {
     "telegram_send":         _telegram.send_message,
     "lens_analyze":          _lens_analyze,
     "push_notification":     _push_notification,
+    # MCP server tools are merged in below
 }
+TOOL_FUNCTIONS.update(_mcp.tool_callables())
 
 TOOLS = [
     # -----------------------------------------------------------------------
@@ -1758,7 +1775,22 @@ TOOLS = [
             "required": ["title", "body"],
         },
     },
+    # -----------------------------------------------------------------------
+    # MCP server management
+    # -----------------------------------------------------------------------
+    {
+        "name": "mcp_list_servers",
+        "description": (
+            "List all connected MCP (Model Context Protocol) servers and the number of tools "
+            "each one exposes. Use when the user asks what MCP servers are running, or to "
+            "diagnose why an MCP-backed tool isn't available."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
 ]
+
+# Merge MCP-discovered tool schemas (populated once mcp.load() ran above)
+TOOLS.extend(_mcp.list_tools())
 
 # ---------------------------------------------------------------------------
 # Gemini tool schema converters
