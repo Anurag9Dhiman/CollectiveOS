@@ -547,6 +547,45 @@ def delete_memory_fact(fact_id: int, _token: str = Depends(_verify_token)):
         raise HTTPException(status_code=404, detail="Fact not found.")
 
 
+@app.get("/memory/graph")
+def get_memory_graph(_token: str = Depends(_verify_token)):
+    """
+    Return the knowledge graph as nodes + links for visualisation.
+
+    nodes: [{id, name, type, mention_count}]
+    links: [{source, target, relation}]
+    """
+    from src.db import connect
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT e.id, e.name, e.entity_type,
+                       COUNT(em.chunk_id) AS mention_count
+                FROM entities e
+                LEFT JOIN entity_mentions em ON em.entity_id = e.id
+                GROUP BY e.id, e.name, e.entity_type
+                ORDER BY mention_count DESC, e.name
+            """)
+            nodes = [
+                {"id": r[0], "name": r[1], "type": r[2], "mention_count": r[3]}
+                for r in cur.fetchall()
+            ]
+            cur.execute("""
+                SELECT er.entity_a_id, er.entity_b_id, er.relation
+                FROM entity_relations er
+                JOIN entities ea ON ea.id = er.entity_a_id
+                JOIN entities eb ON eb.id = er.entity_b_id
+            """)
+            links = [
+                {"source": r[0], "target": r[1], "relation": r[2]}
+                for r in cur.fetchall()
+            ]
+    finally:
+        conn.close()
+    return {"nodes": nodes, "links": links}
+
+
 @app.post("/chat/stream")
 async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     """
