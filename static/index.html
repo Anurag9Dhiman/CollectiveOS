@@ -869,8 +869,11 @@
     .hist-conv-row:hover { background: #1c2128; }
     .hist-conv-row.active { background: #1c2128; border-left: 2px solid #58a6ff; }
     .hist-conv-snippet {
-      font-size: 0.85rem; color: #e1e4e8;
+      font-size: 0.82rem; color: #8b949e;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .hist-conv-snippet.titled {
+      color: #e1e4e8; font-weight: 500; font-size: 0.85rem;
     }
     .search-snippet {
       white-space: normal; font-size: 0.8rem;
@@ -2426,11 +2429,15 @@
       const row = document.createElement("div");
       row.className = "hist-conv-row" + (c.id === _selectedConvId ? " active" : "");
       row.dataset.id = c.id;
-      const snippet = c.first_message
-        ? (c.first_message.length > 60 ? c.first_message.slice(0, 59) + "…" : c.first_message)
-        : "(empty)";
+      // Prefer AI-generated title; fall back to first_message snippet
+      const label = c.title
+        ? c.title
+        : (c.first_message
+            ? (c.first_message.length > 55 ? c.first_message.slice(0, 54) + "…" : c.first_message)
+            : "(empty)");
+      const titleClass = c.title ? "hist-conv-snippet titled" : "hist-conv-snippet";
       row.innerHTML = `
-        <div class="hist-conv-snippet" title="${(c.first_message || "").replace(/"/g, "&quot;")}">${snippet}</div>
+        <div class="${titleClass}">${label}</div>
         <div class="hist-conv-meta">
           <span>${fmtDate(c.started_at)}</span>
           <span>${c.message_count} msg${c.message_count !== 1 ? "s" : ""}</span>
@@ -2521,7 +2528,10 @@
       }
       historyMessages.scrollTop = historyMessages.scrollHeight;
       // Show continue bar
-      historyContinueInfo.textContent = `Conversation #${c.id} · ${fmtDate(c.started_at)}`;
+      // Find the title from the loaded conversation list if available
+      const conv = _allConvs.find(x => x.id === c.id);
+      const titleLabel = (conv && conv.title) ? conv.title : `Conversation #${c.id}`;
+      historyContinueInfo.textContent = `${titleLabel} · ${fmtDate(c.started_at)}`;
       historyContinueBar.classList.add("visible");
     } catch (_) {
       historyMessages.innerHTML = `<div style="color:#f85149;font-size:0.82rem;padding:16px">Failed to load messages.</div>`;

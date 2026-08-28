@@ -51,6 +51,7 @@ from typing import Optional, List
 
 from src.assistant_starter import run_stream
 from src import conversations, memory, permissions, routines as _routines, watchers as _watchers
+from src import titler as _titler
 from src import scheduler as _scheduler
 from src import observability as _obs
 from src import redis_client as _cache
@@ -316,6 +317,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     conversations.save_message(conv_id, "assistant", reply)
     if not interrupted:
         memory.save_smart(user_message, reply)
+        _titler.title_async(conv_id)   # generate title in background (skips if already set)
 
     return ChatResponse(
         reply=reply,
@@ -814,6 +816,7 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
         conversations.save_message(conv_id, "assistant", reply)
         if not interrupted:
             memory.save(user_message, reply)
+            _titler.title_async(conv_id)
 
         yield f"data: {json.dumps({'done': True, 'interrupted': interrupted})}\n\n"
 
