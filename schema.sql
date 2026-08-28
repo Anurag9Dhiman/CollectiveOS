@@ -326,3 +326,21 @@ CREATE TABLE IF NOT EXISTS wearable_events (
 
 CREATE INDEX IF NOT EXISTS wearable_events_user_time
     ON wearable_events (user_id, created_at DESC);
+
+-- Proactive condition watchers — poll a prompt on an interval, fire when condition is met.
+-- The agent runs the prompt, then a cheap LLM call checks whether the condition is satisfied.
+CREATE TABLE IF NOT EXISTS watchers (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    prompt          TEXT NOT NULL,      -- what to run (e.g. "check my recent emails")
+    condition       TEXT NOT NULL,      -- when to fire (e.g. "is there an email from Alice?")
+    interval_min    INTEGER NOT NULL DEFAULT 60,  -- how often to check (minutes)
+    enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_via      TEXT NOT NULL DEFAULT 'notification'
+                    CHECK (notify_via IN ('notification', 'telegram', 'push', 'both', 'none')),
+    last_checked    TIMESTAMPTZ,
+    last_triggered  TIMESTAMPTZ,
+    last_result     TEXT,               -- last prompt result (for debugging)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
