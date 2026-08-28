@@ -65,6 +65,7 @@ from src.connectors import finance as _finance
 from src.connectors import car as _car
 from src.connectors.lens_analyze import lens_analyze as _lens_analyze
 from src.connectors import appliances as _appliances
+from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
 from src import memory, graph_memory, router, permissions, observability as _obs
 
@@ -195,6 +196,7 @@ TOOL_FUNCTIONS = {
     "telegram_get_messages": _telegram.get_messages,
     "telegram_send":         _telegram.send_message,
     "lens_analyze":          _lens_analyze,
+    "push_notification":     _push_notification,
 }
 
 TOOLS = [
@@ -1719,6 +1721,41 @@ TOOLS = [
                 },
             },
             "required": ["image_path"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # iOS push notifications (APNs)
+    # -----------------------------------------------------------------------
+    {
+        "name": "push_notification",
+        "description": (
+            "Send a push notification to the user's iPhone via Apple Push Notification service (APNs). "
+            "Use when the user says 'remind me on my phone', 'send me a notification', or 'ping me when…', "
+            "or when a proactive routine needs to alert the user on their device. "
+            "Requires APNS_KEY_ID, APNS_TEAM_ID, APNS_AUTH_KEY_PATH, APNS_BUNDLE_ID, "
+            "and APNS_DEVICE_TOKEN to be configured in the environment."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short notification title shown in bold at the top of the alert.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Notification body text — the main message.",
+                },
+                "badge": {
+                    "type": "integer",
+                    "description": "Optional badge count to display on the app icon. Omit to leave the badge unchanged.",
+                },
+                "sound": {
+                    "type": "string",
+                    "description": "Alert sound to play — 'default' or a custom sound filename bundled in the app. Default: 'default'.",
+                },
+            },
+            "required": ["title", "body"],
         },
     },
 ]
