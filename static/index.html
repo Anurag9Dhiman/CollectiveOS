@@ -603,6 +603,8 @@
     }
     #save-routine-btn:hover { background: #388bfd; }
 
+    /* Metrics panel */
+    #metrics-overlay {
     /* Memory panel */
     #memory-overlay {
       display: none;
@@ -611,6 +613,12 @@
       background: rgba(0,0,0,0.5);
       z-index: 100;
     }
+    #metrics-overlay.open { display: block; }
+
+    #metrics-panel {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: 420px;
     #memory-overlay.open { display: block; }
     #memory-panel {
       position: absolute;
@@ -622,6 +630,7 @@
       flex-direction: column;
       overflow: hidden;
     }
+    #metrics-panel > header {
     #memory-panel > header {
       padding: 16px 18px;
       border-bottom: 1px solid #21262d;
@@ -629,6 +638,59 @@
       align-items: center;
       gap: 10px;
     }
+    #metrics-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #metrics-close {
+      background: none; border: none; color: #8b949e;
+      font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    #metrics-close:hover { color: #e1e4e8; background: #21262d; }
+
+    #metrics-body {
+      flex: 1; overflow-y: auto; padding: 14px 18px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+
+    .metrics-days-row {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .metrics-days-row label { font-size: 0.75rem; color: #8b949e; white-space: nowrap; }
+    #metrics-days {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.8rem; padding: 4px 8px; width: 70px;
+    }
+    #metrics-days:focus { outline: none; border-color: #1f6feb; }
+    #metrics-refresh-btn {
+      background: none; border: 1px solid #30363d; border-radius: 5px;
+      color: #8b949e; font-size: 0.78rem; padding: 4px 10px; cursor: pointer;
+    }
+    #metrics-refresh-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+
+    .metrics-cost-card {
+      background: #0d1117; border: 1px solid #21262d; border-radius: 8px;
+      padding: 14px 16px; text-align: center;
+    }
+    .metrics-cost-label { font-size: 0.72rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }
+    .metrics-cost-value { font-size: 1.6rem; font-weight: 600; color: #3fb950; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+    .metrics-section-title {
+      font-size: 0.7rem; color: #484f58; text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 2px;
+    }
+
+    .metrics-table {
+      width: 100%; border-collapse: collapse; font-size: 0.78rem;
+    }
+    .metrics-table th {
+      text-align: left; color: #8b949e; font-weight: 500;
+      padding: 4px 6px; border-bottom: 1px solid #21262d;
+    }
+    .metrics-table td {
+      padding: 6px 6px; border-bottom: 1px solid #161b22;
+      color: #e1e4e8; font-variant-numeric: tabular-nums;
+    }
+    .metrics-table tr:last-child td { border-bottom: none; }
+    .metrics-table .num { text-align: right; color: #8b949e; }
+    .metrics-empty { font-size: 0.8rem; color: #484f58; }
     #memory-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
     #memory-close {
       background: none; border: none; color: #8b949e;
@@ -679,6 +741,7 @@
   <button id="new-chat-btn" class="header-btn" title="Start a new conversation">+ New chat</button>
   <button id="settings-btn"  class="header-btn" title="Connector permissions">⚙ Settings</button>
   <button id="routines-btn" class="header-btn" title="Scheduled routines">⏱ Routines</button>
+  <button id="metrics-btn" class="header-btn" title="Token usage and cost">📊 Metrics</button>
   <button id="memory-btn"   class="header-btn" title="Saved memory facts">🧠 Memory</button>
 </header>
 
@@ -737,6 +800,21 @@
   </div>
 </div>
 
+<!-- Metrics panel -->
+<div id="metrics-overlay">
+  <div id="metrics-panel">
+    <header>
+      <h2>📊 Usage Metrics</h2>
+      <button id="metrics-close">✕</button>
+    </header>
+    <div id="metrics-body">
+      <div class="metrics-days-row">
+        <label for="metrics-days">Last</label>
+        <input id="metrics-days" type="number" min="1" max="90" value="1" />
+        <label>day(s)</label>
+        <button id="metrics-refresh-btn">Refresh</button>
+      </div>
+      <div id="metrics-content">Loading…</div>
 <!-- Memory panel -->
 <div id="memory-overlay">
   <div id="memory-panel">
@@ -1527,6 +1605,91 @@
   routinesOvl.addEventListener("click", e => { if (e.target === routinesOvl) routinesOvl.classList.remove("open"); });
 
   // ---------------------------------------------------------------------------
+  // Metrics panel
+  // ---------------------------------------------------------------------------
+  const metricsBtn     = document.getElementById("metrics-btn");
+  const metricsOvl     = document.getElementById("metrics-overlay");
+  const metricsClose   = document.getElementById("metrics-close");
+  const metricsContent = document.getElementById("metrics-content");
+  const metricsDaysEl  = document.getElementById("metrics-days");
+  const metricsRefresh = document.getElementById("metrics-refresh-btn");
+
+  async function loadMetrics() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) {
+      metricsContent.innerHTML = "<p style='color:#f85149;font-size:0.8rem'>Enter your API token first.</p>";
+      return;
+    }
+    const days = parseInt(metricsDaysEl.value, 10) || 1;
+    metricsContent.textContent = "Loading…";
+    try {
+      const resp = await fetch(`/metrics?days=${days}`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(resp.statusText);
+      const data = await resp.json();
+      renderMetrics(data);
+    } catch (e) {
+      metricsContent.innerHTML = "<p style='color:#f85149;font-size:0.8rem'>Failed to load metrics.</p>";
+    }
+  }
+
+  function renderMetrics(data) {
+    let html = `
+      <div class="metrics-cost-card">
+        <div class="metrics-cost-label">Estimated cost — last ${data.days} day(s)</div>
+        <div class="metrics-cost-value">$${(data.total_cost_usd || 0).toFixed(4)}</div>
+      </div>`;
+
+    if (data.models && data.models.length) {
+      html += `<div class="metrics-section-title">API calls by model</div>
+        <table class="metrics-table">
+          <thead><tr>
+            <th>Model</th><th class="num">Calls</th>
+            <th class="num">In tokens</th><th class="num">Out tokens</th>
+            <th class="num">Cost</th>
+          </tr></thead><tbody>`;
+      for (const m of data.models) {
+        html += `<tr>
+          <td>${m.model}</td>
+          <td class="num">${m.calls}</td>
+          <td class="num">${m.input_tokens.toLocaleString()}</td>
+          <td class="num">${m.output_tokens.toLocaleString()}</td>
+          <td class="num">$${m.cost_usd.toFixed(4)}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+    } else {
+      html += `<p class="metrics-empty">No API calls recorded yet.</p>`;
+    }
+
+    if (data.tools && data.tools.length) {
+      html += `<div class="metrics-section-title">Tool latency</div>
+        <table class="metrics-table">
+          <thead><tr>
+            <th>Tool</th><th class="num">Calls</th>
+            <th class="num">Avg ms</th><th class="num">Success</th>
+          </tr></thead><tbody>`;
+      for (const t of data.tools) {
+        html += `<tr>
+          <td>${t.tool}</td>
+          <td class="num">${t.calls}</td>
+          <td class="num">${t.avg_latency_ms}</td>
+          <td class="num">${t.success_pct}%</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+    } else {
+      html += `<p class="metrics-empty">No tool calls recorded yet.</p>`;
+    }
+
+    metricsContent.innerHTML = html;
+  }
+
+  metricsBtn.addEventListener("click", () => { metricsOvl.classList.add("open"); loadMetrics(); });
+  metricsClose.addEventListener("click", () => metricsOvl.classList.remove("open"));
+  metricsOvl.addEventListener("click", e => { if (e.target === metricsOvl) metricsOvl.classList.remove("open"); });
+  metricsRefresh.addEventListener("click", loadMetrics);
   // Memory panel
   // ---------------------------------------------------------------------------
 

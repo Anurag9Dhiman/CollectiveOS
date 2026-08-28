@@ -200,6 +200,12 @@ def health():
     return {"status": "ok", "redis": "ok" if _cache.ping() else "unavailable"}
 
 
+@app.get("/metrics")
+def metrics(days: int = Query(1, ge=1, le=90), _token: str = Depends(_verify_token)):
+    """Return token usage and tool latency metrics for the last N days."""
+    return _obs.usage_data(days)
+
+
 @app.get("/ask", response_class=PlainTextResponse)
 def ask(
     q: str = Query(..., description="The question or command for the assistant."),

@@ -276,10 +276,21 @@ def agent_node(state: AgentState) -> dict:
 
 def _execute_calls(calls: list[dict], history: list[dict]) -> list[dict]:
     """Execute tool calls in parallel and append function-response parts to history."""
+    import time
     from src.assistant_starter import _exec_tool_fn
+    from src import observability as _obs
 
     def _run(call: dict) -> dict:
-        result = _exec_tool_fn(call["name"], call["args"])
+        t0 = time.monotonic()
+        try:
+            result = _exec_tool_fn(call["name"], call["args"])
+            _obs.log_tool_call(call["name"], int((time.monotonic() - t0) * 1000), success=True)
+        except Exception as exc:
+            _obs.log_tool_call(
+                call["name"], int((time.monotonic() - t0) * 1000),
+                success=False, error_type=type(exc).__name__,
+            )
+            result = f"[ERROR: {exc}]"
         return {"name": call["name"], "result": result}
 
     with ThreadPoolExecutor(max_workers=min(len(calls), 8)) as pool:
