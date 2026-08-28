@@ -312,3 +312,17 @@ CREATE TABLE IF NOT EXISTS checkpoint_writes (
     blob          BYTEA   NOT NULL,
     PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
 );
+
+-- Wearable device events — generic ingest from any device (Garmin, Frame glasses,
+-- custom hardware) via POST /wearable/ingest. Each row is one event or sensor batch.
+CREATE TABLE IF NOT EXISTS wearable_events (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    device_id  TEXT NOT NULL,         -- e.g. 'garmin-forerunner', 'frame-v1', 'custom'
+    event_type TEXT NOT NULL,         -- e.g. 'gesture', 'sensor', 'location', 'button'
+    payload    JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS wearable_events_user_time
+    ON wearable_events (user_id, created_at DESC);

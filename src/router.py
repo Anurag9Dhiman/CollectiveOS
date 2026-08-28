@@ -42,6 +42,8 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "appliances":["appliances_list", "appliances_get_status", "appliances_control"],
     "ai":        ["ai_ask", "ai_compare"],
     "orchestrator": ["task_plan", "task_status", "task_list", "task_cancel"],
+    "wearable":     ["wearable_get_events", "wearable_list_devices"],
+    "robot":        ["robot_status", "robot_move", "robot_cancel"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -155,6 +157,13 @@ _EXAMPLES = (
     "  automate filling out this form → [\"system\"]\n"
     "  control my desktop to open that file → [\"system\"]\n"
     "  use the computer to complete this task → [\"system\"]\n"
+    "  what did my wearable detect → [\"wearable\"]\n"
+    "  show me my Garmin events → [\"wearable\"]\n"
+    "  what devices have sent data → [\"wearable\"]\n"
+    "  what is the robot doing → [\"robot\"]\n"
+    "  move the robot forward 2 metres → [\"robot\"]\n"
+    "  stop the robot → [\"robot\"]\n"
+    "  what's the robot battery level → [\"robot\"]\n"
 )
 
 _llm: ChatGoogleGenerativeAI | None = None
