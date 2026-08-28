@@ -20,7 +20,7 @@ import tempfile
 from google import genai
 from google.genai import types as _gtypes
 
-_VISION_MODEL = "models/gemini-flash-latest"
+_VISION_MODEL = os.environ.get("VISION_MODEL", "gemini-3.6-flash")
 _MAX_PX = 1280  # resize longest dimension to this before sending
 
 

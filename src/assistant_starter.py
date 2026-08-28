@@ -63,11 +63,12 @@ from src.connectors import slack_bot as _slack
 from src.connectors import health as _health
 from src.connectors import finance as _finance
 from src.connectors import car as _car
+from src.connectors.lens_analyze import lens_analyze as _lens_analyze
 from src.connectors import appliances as _appliances
 from src.connectors import ai_models as _ai
 from src import memory, graph_memory, router, permissions, observability as _obs
 
-MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-flash-latest")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -193,6 +194,7 @@ TOOL_FUNCTIONS = {
     "appliances_control":    _appliances.appliances_control,
     "telegram_get_messages": _telegram.get_messages,
     "telegram_send":         _telegram.send_message,
+    "lens_analyze":          _lens_analyze,
 }
 
 TOOLS = [
@@ -1686,6 +1688,37 @@ TOOLS = [
                 "command":   {"type": "string", "description": "'on', 'off', or a capability command."},
             },
             "required": ["device_id", "command"],
+        },
+    },
+    {
+        "name": "lens_analyze",
+        "description": (
+            "Identify and describe what is in a photo using VisualOS. "
+            "Returns the entity name, a detailed description, historical and live facts, "
+            "and source citations. Works on buildings, monuments, objects, and more. "
+            "Call this when the user wants to know what is in an image file on their device."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "description": "Absolute or relative file path to a JPEG, PNG, or WebP image.",
+                },
+                "lat": {
+                    "type": "number",
+                    "description": "Optional GPS latitude (decimal degrees) to improve location context.",
+                },
+                "lng": {
+                    "type": "number",
+                    "description": "Optional GPS longitude (decimal degrees) to improve location context.",
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "User identifier for personalised memory lookup in VisualOS. Defaults to 'default'.",
+                },
+            },
+            "required": ["image_path"],
         },
     },
 ]

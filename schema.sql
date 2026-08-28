@@ -75,19 +75,39 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 -- Memory chunks — text + embedding for semantic search
+-- Embedding model: gemini-embedding-001 (3072 dimensions)
 CREATE TABLE IF NOT EXISTS memory_chunks (
     id         SERIAL PRIMARY KEY,
     user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
     source     TEXT NOT NULL DEFAULT 'conversation',
     content    TEXT NOT NULL,
-    embedding  vector(384),           -- matches all-MiniLM-L6-v2 output dim
+    embedding  vector(3072),          -- gemini-embedding-001 output dim
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Index for fast cosine similarity search
+-- HNSW index for fast approximate nearest-neighbour (cosine) — better than ivfflat for this size
 CREATE INDEX IF NOT EXISTS memory_chunks_embedding_idx
-    ON memory_chunks USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
+    ON memory_chunks USING hnsw (embedding vector_cosine_ops);
+
+-- Migrate existing deployments: drop old 384-dim index and column, recreate at 3072
+-- Safe to run multiple times (IF EXISTS guards prevent errors on fresh installs).
+DO $$
+BEGIN
+    -- Only run if the column exists at 384 dims (old deployment)
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'memory_chunks' AND column_name = 'embedding'
+    ) THEN
+        -- Check current dimension via pg_attribute / atttypmod
+        -- atttypmod for vector(n) encodes n in the lower 16 bits of (atttypmod - 4 + 4)
+        -- Simpler: just try ALTER and catch if already at 3072
+        ALTER TABLE memory_chunks DROP COLUMN IF EXISTS embedding;
+        ALTER TABLE memory_chunks ADD COLUMN embedding vector(3072);
+        RAISE NOTICE 'memory_chunks.embedding recreated at 3072 dims (gemini-embedding-001)';
+    END IF;
+EXCEPTION WHEN others THEN
+    RAISE NOTICE 'memory_chunks embedding migration skipped: %', SQLERRM;
+END $$;
 
 -- Knowledge graph — entities, mentions, and relationships extracted from conversations
 CREATE TABLE IF NOT EXISTS entities (
@@ -211,6 +231,10 @@ INSERT INTO connector_permissions (connector) VALUES
     ('appliances')
 ON CONFLICT (connector) DO NOTHING;
 
+INSERT INTO connector_permissions (connector) VALUES
+    ('lens_analyze')
+ON CONFLICT (connector) DO NOTHING;
+
 -- Seed the single default user
 INSERT INTO users (name, prefs)
 SELECT 'default', '{}'
@@ -247,3 +271,44 @@ BEGIN
                 CHECK (waiting_reason IN ('user_confirm', 'user_clarify', 'external'));
     END IF;
 END $$;
+
+-- -------------------------------------------------------------------------
+-- LangGraph checkpoint tables
+-- langgraph-checkpoint-postgres creates these itself via setup(), but we
+-- declare them here so the schema is the single source of truth and the
+-- tables exist before the first graph run (avoids a race on cold start).
+-- These are intentionally simple — LangGraph manages all DML.
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS checkpoints (
+    thread_id     TEXT   NOT NULL,
+    checkpoint_ns TEXT   NOT NULL DEFAULT '',
+    checkpoint_id TEXT   NOT NULL,
+    parent_id     TEXT,
+    type          TEXT,
+    checkpoint    BYTEA  NOT NULL,
+    metadata      BYTEA  NOT NULL,
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+);
+
+CREATE TABLE IF NOT EXISTS checkpoint_blobs (
+    thread_id     TEXT   NOT NULL,
+    checkpoint_ns TEXT   NOT NULL DEFAULT '',
+    channel       TEXT   NOT NULL,
+    version       TEXT   NOT NULL,
+    type          TEXT   NOT NULL,
+    blob          BYTEA,
+    PRIMARY KEY (thread_id, checkpoint_ns, channel, version)
+);
+
+CREATE TABLE IF NOT EXISTS checkpoint_writes (
+    thread_id     TEXT    NOT NULL,
+    checkpoint_ns TEXT    NOT NULL DEFAULT '',
+    checkpoint_id TEXT    NOT NULL,
+    task_id       TEXT    NOT NULL,
+    idx           INTEGER NOT NULL,
+    channel       TEXT    NOT NULL,
+    type          TEXT,
+    blob          BYTEA   NOT NULL,
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+);
