@@ -59,6 +59,8 @@ WRITE_TOOLS: frozenset[str] = frozenset({
 })
 
 MAX_ITER = 10
+MAX_HISTORY_ENTRIES = 40   # message entries (user + model combined) before trimming
+TRIM_KEEP = 20             # how many recent entries to retain after trimming
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +140,65 @@ def _response_text(response: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# History trimming — keeps Gemini call cost bounded in long conversations
+# ---------------------------------------------------------------------------
+
+def _summarize_history(messages: list[dict]) -> str:
+    """Call Gemini to produce a compact summary of older conversation turns."""
+    from src.assistant_starter import MODEL, _get_client
+
+    history_objs = _history_to_gemini(messages)
+    summarize_prompt = _gtypes.Content(
+        role="user",
+        parts=[_gtypes.Part(
+            text=(
+                "Summarize the above conversation compactly. "
+                "Keep every key fact, decision, and preference the assistant needs "
+                "to continue helping effectively. Omit filler and pleasantries. "
+                "Maximum 300 words."
+            )
+        )],
+    )
+    try:
+        resp = _get_client().models.generate_content(
+            model=MODEL,
+            contents=history_objs + [summarize_prompt],
+        )
+        return resp.text or "[summary unavailable]"
+    except Exception:
+        return "[summary unavailable]"
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    """If history exceeds MAX_HISTORY_ENTRIES, summarize the oldest portion.
+
+    The trimmed list is returned (and will be persisted to state), so the
+    summarization call happens at most once per trim threshold crossing.
+    Returns the original list unchanged when under the threshold.
+    """
+    if len(history) <= MAX_HISTORY_ENTRIES:
+        return history
+
+    # Align cut-point to the first 'user' boundary at or past our target index
+    keep_from = len(history) - TRIM_KEEP
+    while keep_from < len(history) and history[keep_from]["role"] != "user":
+        keep_from += 1
+
+    to_summarize = history[:keep_from]
+    recent = history[keep_from:]
+
+    if not to_summarize:
+        return history
+
+    summary_text = _summarize_history(to_summarize)
+    summary_entry = {
+        "role": "user",
+        "parts": [{"text": f"[Earlier conversation summary]\n{summary_text}"}],
+    }
+    return [summary_entry] + recent
+
+
+# ---------------------------------------------------------------------------
 # Graph nodes
 # ---------------------------------------------------------------------------
 
@@ -165,7 +226,10 @@ def agent_node(state: AgentState) -> dict:
     """Call Gemini with the current history; classify any tool calls."""
     from src.assistant_starter import MODEL, _obs
 
-    history_objs = _history_to_gemini(state["history"])
+    # Trim long histories before the Gemini call; persists the compacted form.
+    history = _trim_history(state["history"])
+
+    history_objs = _history_to_gemini(history)
     response = _call_gemini(
         history_objs,
         state["system_prompt"],
@@ -190,7 +254,7 @@ def agent_node(state: AgentState) -> dict:
         # Done — no more tool calls
         return {
             "reply": _response_text(response),
-            "history": state["history"] + [
+            "history": history + [
                 {"role": "model", "parts": [{"text": _response_text(response)}]}
             ],
             "iteration": iteration,
@@ -201,7 +265,7 @@ def agent_node(state: AgentState) -> dict:
     model_parts = [
         {"function_call": {"name": c["name"], "args": c["args"]}} for c in fn_calls
     ]
-    new_history = state["history"] + [{"role": "model", "parts": model_parts}]
+    new_history = history + [{"role": "model", "parts": model_parts}]
 
     write_calls = [c for c in fn_calls if c["name"] in WRITE_TOOLS]
     read_calls  = [c for c in fn_calls if c["name"] not in WRITE_TOOLS]
