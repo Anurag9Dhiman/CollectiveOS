@@ -41,6 +41,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "car":       ["car_get_status", "car_lock", "car_climate"],
     "appliances":["appliances_list", "appliances_get_status", "appliances_control"],
     "ai":        ["ai_ask", "ai_compare"],
+    "orchestrator": ["task_plan", "task_status", "task_list", "task_cancel"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -144,6 +145,12 @@ _EXAMPLES = (
     "  get Gemini to write a haiku → [\"ai\"]\n"
     "  check my Telegram messages → [\"telegram\"]\n"
     "  send a Telegram message to John → [\"telegram\"]\n"
+    "  run a multi-step task for me → [\"orchestrator\"]\n"
+    "  research X and save it to Notion → [\"orchestrator\", \"search\", \"notion\"]\n"
+    "  check my tasks and create follow-ups → [\"orchestrator\", \"tasks\"]\n"
+    "  what tasks have you run recently → [\"orchestrator\"]\n"
+    "  cancel that task → [\"orchestrator\"]\n"
+    "  what's the status of task 5 → [\"orchestrator\"]\n"
     "  click the submit button for me → [\"system\"]\n"
     "  automate filling out this form → [\"system\"]\n"
     "  control my desktop to open that file → [\"system\"]\n"

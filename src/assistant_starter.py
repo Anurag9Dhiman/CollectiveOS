@@ -69,6 +69,7 @@ from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
 from src.connectors.computer import computer_use
 from src import memory, graph_memory, router, permissions, observability as _obs
+from src import orchestrator as _orchestrator
 from src import mcp_client as _mcp
 
 _mcp.load()  # connect to any configured MCP servers at import time
@@ -114,6 +115,42 @@ def usage_summary(days: int = 1) -> str:
 def set_light(room: str, state: str) -> str:
     """Placeholder — replace body with a real Home Assistant call later."""
     return f"OK, the {room} light is now {state} (pretend action)."
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator wrappers
+# ---------------------------------------------------------------------------
+
+def task_plan(description: str) -> str:
+    """Plan and execute a multi-step agentic task using the orchestrator."""
+    return _orchestrator.plan_and_run(description)
+
+
+def task_status(task_id: int) -> str:
+    """Return the current status of a planned task and its steps."""
+    task = _orchestrator.get_task(task_id)
+    if not task:
+        return f"Task #{task_id} not found."
+    lines = [f"Task #{task['id']} [{task['status']}]: {task['description']}"]
+    for s in task.get("steps", []):
+        mark = {"completed": "✓", "failed": "✗", "running": "⟳", "pending": "·"}.get(s["status"], "?")
+        out = f" → {s['output'][:100]}" if s.get("output") else ""
+        lines.append(f"  {mark} {s['tool']}{out}")
+    return "\n".join(lines)
+
+
+def task_list() -> str:
+    """List the 10 most recent tasks and their statuses."""
+    tasks = _orchestrator.list_tasks(limit=10)
+    if not tasks:
+        return "No tasks found."
+    lines = [f"#{t['id']} [{t['status']}] {t['description'][:80]}" for t in tasks]
+    return "\n".join(lines)
+
+
+def task_cancel(task_id: int) -> str:
+    """Cancel a pending or running task."""
+    return _orchestrator.cancel_task(task_id)
 
 
 def mcp_list_servers() -> str:
@@ -213,6 +250,10 @@ TOOL_FUNCTIONS = {
     "telegram_send":         _telegram.send_message,
     "lens_analyze":          _lens_analyze,
     "push_notification":     _push_notification,
+    "task_plan":             task_plan,
+    "task_status":           task_status,
+    "task_list":             task_list,
+    "task_cancel":           task_cancel,
     "computer_use":          computer_use,
     # MCP server tools are merged in below
 }
@@ -1777,6 +1818,19 @@ TOOLS = [
             "required": ["title", "body"],
         },
     },
+    # -----------------------------------------------------------------------
+    # Task orchestrator
+    # -----------------------------------------------------------------------
+    {
+        "name": "task_plan",
+        "description": (
+            "Plan and execute a complex multi-step task using the task orchestrator. "
+            "Use when the user asks for something that requires several sequential tool calls — "
+            "for example 'research X, summarise it, and save to Notion', or "
+            "'check my emails and add follow-up tasks to Todoist'. "
+            "The orchestrator creates a plan (up to 10 steps), runs each step, "
+            "and returns a summary of what was done. "
+            "Results are stored in the tasks database so you can check them later with task_status."
     {
         "name": "computer_use",
         "description": (
@@ -1792,6 +1846,53 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "Full description of the task to accomplish, including any specific constraints or output requirements.",
+                },
+            },
+            "required": ["description"],
+        },
+    },
+    {
+        "name": "task_status",
+        "description": (
+            "Check the status of a previously created task, including each step's result. "
+            "Use after task_plan to confirm completion, or when the user asks 'how did that task go'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "The task ID returned by task_plan or task_list.",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "task_list",
+        "description": "List the 10 most recent tasks and their statuses (completed, failed, running, cancelled).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "task_cancel",
+        "description": "Cancel a task that is still pending, planning, or running.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "The task ID to cancel.",
+                },
+            },
+            "required": ["task_id"],
+        },
                 "task": {
                     "type": "string",
                     "description": (

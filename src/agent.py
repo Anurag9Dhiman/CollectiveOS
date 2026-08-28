@@ -56,6 +56,8 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "github_create_issue", "slack_send_message",
     "car_lock", "car_climate", "appliances_control",
     "push_notification",
+    "task_plan",
+    "task_cancel",
     "computer_use",
 })
 from src.tool_registry import WRITE_TOOLS, DESTRUCTIVE_TOOLS, is_destructive
