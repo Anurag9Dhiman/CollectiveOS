@@ -602,6 +602,72 @@
       padding: 7px 14px; font-size: 0.82rem; cursor: pointer; align-self: flex-end;
     }
     #save-routine-btn:hover { background: #388bfd; }
+
+    /* Memory panel */
+    #memory-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+    }
+    #memory-overlay.open { display: block; }
+    #memory-panel {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: 360px;
+      background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #memory-panel > header {
+      padding: 16px 18px;
+      border-bottom: 1px solid #21262d;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #memory-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #memory-close {
+      background: none; border: none; color: #8b949e;
+      font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    #memory-close:hover { color: #e1e4e8; background: #21262d; }
+    #memory-body {
+      flex: 1; overflow-y: auto; padding: 14px 18px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .fact-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 10px 12px;
+      background: #0d1117;
+      border: 1px solid #21262d; border-radius: 8px;
+    }
+    .fact-content { flex: 1; font-size: 0.84rem; line-height: 1.4; }
+    .fact-date { font-size: 0.68rem; color: #484f58; margin-top: 3px; }
+    .fact-delete {
+      background: none; border: none; color: #484f58;
+      font-size: 0.9rem; cursor: pointer; padding: 2px 5px; border-radius: 4px;
+      flex-shrink: 0; line-height: 1;
+    }
+    .fact-delete:hover { color: #f85149; background: #1f0c0c; }
+    #memory-empty { font-size: 0.82rem; color: #484f58; text-align: center; padding: 24px 0; }
+    #add-fact-form {
+      border-top: 1px solid #21262d; padding: 12px 18px;
+      display: flex; gap: 8px;
+    }
+    #fact-input {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.84rem; padding: 7px 10px; outline: none;
+    }
+    #fact-input:focus { border-color: #1f6feb; }
+    #save-fact-btn {
+      background: #1f6feb; color: #fff; border: none; border-radius: 6px;
+      padding: 7px 14px; font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+    }
+    #save-fact-btn:hover { background: #388bfd; }
   </style>
 </head>
 <body>
@@ -613,6 +679,7 @@
   <button id="new-chat-btn" class="header-btn" title="Start a new conversation">+ New chat</button>
   <button id="settings-btn"  class="header-btn" title="Connector permissions">⚙ Settings</button>
   <button id="routines-btn" class="header-btn" title="Scheduled routines">⏱ Routines</button>
+  <button id="memory-btn"   class="header-btn" title="Saved memory facts">🧠 Memory</button>
 </header>
 
 <div id="chat"></div>
@@ -670,6 +737,24 @@
   </div>
 </div>
 
+<!-- Memory panel -->
+<div id="memory-overlay">
+  <div id="memory-panel">
+    <header>
+      <h2>🧠 Memory</h2>
+      <button id="memory-close">✕</button>
+    </header>
+    <div id="memory-body">
+      <p class="settings-section-title">Facts the assistant always remembers</p>
+      <div id="facts-list"><div id="memory-empty">No facts saved yet.</div></div>
+    </div>
+    <div id="add-fact-form">
+      <input id="fact-input" type="text" placeholder="Remember that I prefer dark mode…" />
+      <button id="save-fact-btn">+ Remember</button>
+    </div>
+  </div>
+</div>
+
 <!-- Settings panel -->
 <div id="settings-overlay">
   <div id="settings-panel">
@@ -703,6 +788,12 @@
   const connectorList = document.getElementById("connector-list");
   const micBtn        = document.getElementById("mic-btn");
   const ttsBtn        = document.getElementById("tts-btn");
+  const memoryBtn     = document.getElementById("memory-btn");
+  const memoryOvl     = document.getElementById("memory-overlay");
+  const memoryClose   = document.getElementById("memory-close");
+  const factsList     = document.getElementById("facts-list");
+  const factInput     = document.getElementById("fact-input");
+  const saveFactBtn   = document.getElementById("save-fact-btn");
 
   const STORAGE_TOKEN = "collectiveos_token";
   const STORAGE_CONV  = "collectiveos_conv_id";
@@ -1434,6 +1525,81 @@
   routinesBtn.addEventListener("click", () => { routinesOvl.classList.add("open"); loadRoutines(); });
   routinesClose.addEventListener("click", () => routinesOvl.classList.remove("open"));
   routinesOvl.addEventListener("click", e => { if (e.target === routinesOvl) routinesOvl.classList.remove("open"); });
+
+  // ---------------------------------------------------------------------------
+  // Memory panel
+  // ---------------------------------------------------------------------------
+
+  async function loadFacts() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) {
+      factsList.innerHTML = "<div id='memory-empty'>Enter your API token first.</div>";
+      return;
+    }
+    try {
+      const resp = await fetch("/memory/facts", { headers: { "Authorization": `Bearer ${token}` } });
+      if (!resp.ok) throw new Error(resp.statusText);
+      const { facts } = await resp.json();
+      renderFacts(facts);
+    } catch (e) {
+      factsList.innerHTML = "<div id='memory-empty' style='color:#f85149'>Failed to load facts.</div>";
+    }
+  }
+
+  function renderFacts(facts) {
+    if (!facts.length) {
+      factsList.innerHTML = "<div id='memory-empty'>No facts saved yet.</div>";
+      return;
+    }
+    factsList.innerHTML = "";
+    for (const f of facts) {
+      const row = document.createElement("div");
+      row.className = "fact-row";
+      row.innerHTML = `
+        <div class="fact-content">
+          <div>${f.content}</div>
+          <div class="fact-date">${f.date || ""}</div>
+        </div>
+        <button class="fact-delete" data-id="${f.id}" title="Forget this">✕</button>
+      `;
+      row.querySelector(".fact-delete").addEventListener("click", async () => {
+        const t = localStorage.getItem(STORAGE_TOKEN) || "";
+        await fetch(`/memory/facts/${f.id}`, {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${t}` },
+        });
+        loadFacts();
+      });
+      factsList.appendChild(row);
+    }
+  }
+
+  saveFactBtn.addEventListener("click", async () => {
+    const token   = localStorage.getItem(STORAGE_TOKEN) || "";
+    const content = factInput.value.trim();
+    if (!content) return;
+    if (!token) { showError("Enter your API token first."); return; }
+    try {
+      const resp = await fetch("/memory/facts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ content }),
+      });
+      if (!resp.ok) { const err = await resp.json(); showError(err.detail || "Failed to save."); return; }
+      factInput.value = "";
+      loadFacts();
+    } catch (e) {
+      showError("Network error saving fact.");
+    }
+  });
+
+  factInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); saveFactBtn.click(); }
+  });
+
+  memoryBtn.addEventListener("click", () => { memoryOvl.classList.add("open"); loadFacts(); });
+  memoryClose.addEventListener("click", () => memoryOvl.classList.remove("open"));
+  memoryOvl.addEventListener("click", e => { if (e.target === memoryOvl) memoryOvl.classList.remove("open"); });
 </script>
 
 </body>
