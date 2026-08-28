@@ -1763,14 +1763,14 @@ TOOLS = [
     {
         "name": "computer_use",
         "description": (
-            "Give Claude direct control of this Mac to complete a multi-step desktop task: "
-            "take screenshots, move the mouse, click, type, scroll, and navigate apps. "
-            "Use for tasks that require interacting with the UI of an app that has no API — "
+            "Control this Mac's desktop to complete a multi-step task: take screenshots, "
+            "move the mouse, click, type, scroll, and navigate apps. "
+            "Use for tasks that require interacting with an app's UI directly — "
             "e.g. 'fill in this web form', 'click through this wizard', 'resize this window', "
             "'copy text from this app'. "
-            "Claude will take screenshots and act autonomously until the task is done. "
-            "IMPORTANT: this is a destructive write-tier action — always confirm with the user "
-            "before calling it. Requires ANTHROPIC_API_KEY to be set."
+            "Gemini Vision analyzes each screenshot and decides what to do next, "
+            "repeating until the task is done. "
+            "IMPORTANT: this is a write-tier action — always confirm with the user before calling it."
         ),
         "input_schema": {
             "type": "object",

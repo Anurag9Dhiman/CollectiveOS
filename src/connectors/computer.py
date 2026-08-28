@@ -1,124 +1,174 @@
 """
-Computer Agent connector — Claude Computer Use API.
+Computer Agent connector — Gemini vision-based desktop control.
 
-Exposes one tool: computer_use(task) — a full agentic loop that lets Claude
-take screenshots, move the mouse, click, type, and scroll until the task is
-complete. Uses pyautogui for mouse/keyboard control and macOS screencapture
-for screenshots.
+Exposes one tool: computer_use(task) — an agentic loop that takes screenshots,
+sends them to Gemini Vision, and receives structured actions (click, type,
+scroll, key) to execute via pyautogui, repeating until the task is done.
+
+Uses the existing GEMINI_API_KEY — no additional API keys required.
 
 Safety: registered as a WRITE-tier tool so every invocation goes through the
 HITL interrupt gate before executing. Requires explicit user approval.
-
-Required env vars:
-  ANTHROPIC_API_KEY  — Anthropic API key (separate from the Gemini key)
-
-Optional env vars:
-  CLAUDE_COMPUTER_MODEL  — defaults to claude-opus-4-8
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import os
 import subprocess
 import tempfile
 import time
 from typing import Any
 
-_MODEL = os.environ.get("CLAUDE_COMPUTER_MODEL", "claude-opus-4-8")
+_MODEL = os.environ.get("GEMINI_COMPUTER_MODEL", "gemini-3.6-flash")
 _MAX_ITER = 20
-_ACTION_PAUSE = 0.4   # seconds between actions
+_ACTION_PAUSE = 0.5   # seconds to wait after each action for the UI to settle
+
+_SYSTEM = """You are a computer-use agent controlling a macOS desktop.
+You will receive a screenshot and a task. Respond ONLY with a JSON object
+describing the single next action to take. Do not explain. Do not add text
+outside the JSON.
+
+Action schema (choose ONE):
+  {"action": "left_click",  "coordinate": [x, y]}
+  {"action": "right_click", "coordinate": [x, y]}
+  {"action": "double_click","coordinate": [x, y]}
+  {"action": "mouse_move",  "coordinate": [x, y]}
+  {"action": "type",        "text": "string to type"}
+  {"action": "key",         "text": "key name, e.g. Return, Tab, Escape, cmd+c"}
+  {"action": "scroll",      "coordinate": [x, y], "direction": "up"|"down", "amount": 3}
+  {"action": "screenshot"}
+  {"action": "done",        "result": "brief summary of what was accomplished"}
+
+Rules:
+- Coordinates are pixels from the top-left of the screen.
+- Use "done" only when the task is fully complete or impossible.
+- When unsure what is on screen, use "screenshot" to get a fresh view.
+- Prefer clicking visible UI elements over keyboard shortcuts.
+- On macOS, use cmd (not ctrl) for copy/paste/etc.
+"""
 
 
 def computer_use(task: str) -> str:
-    """Execute a desktop task using Claude Computer Use.
+    """Execute a desktop task using Gemini Vision and pyautogui.
 
-    Claude takes control of the screen: takes screenshots, clicks, types, and
-    navigates apps until the task is complete. Requires ANTHROPIC_API_KEY.
-    Always confirm with the user before invoking — this is a write-tier action.
+    Takes screenshots, sends them to Gemini, receives structured actions
+    (click, type, scroll, key), executes them, and repeats until done.
+    No additional API key required — uses existing GEMINI_API_KEY.
+
+    Always confirm with the user before invoking — WRITE-tier action.
     """
     try:
-        import anthropic
+        from google import genai
+        from google.genai import types as _gtypes
     except ImportError:
-        return "[ERROR: anthropic not installed. Run: pip install anthropic]"
+        return "[ERROR: google-genai not installed]"
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        return "[ERROR: ANTHROPIC_API_KEY not set in environment]"
+        return "[ERROR: GEMINI_API_KEY not set in environment]"
 
+    client = genai.Client(api_key=api_key)
     screen_w, screen_h = _screen_size()
-    client = anthropic.Anthropic(api_key=api_key)
-
-    tools: list[dict[str, Any]] = [
-        {
-            "type": "computer_20241022",
-            "name": "computer",
-            "display_width_px": screen_w,
-            "display_height_px": screen_h,
-        }
-    ]
-
-    messages: list[dict[str, Any]] = [
-        {"role": "user", "content": task}
-    ]
 
     from src import observability as _obs
 
-    for _ in range(_MAX_ITER):
-        response = client.beta.messages.create(
+    # Seed: take first screenshot and start the loop
+    screenshot_data = _take_screenshot_b64()
+    history: list[dict[str, Any]] = []
+
+    for iteration in range(_MAX_ITER):
+        # Build the prompt for this iteration
+        if iteration == 0:
+            user_text = (
+                f"Screen resolution: {screen_w}x{screen_h}.\n"
+                f"Task: {task}\n\n"
+                "Look at the screenshot and return the next action as JSON."
+            )
+        else:
+            user_text = "Action executed. Here is the updated screenshot. Return the next action as JSON."
+
+        parts: list[Any] = [_gtypes.Part(text=user_text)]
+        if screenshot_data:
+            parts.append(_gtypes.Part(
+                inline_data=_gtypes.Blob(
+                    mime_type="image/png",
+                    data=base64.b64decode(screenshot_data),
+                )
+            ))
+
+        history.append({"role": "user", "parts": parts})
+
+        contents = [_gtypes.Content(role=m["role"], parts=m["parts"]) for m in history]
+        response = client.models.generate_content(
             model=_MODEL,
-            max_tokens=4096,
-            tools=tools,
-            messages=messages,
-            betas=["computer-use-2024-10-22"],
+            contents=contents,
+            config=_gtypes.GenerateContentConfig(
+                system_instruction=_SYSTEM,
+                temperature=0.1,
+            ),
         )
 
-        # Track cost in the api_usage table
         try:
-            meta = response.usage
+            meta = response.usage_metadata
             _obs.log_api_call(
                 _MODEL,
-                getattr(meta, "input_tokens", 0),
-                getattr(meta, "output_tokens", 0),
+                meta.prompt_token_count or 0,
+                meta.candidates_token_count or 0,
                 source="computer_use",
             )
         except Exception:
             pass
 
-        if response.stop_reason == "end_turn":
-            texts = [
-                b.text for b in response.content if hasattr(b, "text")
-            ]
-            return "\n".join(texts) or "Task completed."
+        raw = (response.text or "").strip()
 
-        # Append model's turn
-        messages.append({"role": "assistant", "content": response.content})
+        # Append model response to history
+        history.append({"role": "model", "parts": [_gtypes.Part(text=raw)]})
 
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            result_content = _execute_action(block.input)
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": block.id,
-                "content": result_content,
-            })
+        # Parse the action JSON
+        action = _parse_action(raw)
+        if action is None:
+            return f"[computer_use: could not parse action from model response: {raw[:200]}]"
 
-        if not tool_results:
-            break
+        if action["action"] == "done":
+            return action.get("result", "Task completed.")
 
-        messages.append({"role": "user", "content": tool_results})
+        screenshot_data = _execute_action(action)
 
-    return f"[computer_use: stopped after {_MAX_ITER} iterations]"
+    return f"[computer_use: stopped after {_MAX_ITER} iterations without completing the task]"
 
 
 # ---------------------------------------------------------------------------
-# Action dispatcher
+# Action parser
 # ---------------------------------------------------------------------------
 
-def _execute_action(action: dict[str, Any]) -> list[dict[str, Any]]:
-    """Dispatch one computer action and return a screenshot as the result."""
+def _parse_action(text: str) -> dict[str, Any] | None:
+    """Extract a JSON action dict from the model response."""
+    # Strip markdown code fences if present
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    # Find the first {...} block
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start == -1 or end == 0:
+        return None
+
+    try:
+        return json.loads(text[start:end])
+    except json.JSONDecodeError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Action executor
+# ---------------------------------------------------------------------------
+
+def _execute_action(action: dict[str, Any]) -> str | None:
+    """Execute one action; return new screenshot b64 or None on failure."""
     action_type = action.get("action", "")
 
     try:
@@ -127,7 +177,7 @@ def _execute_action(action: dict[str, Any]) -> list[dict[str, Any]]:
         pyautogui.PAUSE = 0.05
 
         if action_type == "screenshot":
-            pass  # just take screenshot below
+            pass
 
         elif action_type == "mouse_move":
             x, y = action["coordinate"]
@@ -141,19 +191,9 @@ def _execute_action(action: dict[str, Any]) -> list[dict[str, Any]]:
             x, y = action["coordinate"]
             pyautogui.rightClick(x, y)
 
-        elif action_type == "middle_click":
-            x, y = action["coordinate"]
-            pyautogui.middleClick(x, y)
-
         elif action_type == "double_click":
             x, y = action["coordinate"]
             pyautogui.doubleClick(x, y)
-
-        elif action_type == "left_click_drag":
-            sx, sy = action["start_coordinate"]
-            ex, ey = action["coordinate"]
-            pyautogui.moveTo(sx, sy, duration=0.1)
-            pyautogui.dragTo(ex, ey, duration=0.4, button="left")
 
         elif action_type == "type":
             pyautogui.write(action.get("text", ""), interval=0.03)
@@ -168,62 +208,45 @@ def _execute_action(action: dict[str, Any]) -> list[dict[str, Any]]:
             pyautogui.moveTo(x, y, duration=0.1)
             pyautogui.scroll(-amount if direction == "down" else amount)
 
-        elif action_type == "cursor_position":
-            cx, cy = pyautogui.position()
-            return [{"type": "text", "text": f"Cursor at ({cx}, {cy})"}]
-
         time.sleep(_ACTION_PAUSE)
 
     except ImportError:
-        return [{"type": "text", "text": "[ERROR: pyautogui not installed. Run: pip install pyautogui]"}]
-    except Exception as exc:
-        return [{"type": "text", "text": f"[Action error: {exc}]"}]
+        return None
+    except Exception:
+        time.sleep(_ACTION_PAUSE)
 
-    return _take_screenshot()
+    return _take_screenshot_b64()
 
 
 def _press_key(key_text: str) -> None:
-    """Press a key or key combo; translates Anthropic key names to pyautogui."""
+    """Press a key or combo, mapping macOS conventions."""
     import pyautogui
 
     _MAP = {
-        "Return": "enter", "return": "enter",
-        "Escape": "esc",   "escape": "esc",
-        "Tab": "tab",      "Backspace": "backspace",
+        "Return": "enter",    "return": "enter",
+        "Escape": "esc",      "escape": "esc",
+        "Tab": "tab",         "Backspace": "backspace",
         "Delete": "delete",
-        "Page_Up": "pageup", "Page_Down": "pagedown",
-        "Home": "home",    "End": "end",
-        "Up": "up",        "Down": "down",
-        "Left": "left",    "Right": "right",
-        "F1": "f1", "F2": "f2", "F3": "f3", "F4": "f4",
-        "F5": "f5", "F6": "f6", "F7": "f7", "F8": "f8",
-        "F9": "f9", "F10": "f10", "F11": "f11", "F12": "f12",
-        # macOS uses cmd for ctrl shortcuts
-        "ctrl+c": "command+c",  "ctrl+v": "command+v",
-        "ctrl+a": "command+a",  "ctrl+z": "command+z",
-        "ctrl+x": "command+x",  "ctrl+s": "command+s",
-        "ctrl+w": "command+w",  "ctrl+t": "command+t",
+        "Page_Up": "pageup",  "Page_Down": "pagedown",
+        "Home": "home",       "End": "end",
+        "Up": "up",           "Down": "down",
+        "Left": "left",       "Right": "right",
+        "space": "space",
     }
 
-    mapped = _MAP.get(key_text)
-    if mapped:
-        if "+" in mapped:
-            pyautogui.hotkey(*mapped.split("+"))
-        else:
-            pyautogui.press(mapped)
-    elif "+" in key_text:
+    if "+" in key_text:
         parts = [_MAP.get(p, p.lower()) for p in key_text.split("+")]
         pyautogui.hotkey(*parts)
     else:
-        pyautogui.press(key_text.lower())
+        pyautogui.press(_MAP.get(key_text, key_text.lower()))
 
 
 # ---------------------------------------------------------------------------
 # Screenshot helper
 # ---------------------------------------------------------------------------
 
-def _take_screenshot() -> list[dict[str, Any]]:
-    """Capture the screen with macOS screencapture; return base64 image block."""
+def _take_screenshot_b64() -> str | None:
+    """Capture screen with macOS screencapture; return base64 PNG string."""
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         path = f.name
     try:
@@ -232,16 +255,11 @@ def _take_screenshot() -> list[dict[str, Any]]:
             capture_output=True, timeout=5,
         )
         if result.returncode != 0:
-            return [{"type": "text", "text": "[Screenshot failed]"}]
-
+            return None
         with open(path, "rb") as f:
-            data = base64.standard_b64encode(f.read()).decode("utf-8")
-
-        return [{"type": "image", "source": {
-            "type": "base64", "media_type": "image/png", "data": data,
-        }}]
-    except Exception as exc:
-        return [{"type": "text", "text": f"[Screenshot error: {exc}]"}]
+            return base64.standard_b64encode(f.read()).decode("utf-8")
+    except Exception:
+        return None
     finally:
         try:
             os.unlink(path)
@@ -256,11 +274,9 @@ def _screen_size() -> tuple[int, int]:
         return pyautogui.size()
     except Exception:
         pass
-    # Fallback via system_profiler on macOS
     try:
         out = subprocess.check_output(
-            ["system_profiler", "SPDisplaysDataType"],
-            text=True, timeout=4,
+            ["system_profiler", "SPDisplaysDataType"], text=True, timeout=4,
         )
         for line in out.splitlines():
             if "Resolution:" in line:
