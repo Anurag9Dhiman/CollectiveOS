@@ -148,7 +148,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: int
-    interrupted: bool = False  # True when write-tool HITL approval is needed
+    interrupted: bool = False    # True when write-tool HITL approval is needed
+    destructive: bool = False    # True when pending action is DESTRUCTIVE tier (sends msg / controls hardware)
 
 
 class ApproveRequest(BaseModel):
@@ -226,7 +227,7 @@ def ask(
     past = memory.search(user_message)
     system_prompt = _system_prompt(past)
 
-    reply, _interrupted = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
+    reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
     memory.save(user_message, reply)
     return reply
 
@@ -254,7 +255,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     # The LangGraph agent carries full history via PostgresSaver — no need to
     # load and pass history manually; it's restored from the checkpoint.
-    reply, interrupted = agent_run(
+    reply, interrupted, destructive = agent_run(
         user_message,
         system_prompt=system_prompt,
         thread_id=thread_id,
@@ -264,7 +265,12 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     if not interrupted:
         memory.save(user_message, reply)
 
-    return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=interrupted)
+    return ChatResponse(
+        reply=reply,
+        conversation_id=conv_id,
+        interrupted=interrupted,
+        destructive=destructive,
+    )
 
 
 @app.post("/chat/approve", response_model=ChatResponse)
