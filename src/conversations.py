@@ -42,10 +42,36 @@ def save_message(conversation_id: int, role: str, content: str) -> None:
         conn.close()
 
 
+def get_title(conversation_id: int) -> str | None:
+    """Return the stored title for a conversation, or None if not yet set."""
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT title FROM conversations WHERE id = %s", (conversation_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def set_title(conversation_id: int, title: str) -> None:
+    """Persist a generated title on the conversation row."""
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE conversations SET title = %s WHERE id = %s AND title IS NULL",
+                (title[:200], conversation_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def list_conversations(limit: int = 50) -> list[dict]:
     """
     Return the most recent *limit* conversations, newest first.
-    Each dict: {id, started_at, first_message (str|None), message_count}.
+    Each dict: {id, title, started_at, first_message (str|None), message_count}.
     """
     conn = connect()
     try:
@@ -54,6 +80,7 @@ def list_conversations(limit: int = 50) -> list[dict]:
                 """
                 SELECT c.id,
                        c.started_at,
+                       c.title,
                        (SELECT content FROM messages
                         WHERE conversation_id = c.id AND role = 'user'
                         ORDER BY created_at ASC LIMIT 1) AS first_message,
@@ -70,8 +97,9 @@ def list_conversations(limit: int = 50) -> list[dict]:
                 {
                     "id": r[0],
                     "started_at": r[1].isoformat() if r[1] else None,
-                    "first_message": r[2],
-                    "message_count": r[3],
+                    "title": r[2],
+                    "first_message": r[3],
+                    "message_count": r[4],
                 }
                 for r in rows
             ]

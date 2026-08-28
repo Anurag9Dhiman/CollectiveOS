@@ -331,6 +331,17 @@ CREATE INDEX IF NOT EXISTS wearable_events_user_time
 CREATE INDEX IF NOT EXISTS messages_content_fts
     ON messages USING GIN (to_tsvector('english', content));
 
+-- Conversation auto-titles: add title column if it doesn't exist yet
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'conversations' AND column_name = 'title'
+    ) THEN
+        ALTER TABLE conversations ADD COLUMN title TEXT;
+    END IF;
+END $$;
+
 -- Proactive condition watchers — poll a prompt on an interval, fire when condition is met.
 -- The agent runs the prompt, then a cheap LLM call checks whether the condition is satisfied.
 CREATE TABLE IF NOT EXISTS watchers (
