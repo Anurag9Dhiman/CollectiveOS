@@ -69,6 +69,7 @@ from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
 from src.connectors.computer import computer_use
 from src import memory, graph_memory, router, permissions, observability as _obs
+from src import output_bus as _output_bus
 from src import orchestrator as _orchestrator
 from src import mcp_client as _mcp
 
@@ -117,6 +118,12 @@ def set_light(room: str, state: str) -> str:
     return f"OK, the {room} light is now {state} (pretend action)."
 
 
+def notify_user(message: str, channel: str = "notification") -> str:
+    """Deliver a proactive message to the user via the specified channel."""
+    if channel not in _output_bus.VALID_CHANNELS:
+        return f"[ERROR: unknown channel '{channel}'. Use: notification, telegram, push, both]"
+    _output_bus.deliver(title="Assistant", body=message, channel=channel)
+    return f"Delivered via {channel}."
 # ---------------------------------------------------------------------------
 # Orchestrator wrappers
 # ---------------------------------------------------------------------------
@@ -250,6 +257,7 @@ TOOL_FUNCTIONS = {
     "telegram_send":         _telegram.send_message,
     "lens_analyze":          _lens_analyze,
     "push_notification":     _push_notification,
+    "notify_user":           notify_user,
     "task_plan":             task_plan,
     "task_status":           task_status,
     "task_list":             task_list,
@@ -1819,6 +1827,17 @@ TOOLS = [
         },
     },
     # -----------------------------------------------------------------------
+    # Output bus
+    # -----------------------------------------------------------------------
+    {
+        "name": "notify_user",
+        "description": (
+            "Proactively deliver a message to the user via a chosen channel. "
+            "Use when the user says 'let me know on Telegram', 'send me a notification', "
+            "'ping me on my phone', or when you need to alert the user after completing "
+            "background work. "
+            "Channels: notification (Mac banner), telegram (Telegram message), "
+            "push (iOS APNs), both (Mac + Telegram)."
     # Task orchestrator
     # -----------------------------------------------------------------------
     {
@@ -1846,6 +1865,18 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The message text to deliver to the user.",
+                },
+                "channel": {
+                    "type": "string",
+                    "description": "Delivery channel: notification | telegram | push | both. Default: notification.",
+                    "enum": ["notification", "telegram", "push", "both"],
+                },
+            },
+            "required": ["message"],
+        },
                 "description": {
                     "type": "string",
                     "description": "Full description of the task to accomplish, including any specific constraints or output requirements.",

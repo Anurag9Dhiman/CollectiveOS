@@ -163,8 +163,8 @@ CREATE TABLE IF NOT EXISTS routines (
     prompt      TEXT NOT NULL,
     schedule    TEXT NOT NULL,   -- cron expression, e.g. '0 8 * * *' = 8am daily
     enabled     BOOLEAN NOT NULL DEFAULT TRUE,
-    notify_via  TEXT NOT NULL DEFAULT 'notification'  -- 'notification' | 'none' | 'telegram'
-                CHECK (notify_via IN ('notification', 'none', 'telegram')),
+    notify_via  TEXT NOT NULL DEFAULT 'notification'  -- 'notification' | 'telegram' | 'push' | 'both' | 'none'
+                CHECK (notify_via IN ('notification', 'none', 'telegram', 'both', 'push')),
     last_run_at TIMESTAMPTZ,
     last_result TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -180,12 +180,12 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
     UNIQUE (date, source)
 );
 
--- Scheduled routines: widen notify_via CHECK to include 'telegram' on existing DBs
+-- Scheduled routines: widen notify_via CHECK to include all output-bus channels
 DO $$
 BEGIN
     ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_notify_via_check;
     ALTER TABLE routines ADD CONSTRAINT routines_notify_via_check
-        CHECK (notify_via IN ('notification', 'none', 'telegram'));
+        CHECK (notify_via IN ('notification', 'none', 'telegram', 'both', 'push'));
 EXCEPTION WHEN others THEN NULL;
 END $$;
 

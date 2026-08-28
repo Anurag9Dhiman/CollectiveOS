@@ -21,6 +21,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src import routines as _db
+from src import output_bus
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def _run_routine(routine_id: int, name: str, prompt: str, notify_via: str) -> No
         result = f"Error: {exc}"
 
     _db.record_run(routine_id, result)
+    output_bus.deliver(name, result, channel=notify_via)
 
     if notify_via in ("notification", "both"):
         _send_notification(name, result)
