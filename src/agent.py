@@ -55,6 +55,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "notion_create_page", "notion_append_to_page",
     "github_create_issue", "slack_send_message",
     "car_lock", "car_climate", "appliances_control",
+    "push_notification",
 })
 
 MAX_ITER = 10
