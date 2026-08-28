@@ -213,6 +213,30 @@
       animation: pulse 1.2s infinite;
     }
     #mic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Image attachment */
+    #chat-input-row { display: flex; align-items: flex-end; gap: 6px; }
+    #attach-btn {
+      background: none; border: 1px solid #30363d; border-radius: 6px;
+      color: #8b949e; font-size: 1rem; padding: 6px 9px; cursor: pointer; flex-shrink: 0;
+    }
+    #attach-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    #attach-btn.has-image { border-color: #3fb950; color: #3fb950; }
+    #image-preview-wrap {
+      margin: 0 12px 6px; position: relative; display: inline-block;
+    }
+    #image-preview {
+      max-height: 100px; max-width: 200px; border-radius: 6px;
+      border: 1px solid #30363d; display: block;
+    }
+    #image-clear {
+      position: absolute; top: -6px; right: -6px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 50%;
+      color: #8b949e; font-size: 0.7rem; width: 18px; height: 18px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; padding: 0; line-height: 1;
+    }
+    #image-clear:hover { color: #f85149; border-color: #f85149; }
     @keyframes pulse {
       0%, 100% { opacity: 1; }
       50%       { opacity: 0.5; }
@@ -956,9 +980,17 @@
 </div>
 
 <form id="chat-form">
-  <textarea id="msg-input" placeholder="Ask anything…" rows="1"></textarea>
-  <button type="button" id="mic-btn" title="Speak your message">🎤</button>
-  <button type="submit">Send</button>
+  <div id="image-preview-wrap" style="display:none">
+    <img id="image-preview" alt="Attached image" />
+    <button type="button" id="image-clear" title="Remove image">✕</button>
+  </div>
+  <div id="chat-input-row">
+    <textarea id="msg-input" placeholder="Ask anything…" rows="1"></textarea>
+    <input id="image-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" />
+    <button type="button" id="attach-btn" title="Attach an image">📎</button>
+    <button type="button" id="mic-btn" title="Speak your message">🎤</button>
+    <button type="submit">Send</button>
+  </div>
 </form>
 
 <!-- Routines panel -->
@@ -1126,6 +1158,11 @@
   const settingsClose = document.getElementById("settings-close");
   const connectorList = document.getElementById("connector-list");
   const micBtn        = document.getElementById("mic-btn");
+  const attachBtn     = document.getElementById("attach-btn");
+  const imageFileInput = document.getElementById("image-file-input");
+  const imagePreviewWrap = document.getElementById("image-preview-wrap");
+  const imagePreview  = document.getElementById("image-preview");
+  const imageClear    = document.getElementById("image-clear");
   const ttsBtn        = document.getElementById("tts-btn");
   const memoryBtn     = document.getElementById("memory-btn");
   const memoryOvl     = document.getElementById("memory-overlay");
@@ -1137,6 +1174,57 @@
   const STORAGE_TOKEN = "collectiveos_token";
   const STORAGE_CONV  = "collectiveos_conv_id";
   const STORAGE_TTS   = "collectiveos_tts";
+
+  // ── Image attachment state ─────────────────────────────────────────────────
+  let _attachedImageB64  = null;
+  let _attachedImageMime = "image/jpeg";
+
+  function clearAttachedImage() {
+    _attachedImageB64  = null;
+    _attachedImageMime = "image/jpeg";
+    imagePreviewWrap.style.display = "none";
+    imagePreview.src = "";
+    imageFileInput.value = "";
+    attachBtn.classList.remove("has-image");
+  }
+
+  attachBtn.addEventListener("click", () => imageFileInput.click());
+  imageClear.addEventListener("click", clearAttachedImage);
+
+  imageFileInput.addEventListener("change", () => {
+    const file = imageFileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;               // "data:<mime>;base64,<data>"
+      const commaIdx = dataUrl.indexOf(",");
+      _attachedImageB64  = dataUrl.slice(commaIdx + 1);
+      _attachedImageMime = file.type || "image/jpeg";
+      imagePreview.src   = dataUrl;
+      imagePreviewWrap.style.display = "block";
+      attachBtn.classList.add("has-image");
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Allow pasting images directly into the chat input
+  input.addEventListener("paste", (e) => {
+    const item = Array.from(e.clipboardData.items).find(i => i.type.startsWith("image/"));
+    if (!item) return;
+    e.preventDefault();
+    const file = item.getAsFile();
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      const commaIdx = dataUrl.indexOf(",");
+      _attachedImageB64  = dataUrl.slice(commaIdx + 1);
+      _attachedImageMime = item.type || "image/png";
+      imagePreview.src   = dataUrl;
+      imagePreviewWrap.style.display = "block";
+      attachBtn.classList.add("has-image");
+    };
+    reader.readAsDataURL(file);
+  });
 
   // Persist token across refreshes.
   tokenInput.value = localStorage.getItem(STORAGE_TOKEN) || "";
@@ -1267,7 +1355,7 @@
     }
   }
 
-  function addMessage(role, text) {
+  function addMessage(role, text, imageDataUrl = null) {
     const wrap   = document.createElement("div");
     wrap.className = `msg ${role}`;
     const label  = document.createElement("div");
@@ -1275,6 +1363,12 @@
     label.textContent = role === "user" ? "You" : "Assistant";
     const bubble = document.createElement("div");
     bubble.className = "bubble";
+    if (imageDataUrl) {
+      const img = document.createElement("img");
+      img.src = imageDataUrl;
+      img.style.cssText = "max-width:200px;max-height:140px;border-radius:6px;display:block;margin-bottom:6px;";
+      bubble.appendChild(img);
+    }
     renderBubble(bubble, role, text);
     wrap.appendChild(label);
     wrap.appendChild(bubble);
@@ -1368,17 +1462,24 @@
     submitBtn.disabled = true;
     micBtn.disabled    = true;
 
-    addMessage("user", text);
+    // Capture and clear any attached image
+    const attachedB64  = _attachedImageB64;
+    const attachedMime = _attachedImageMime;
+    clearAttachedImage();
+
+    addMessage("user", text, attachedB64 ? `data:${attachedMime};base64,${attachedB64}` : null);
     showTyping();
 
     try {
+      const body = { message: text, conversation_id: conversationId };
+      if (attachedB64) { body.image_b64 = attachedB64; body.image_mime = attachedMime; }
       const resp = await fetch("/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: text, conversation_id: conversationId }),
+        body: JSON.stringify(body),
       });
 
       removeTyping();
