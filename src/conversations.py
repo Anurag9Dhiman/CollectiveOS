@@ -42,6 +42,43 @@ def save_message(conversation_id: int, role: str, content: str) -> None:
         conn.close()
 
 
+def list_conversations(limit: int = 50) -> list[dict]:
+    """
+    Return the most recent *limit* conversations, newest first.
+    Each dict: {id, started_at, first_message (str|None), message_count}.
+    """
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.id,
+                       c.started_at,
+                       (SELECT content FROM messages
+                        WHERE conversation_id = c.id AND role = 'user'
+                        ORDER BY created_at ASC LIMIT 1) AS first_message,
+                       (SELECT COUNT(*) FROM messages
+                        WHERE conversation_id = c.id) AS message_count
+                FROM conversations c
+                ORDER BY c.started_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r[0],
+                    "started_at": r[1].isoformat() if r[1] else None,
+                    "first_message": r[2],
+                    "message_count": r[3],
+                }
+                for r in rows
+            ]
+    finally:
+        conn.close()
+
+
 def load_history(conversation_id: int, limit: int = 20) -> list[dict]:
     """
     Return the last *limit* messages from a conversation, oldest first.

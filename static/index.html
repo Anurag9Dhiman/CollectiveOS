@@ -731,6 +731,97 @@
     }
     #save-fact-btn:hover { background: #388bfd; }
 
+    /* ── Conversation history panel ─────────────────────────────────────── */
+    #history-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); z-index: 100;
+    }
+    #history-overlay.open { display: block; }
+    #history-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 500px; background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #history-panel > header {
+      padding: 16px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #history-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #history-close {
+      background: none; border: none; color: #8b949e;
+      font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    #history-close:hover { color: #e1e4e8; background: #21262d; }
+
+    #history-search-row {
+      padding: 10px 18px; border-bottom: 1px solid #21262d;
+    }
+    #history-search {
+      width: 100%; box-sizing: border-box;
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.84rem; padding: 6px 10px; outline: none;
+    }
+    #history-search:focus { border-color: #1f6feb; }
+
+    /* List of conversations */
+    #history-list {
+      flex: 1; overflow-y: auto;
+    }
+    .hist-conv-row {
+      padding: 11px 18px; border-bottom: 1px solid #21262d;
+      cursor: pointer; transition: background 0.1s;
+    }
+    .hist-conv-row:hover { background: #1c2128; }
+    .hist-conv-row.active { background: #1c2128; border-left: 2px solid #58a6ff; }
+    .hist-conv-snippet {
+      font-size: 0.85rem; color: #e1e4e8;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .hist-conv-meta {
+      display: flex; gap: 10px; margin-top: 3px;
+      font-size: 0.72rem; color: #484f58;
+    }
+
+    /* Message viewer */
+    #history-messages {
+      flex: 1; overflow-y: auto; padding: 12px 18px;
+      display: flex; flex-direction: column; gap: 10px;
+      border-top: 1px solid #21262d;
+    }
+    .hist-msg {
+      padding: 8px 12px; border-radius: 8px; font-size: 0.84rem;
+      line-height: 1.5; max-width: 90%; white-space: pre-wrap; word-break: break-word;
+    }
+    .hist-msg.user     { background: #1f3a5f; color: #cdd9e5; align-self: flex-end; }
+    .hist-msg.assistant { background: #161b22; border: 1px solid #21262d; color: #e1e4e8; align-self: flex-start; }
+    .hist-msg.tool     { background: #1a1a1a; color: #484f58; font-family: monospace; font-size: 0.75rem; align-self: flex-start; }
+
+    #history-continue-bar {
+      padding: 10px 18px; border-top: 1px solid #21262d;
+      display: none; gap: 8px; align-items: center;
+    }
+    #history-continue-bar.visible { display: flex; }
+    #history-continue-info { flex: 1; font-size: 0.8rem; color: #8b949e; }
+    #history-continue-btn {
+      background: #238636; color: #fff; border: none; border-radius: 6px;
+      padding: 7px 16px; font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+    }
+    #history-continue-btn:hover { background: #2ea043; }
+
+    /* Split view: list left, messages right when a conversation is selected */
+    #history-body {
+      flex: 1; overflow: hidden; display: flex; flex-direction: column;
+    }
+    #history-split {
+      flex: 1; overflow: hidden; display: flex;
+    }
+    #history-list { width: 200px; border-right: 1px solid #21262d; overflow-y: auto; }
+    #history-right {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    }
+    #history-messages { flex: 1; }
+
     /* ── Knowledge graph panel ───────────────────────────────────────────── */
     #graph-overlay {
       display: none; position: fixed; inset: 0;
@@ -853,6 +944,7 @@
   <button id="metrics-btn" class="header-btn" title="Token usage and cost">📊 Metrics</button>
   <button id="memory-btn"   class="header-btn" title="Saved memory facts">🧠 Memory</button>
   <button id="graph-btn"    class="header-btn" title="Knowledge graph">🕸 Graph</button>
+  <button id="history-btn"  class="header-btn" title="Conversation history">📖 History</button>
 </header>
 
 <div id="chat"></div>
@@ -939,6 +1031,33 @@
     <div id="add-fact-form">
       <input id="fact-input" type="text" placeholder="Remember that I prefer dark mode…" />
       <button id="save-fact-btn">+ Remember</button>
+    </div>
+  </div>
+</div>
+
+<!-- Conversation history panel -->
+<div id="history-overlay">
+  <div id="history-panel">
+    <header>
+      <h2>📖 Conversation History</h2>
+      <button id="history-close">✕</button>
+    </header>
+    <div id="history-search-row">
+      <input id="history-search" type="search" placeholder="Filter conversations…" />
+    </div>
+    <div id="history-body">
+      <div id="history-split">
+        <div id="history-list"></div>
+        <div id="history-right">
+          <div id="history-messages">
+            <div style="color:#484f58;font-size:0.82rem;padding:16px">Select a conversation to view its messages.</div>
+          </div>
+          <div id="history-continue-bar">
+            <span id="history-continue-info"></span>
+            <button id="history-continue-btn">Continue this conversation →</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1905,6 +2024,125 @@
   memoryBtn.addEventListener("click", () => { memoryOvl.classList.add("open"); loadFacts(); });
   memoryClose.addEventListener("click", () => memoryOvl.classList.remove("open"));
   memoryOvl.addEventListener("click", e => { if (e.target === memoryOvl) memoryOvl.classList.remove("open"); });
+
+  // ── Conversation History panel ────────────────────────────────────────────
+  const historyBtn        = document.getElementById("history-btn");
+  const historyOvl        = document.getElementById("history-overlay");
+  const historyClose      = document.getElementById("history-close");
+  const historySearch     = document.getElementById("history-search");
+  const historyList       = document.getElementById("history-list");
+  const historyMessages   = document.getElementById("history-messages");
+  const historyContinueBar = document.getElementById("history-continue-bar");
+  const historyContinueInfo = document.getElementById("history-continue-info");
+  const historyContinueBtn  = document.getElementById("history-continue-btn");
+
+  let _allConvs = [], _selectedConvId = null;
+
+  function fmtDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / 86400000);
+    if (diffDays === 0) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7)  return d.toLocaleDateString([], { weekday: "short" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  async function loadHistoryList() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) return;
+    try {
+      const r = await fetch("/conversations", { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      _allConvs = d.conversations || [];
+      renderHistoryList();
+    } catch (_) {}
+  }
+
+  function renderHistoryList() {
+    const q = historySearch.value.trim().toLowerCase();
+    const filtered = q
+      ? _allConvs.filter(c => (c.first_message || "").toLowerCase().includes(q))
+      : _allConvs;
+    historyList.innerHTML = "";
+    if (!filtered.length) {
+      historyList.innerHTML = `<div style="padding:12px 14px;font-size:0.78rem;color:#484f58">No conversations found.</div>`;
+      return;
+    }
+    for (const c of filtered) {
+      const row = document.createElement("div");
+      row.className = "hist-conv-row" + (c.id === _selectedConvId ? " active" : "");
+      row.dataset.id = c.id;
+      const snippet = c.first_message
+        ? (c.first_message.length > 60 ? c.first_message.slice(0, 59) + "…" : c.first_message)
+        : "(empty)";
+      row.innerHTML = `
+        <div class="hist-conv-snippet" title="${(c.first_message || "").replace(/"/g, "&quot;")}">${snippet}</div>
+        <div class="hist-conv-meta">
+          <span>${fmtDate(c.started_at)}</span>
+          <span>${c.message_count} msg${c.message_count !== 1 ? "s" : ""}</span>
+        </div>
+      `;
+      row.addEventListener("click", () => selectConversation(c));
+      historyList.appendChild(row);
+    }
+  }
+
+  async function selectConversation(c) {
+    _selectedConvId = c.id;
+    // Highlight selected row
+    historyList.querySelectorAll(".hist-conv-row").forEach(el => {
+      el.classList.toggle("active", parseInt(el.dataset.id) === c.id);
+    });
+    // Fetch messages
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    historyMessages.innerHTML = `<div style="color:#484f58;font-size:0.82rem;padding:16px">Loading…</div>`;
+    historyContinueBar.classList.remove("visible");
+    try {
+      const r = await fetch(`/history/${c.id}?limit=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      const msgs = d.messages || [];
+      historyMessages.innerHTML = "";
+      if (!msgs.length) {
+        historyMessages.innerHTML = `<div style="color:#484f58;font-size:0.82rem;padding:16px">No messages stored for this conversation.</div>`;
+        return;
+      }
+      for (const m of msgs) {
+        if (m.role === "tool") continue; // skip raw tool results
+        const el = document.createElement("div");
+        el.className = `hist-msg ${m.role}`;
+        el.textContent = m.content;
+        historyMessages.appendChild(el);
+      }
+      historyMessages.scrollTop = historyMessages.scrollHeight;
+      // Show continue bar
+      historyContinueInfo.textContent = `Conversation #${c.id} · ${fmtDate(c.started_at)}`;
+      historyContinueBar.classList.add("visible");
+    } catch (_) {
+      historyMessages.innerHTML = `<div style="color:#f85149;font-size:0.82rem;padding:16px">Failed to load messages.</div>`;
+    }
+  }
+
+  historyContinueBtn.addEventListener("click", () => {
+    if (!_selectedConvId) return;
+    // Set the active conversation in localStorage so the chat picks it up
+    localStorage.setItem(STORAGE_CONV, _selectedConvId);
+    historyOvl.classList.remove("open");
+    // Reload the page to resume from this conversation
+    location.reload();
+  });
+
+  historyBtn.addEventListener("click", () => {
+    historyOvl.classList.add("open");
+    loadHistoryList();
+  });
+  historyClose.addEventListener("click", () => historyOvl.classList.remove("open"));
+  historyOvl.addEventListener("click", e => { if (e.target === historyOvl) historyOvl.classList.remove("open"); });
+  historySearch.addEventListener("input", renderHistoryList);
 
   // ── Knowledge Graph panel ──────────────────────────────────────────────────
   const graphBtn      = document.getElementById("graph-btn");
