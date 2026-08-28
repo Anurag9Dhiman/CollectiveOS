@@ -103,6 +103,42 @@
       40%           { transform: translateY(-6px); }
     }
 
+    /* HITL approval UI */
+    .hitl-badge {
+      font-size: 0.7rem;
+      background: #3d2c00;
+      color: #e3a000;
+      border-radius: 4px;
+      padding: 2px 7px;
+      margin-left: 7px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      vertical-align: middle;
+    }
+    .msg.interrupted .bubble {
+      border-color: #9e6a03;
+    }
+    .hitl-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 0 4px;
+    }
+    .hitl-btn {
+      border: none;
+      border-radius: 6px;
+      font-size: 0.84rem;
+      padding: 6px 18px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .hitl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .hitl-btn.approve { background: #238636; color: #fff; }
+    .hitl-btn.approve:hover:not(:disabled) { background: #2ea043; }
+    .hitl-btn.reject  { background: #161b22; color: #f85149; border: 1px solid #f85149; }
+    .hitl-btn.reject:hover:not(:disabled)  { background: #220d0d; }
+
     #token-bar {
       padding: 8px 20px;
       background: #0d1117;
@@ -624,6 +660,7 @@
           <select id="r-notify">
             <option value="notification">Mac notification</option>
             <option value="telegram">Telegram message</option>
+            <option value="both">Both (Mac + Telegram)</option>
             <option value="none">Silent (store only)</option>
           </select>
         </div>
@@ -884,6 +921,11 @@
   form.addEventListener("submit", async e => {
     e.preventDefault();
     if (pendingApproval) return;
+  let pendingApproval = false;  // true while waiting for HITL approve/reject
+
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    if (pendingApproval) return;   // block new messages during HITL wait
 
     const text  = input.value.trim();
     const token = tokenInput.value.trim();
@@ -900,7 +942,7 @@
     showTyping();
 
     try {
-      const resp = await fetch("/chat/stream", {
+      const resp = await fetch("/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -983,7 +1025,17 @@
             break outer;
           }
         }
+      const data = await resp.json();
+      conversationId = data.conversation_id;
+      localStorage.setItem(STORAGE_CONV, String(conversationId));
+
+      if (data.interrupted) {
+        _showInterruptedMessage(data.reply, data.conversation_id, token);
+        return;   // keep input disabled until HITL resolves
       }
+
+      addMessage("assistant", data.reply);
+      speak(data.reply);
     } catch (err) {
       removeTyping();
       showError("Network error — is the server running?");
@@ -1006,6 +1058,21 @@
     wrap.className = "msg assistant interrupted";
     label.innerHTML = 'Assistant <span class="hitl-badge">Awaiting approval</span>';
 
+  function _showInterruptedMessage(replyText, convId, token) {
+    pendingApproval = true;
+
+    const wrap    = document.createElement("div");
+    wrap.className = "msg assistant interrupted";
+    wrap.id = "hitl-card";
+
+    const label   = document.createElement("div");
+    label.className = "label";
+    label.innerHTML = 'Assistant <span class="hitl-badge">Awaiting approval</span>';
+
+    const bubble  = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.innerHTML = marked.parse(replyText);
+
     const actions = document.createElement("div");
     actions.className = "hitl-actions";
 
@@ -1014,6 +1081,7 @@
     approveBtn.textContent = "Approve";
 
     const rejectBtn = document.createElement("button");
+    const rejectBtn  = document.createElement("button");
     rejectBtn.className = "hitl-btn reject";
     rejectBtn.textContent = "Reject";
 
@@ -1027,6 +1095,11 @@
 
     submitBtn.disabled = true;
     micBtn.disabled    = true;
+    wrap.appendChild(label);
+    wrap.appendChild(bubble);
+    wrap.appendChild(actions);
+    chat.appendChild(wrap);
+    chat.scrollTop = chat.scrollHeight;
   }
 
   async function _sendApproval(convId, token, approved, hitlEl) {
@@ -1037,12 +1110,24 @@
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ conversation_id: convId, approved }),
       });
+
+    try {
+      const resp = await fetch("/chat/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ conversation_id: convId, approved }),
+      });
+
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         showError(`Error ${resp.status}: ${err.detail || resp.statusText}`);
         hitlEl.querySelectorAll(".hitl-btn").forEach(b => b.disabled = false);
         return;
       }
+
       const data = await resp.json();
       hitlEl.remove();
       addMessage("assistant", data.reply);
@@ -1263,7 +1348,7 @@
       const lastRun = r.last_run_at
         ? new Date(r.last_run_at).toLocaleString()
         : "Never run";
-      const notifyLabel = { notification: "Mac notification", telegram: "Telegram", none: "Silent" }[r.notify_via] || r.notify_via;
+      const notifyLabel = { notification: "Mac notification", telegram: "Telegram", none: "Silent", both: "Mac + Telegram" }[r.notify_via] || r.notify_via;
       row.innerHTML = `
         <div class="routine-header">
           <span class="routine-name">${r.name}</span>
@@ -1301,7 +1386,7 @@
           headers: { "Authorization": `Bearer ${token}` },
         });
         if (res.ok) {
-          const via = { notification: "Mac notification", telegram: "Telegram message", none: "DB (silent)" }[r.notify_via] || r.notify_via;
+          const via = { notification: "Mac notification", telegram: "Telegram message", none: "DB (silent)", both: "Mac + Telegram" }[r.notify_via] || r.notify_via;
           showError(`Routine triggered — result will arrive as a ${via}.`);
         }
       });
