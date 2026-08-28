@@ -872,9 +872,20 @@
       font-size: 0.85rem; color: #e1e4e8;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .search-snippet {
+      white-space: normal; font-size: 0.8rem;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .search-snippet mark {
+      background: #3a3200; color: #f0c000; border-radius: 2px; padding: 0 2px;
+    }
+    .search-role-badge {
+      font-size: 0.65rem; padding: 1px 5px; border-radius: 3px;
+      background: #21262d; color: #8b949e; text-transform: capitalize;
+    }
     .hist-conv-meta {
       display: flex; gap: 10px; margin-top: 3px;
-      font-size: 0.72rem; color: #484f58;
+      font-size: 0.72rem; color: #484f58; align-items: center;
     }
 
     /* Message viewer */
@@ -1190,7 +1201,7 @@
       <button id="history-close">✕</button>
     </header>
     <div id="history-search-row">
-      <input id="history-search" type="search" placeholder="Filter conversations…" />
+      <input id="history-search" type="search" placeholder="Search all conversations…" />
     </div>
     <div id="history-body">
       <div id="history-split">
@@ -2406,16 +2417,12 @@
   }
 
   function renderHistoryList() {
-    const q = historySearch.value.trim().toLowerCase();
-    const filtered = q
-      ? _allConvs.filter(c => (c.first_message || "").toLowerCase().includes(q))
-      : _allConvs;
     historyList.innerHTML = "";
-    if (!filtered.length) {
-      historyList.innerHTML = `<div style="padding:12px 14px;font-size:0.78rem;color:#484f58">No conversations found.</div>`;
+    if (!_allConvs.length) {
+      historyList.innerHTML = `<div style="padding:12px 14px;font-size:0.78rem;color:#484f58">No conversations yet.</div>`;
       return;
     }
-    for (const c of filtered) {
+    for (const c of _allConvs) {
       const row = document.createElement("div");
       row.className = "hist-conv-row" + (c.id === _selectedConvId ? " active" : "");
       row.dataset.id = c.id;
@@ -2432,6 +2439,56 @@
       row.addEventListener("click", () => selectConversation(c));
       historyList.appendChild(row);
     }
+  }
+
+  function renderSearchResults(hits) {
+    historyList.innerHTML = "";
+    if (!hits.length) {
+      historyList.innerHTML = `<div style="padding:12px 14px;font-size:0.78rem;color:#484f58">No results found.</div>`;
+      return;
+    }
+    // Deduplicate by conversation_id for the list (keep highest-rank hit per conv)
+    const seen = new Map();
+    for (const h of hits) {
+      if (!seen.has(h.conversation_id) || h.rank > seen.get(h.conversation_id).rank)
+        seen.set(h.conversation_id, h);
+    }
+    for (const [convId, h] of seen) {
+      const row = document.createElement("div");
+      row.className = "hist-conv-row" + (convId === _selectedConvId ? " active" : "");
+      row.dataset.id = convId;
+      // ts_headline wraps matches in <mark> — allow that HTML through
+      row.innerHTML = `
+        <div class="hist-conv-snippet search-snippet">${h.snippet || "(no excerpt)"}</div>
+        <div class="hist-conv-meta">
+          <span>${fmtDate(h.started_at)}</span>
+          <span>#${convId}</span>
+          <span class="search-role-badge">${h.role}</span>
+        </div>
+      `;
+      row.addEventListener("click", () => selectConversation({ id: convId, started_at: h.started_at }));
+      historyList.appendChild(row);
+    }
+  }
+
+  // Debounced server-side search
+  let _searchTimer = null;
+  function onHistorySearch() {
+    clearTimeout(_searchTimer);
+    const q = historySearch.value.trim();
+    if (!q) { renderHistoryList(); return; }
+    historyList.innerHTML = `<div style="padding:12px 14px;font-size:0.72rem;color:#484f58">Searching…</div>`;
+    _searchTimer = setTimeout(async () => {
+      const token = localStorage.getItem(STORAGE_TOKEN) || "";
+      try {
+        const r = await fetch(`/conversations/search?q=${encodeURIComponent(q)}&limit=30`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) { renderHistoryList(); return; }
+        const d = await r.json();
+        renderSearchResults(d.hits || []);
+      } catch (_) { renderHistoryList(); }
+    }, 300);
   }
 
   async function selectConversation(c) {
@@ -2486,7 +2543,7 @@
   });
   historyClose.addEventListener("click", () => historyOvl.classList.remove("open"));
   historyOvl.addEventListener("click", e => { if (e.target === historyOvl) historyOvl.classList.remove("open"); });
-  historySearch.addEventListener("input", renderHistoryList);
+  historySearch.addEventListener("input", onHistorySearch);
 
   // ── Knowledge Graph panel ──────────────────────────────────────────────────
   const graphBtn      = document.getElementById("graph-btn");

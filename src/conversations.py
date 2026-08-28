@@ -79,6 +79,83 @@ def list_conversations(limit: int = 50) -> list[dict]:
         conn.close()
 
 
+def search_messages(query: str, limit: int = 20) -> list[dict]:
+    """
+    Full-text search across all message content using Postgres tsvector.
+
+    Returns up to *limit* results, ranked by relevance, each with:
+      {conversation_id, started_at, role, snippet, rank}
+
+    Falls back to ILIKE if the query contains characters that break
+    plainto_tsquery (e.g. very short words or pure punctuation).
+    """
+    if not query or not query.strip():
+        return []
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            # Try tsvector first; fall back to ILIKE on error
+            try:
+                cur.execute(
+                    """
+                    SELECT m.conversation_id,
+                           c.started_at,
+                           m.role,
+                           ts_headline(
+                               'english', m.content,
+                               plainto_tsquery('english', %s),
+                               'MaxWords=20, MinWords=10, ShortWord=2,
+                                StartSel=<mark>, StopSel=</mark>'
+                           ) AS snippet,
+                           ts_rank(
+                               to_tsvector('english', m.content),
+                               plainto_tsquery('english', %s)
+                           ) AS rank
+                    FROM messages m
+                    JOIN conversations c ON c.id = m.conversation_id
+                    WHERE m.role IN ('user', 'assistant')
+                      AND to_tsvector('english', m.content)
+                          @@ plainto_tsquery('english', %s)
+                    ORDER BY rank DESC
+                    LIMIT %s
+                    """,
+                    (query, query, query, limit),
+                )
+            except Exception:
+                conn.rollback()
+                # Fallback: plain ILIKE with a simple excerpt
+                like = f"%{query}%"
+                cur.execute(
+                    """
+                    SELECT m.conversation_id,
+                           c.started_at,
+                           m.role,
+                           SUBSTRING(m.content FOR 120) AS snippet,
+                           1.0 AS rank
+                    FROM messages m
+                    JOIN conversations c ON c.id = m.conversation_id
+                    WHERE m.role IN ('user', 'assistant')
+                      AND m.content ILIKE %s
+                    ORDER BY c.started_at DESC
+                    LIMIT %s
+                    """,
+                    (like, limit),
+                )
+            rows = cur.fetchall()
+            return [
+                {
+                    "conversation_id": r[0],
+                    "started_at": r[1].isoformat() if r[1] else None,
+                    "role": r[2],
+                    "snippet": r[3],
+                    "rank": float(r[4]),
+                }
+                for r in rows
+            ]
+    finally:
+        conn.close()
+
+
 def load_history(conversation_id: int, limit: int = 20) -> list[dict]:
     """
     Return the last *limit* messages from a conversation, oldest first.

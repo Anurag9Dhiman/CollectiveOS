@@ -251,6 +251,23 @@ def list_conversations(limit: int = Query(50, ge=1, le=200), _token: str = Depen
     return {"conversations": conversations.list_conversations(limit)}
 
 
+@app.get("/conversations/search")
+def search_conversations(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=1, le=100),
+    _token: str = Depends(_verify_token),
+):
+    """
+    Full-text search across all message content (user + assistant turns).
+
+    Returns up to *limit* ranked hits, each with conversation_id, started_at,
+    role, and a highlighted snippet (<mark>…</mark> around matching terms).
+    Falls back to ILIKE when the query cannot be parsed as tsquery.
+    """
+    hits = conversations.search_messages(q.strip(), limit=limit)
+    return {"query": q, "hits": hits}
+
+
 @app.get("/history/{conversation_id}")
 def get_history(conversation_id: int, _token: str = Depends(_verify_token)):
     """Return the stored messages for a conversation."""
