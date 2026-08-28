@@ -58,9 +58,13 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "push_notification",
     "task_plan",
     "task_cancel",
+    "computer_use",
 })
+from src.tool_registry import WRITE_TOOLS, DESTRUCTIVE_TOOLS, is_destructive
 
 MAX_ITER = 10
+MAX_HISTORY_ENTRIES = 40   # message entries (user + model combined) before trimming
+TRIM_KEEP = 20             # how many recent entries to retain after trimming
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +81,7 @@ class AgentState(TypedDict):
     pending_write: list[dict]  # fn-call dicts awaiting HITL approval
     approved: bool | None      # set by /chat/approve; None until asked
     iteration: int             # loop-count guard
+    has_destructive: bool      # True when any pending_write tool is DESTRUCTIVE
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +145,65 @@ def _response_text(response: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# History trimming — keeps Gemini call cost bounded in long conversations
+# ---------------------------------------------------------------------------
+
+def _summarize_history(messages: list[dict]) -> str:
+    """Call Gemini to produce a compact summary of older conversation turns."""
+    from src.assistant_starter import MODEL, _get_client
+
+    history_objs = _history_to_gemini(messages)
+    summarize_prompt = _gtypes.Content(
+        role="user",
+        parts=[_gtypes.Part(
+            text=(
+                "Summarize the above conversation compactly. "
+                "Keep every key fact, decision, and preference the assistant needs "
+                "to continue helping effectively. Omit filler and pleasantries. "
+                "Maximum 300 words."
+            )
+        )],
+    )
+    try:
+        resp = _get_client().models.generate_content(
+            model=MODEL,
+            contents=history_objs + [summarize_prompt],
+        )
+        return resp.text or "[summary unavailable]"
+    except Exception:
+        return "[summary unavailable]"
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    """If history exceeds MAX_HISTORY_ENTRIES, summarize the oldest portion.
+
+    The trimmed list is returned (and will be persisted to state), so the
+    summarization call happens at most once per trim threshold crossing.
+    Returns the original list unchanged when under the threshold.
+    """
+    if len(history) <= MAX_HISTORY_ENTRIES:
+        return history
+
+    # Align cut-point to the first 'user' boundary at or past our target index
+    keep_from = len(history) - TRIM_KEEP
+    while keep_from < len(history) and history[keep_from]["role"] != "user":
+        keep_from += 1
+
+    to_summarize = history[:keep_from]
+    recent = history[keep_from:]
+
+    if not to_summarize:
+        return history
+
+    summary_text = _summarize_history(to_summarize)
+    summary_entry = {
+        "role": "user",
+        "parts": [{"text": f"[Earlier conversation summary]\n{summary_text}"}],
+    }
+    return [summary_entry] + recent
+
+
+# ---------------------------------------------------------------------------
 # Graph nodes
 # ---------------------------------------------------------------------------
 
@@ -167,7 +231,10 @@ def agent_node(state: AgentState) -> dict:
     """Call Gemini with the current history; classify any tool calls."""
     from src.assistant_starter import MODEL, _obs
 
-    history_objs = _history_to_gemini(state["history"])
+    # Trim long histories before the Gemini call; persists the compacted form.
+    history = _trim_history(state["history"])
+
+    history_objs = _history_to_gemini(history)
     response = _call_gemini(
         history_objs,
         state["system_prompt"],
@@ -192,7 +259,7 @@ def agent_node(state: AgentState) -> dict:
         # Done — no more tool calls
         return {
             "reply": _response_text(response),
-            "history": state["history"] + [
+            "history": history + [
                 {"role": "model", "parts": [{"text": _response_text(response)}]}
             ],
             "iteration": iteration,
@@ -203,7 +270,7 @@ def agent_node(state: AgentState) -> dict:
     model_parts = [
         {"function_call": {"name": c["name"], "args": c["args"]}} for c in fn_calls
     ]
-    new_history = state["history"] + [{"role": "model", "parts": model_parts}]
+    new_history = history + [{"role": "model", "parts": model_parts}]
 
     write_calls = [c for c in fn_calls if c["name"] in WRITE_TOOLS]
     read_calls  = [c for c in fn_calls if c["name"] not in WRITE_TOOLS]
@@ -213,9 +280,11 @@ def agent_node(state: AgentState) -> dict:
         new_history = _execute_calls(read_calls, new_history)
 
     if write_calls:
+        destructive = any(is_destructive(c["name"]) for c in write_calls)
         return {
             "history": new_history,
             "pending_write": write_calls,
+            "has_destructive": destructive,
             "iteration": iteration,
         }
 
@@ -223,16 +292,28 @@ def agent_node(state: AgentState) -> dict:
     return {
         "history": new_history,
         "pending_write": [],
+        "has_destructive": False,
         "iteration": iteration,
     }
 
 
 def _execute_calls(calls: list[dict], history: list[dict]) -> list[dict]:
     """Execute tool calls in parallel and append function-response parts to history."""
+    import time
     from src.assistant_starter import _exec_tool_fn
+    from src import observability as _obs
 
     def _run(call: dict) -> dict:
-        result = _exec_tool_fn(call["name"], call["args"])
+        t0 = time.monotonic()
+        try:
+            result = _exec_tool_fn(call["name"], call["args"])
+            _obs.log_tool_call(call["name"], int((time.monotonic() - t0) * 1000), success=True)
+        except Exception as exc:
+            _obs.log_tool_call(
+                call["name"], int((time.monotonic() - t0) * 1000),
+                success=False, error_type=type(exc).__name__,
+            )
+            result = f"[ERROR: {exc}]"
         return {"name": call["name"], "result": result}
 
     with ThreadPoolExecutor(max_workers=min(len(calls), 8)) as pool:
@@ -270,6 +351,7 @@ def write_tools_node(state: AgentState) -> dict:
         return {
             "history": state["history"] + [{"role": "user", "parts": cancel_parts}],
             "pending_write": [],
+            "has_destructive": False,
             "approved": None,
         }
 
@@ -277,6 +359,7 @@ def write_tools_node(state: AgentState) -> dict:
     return {
         "history": new_history,
         "pending_write": [],
+        "has_destructive": False,
         "approved": None,
     }
 
@@ -403,6 +486,7 @@ def run(
         "pending_write": [],
         "approved": None,
         "iteration": 0,
+        "has_destructive": False,
     }
 
     graph = get_graph()
@@ -413,15 +497,15 @@ def run(
     # Check if we stopped at an interrupt
     state = graph.get_state(config)
     interrupted = bool(state.next)   # non-empty .next means graph is paused
+    has_destructive = bool(result.get("has_destructive"))
 
     reply = result.get("reply") or ""
     if interrupted and not reply:
-        # Describe what the agent wants to do so the user can approve/reject
         pending = result.get("pending_write") or []
         descriptions = ", ".join(f"{c['name']}({c['args']})" for c in pending)
         reply = f"I'd like to perform: {descriptions}\nShall I go ahead? (yes / no)"
 
-    return reply, interrupted
+    return reply, interrupted, has_destructive
 
 
 def approve(thread_id: str, approved: bool) -> str:

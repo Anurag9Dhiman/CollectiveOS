@@ -1,6 +1,6 @@
 """
-Tool router — a cheap Haiku call classifies the user's intent,
-then narrows the tool list before the main Sonnet call.
+Tool router — a cheap Flash-Lite call classifies the user's intent,
+then narrows the tool list before the main Gemini call.
 
 Adding a new connector: add an entry to _CATEGORY_TOOLS with the
 new category name and its tool names. The rest is automatic.
@@ -9,9 +9,10 @@ new category name and its tool names. The rest is automatic.
 import json
 import os
 
-from google import genai
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-ROUTER_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+ROUTER_MODEL = os.environ.get("GEMINI_ROUTER_MODEL", "gemini-2.0-flash-lite")
 
 # Map intent category → tool names. Extend as connectors grow.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
@@ -22,7 +23,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "tasks":    ["get_tasks", "get_projects", "add_task", "complete_task", "update_task"],
     "home":     ["get_devices", "get_device_state", "control_device", "set_light"],
     "music":    ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
-    "system":   ["get_system_info", "get_wifi_info", "show_notification", "open_application", "set_system_volume", "capture_screen"],
+    "system":   ["get_system_info", "get_wifi_info", "show_notification", "open_application", "set_system_volume", "capture_screen", "computer_use"],
     "search":   ["web_search"],
     "messages": ["imessage_get_messages", "imessage_send"],
     "files":    ["list_directory", "read_local_file", "write_local_file"],
@@ -150,46 +151,50 @@ _EXAMPLES = (
     "  what tasks have you run recently → [\"orchestrator\"]\n"
     "  cancel that task → [\"orchestrator\"]\n"
     "  what's the status of task 5 → [\"orchestrator\"]\n"
+    "  click the submit button for me → [\"system\"]\n"
+    "  automate filling out this form → [\"system\"]\n"
+    "  control my desktop to open that file → [\"system\"]\n"
+    "  use the computer to complete this task → [\"system\"]\n"
 )
 
-_router_client: genai.Client | None = None
+_llm: ChatGoogleGenerativeAI | None = None
 
 
-def _get_client() -> genai.Client:
-    global _router_client
-    if _router_client is None:
-        _router_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    return _router_client
+def _get_llm() -> ChatGoogleGenerativeAI:
+    global _llm
+    if _llm is None:
+        _llm = ChatGoogleGenerativeAI(
+            model=ROUTER_MODEL,
+            google_api_key=os.environ["GEMINI_API_KEY"],
+            temperature=0,
+        )
+    return _llm
 
 
 def select_tools(user_message: str, all_tools: list[dict]) -> tuple[list[dict], list[str]]:
     """
-    Classify *user_message* with Gemini Flash and return (filtered_tools, categories).
+    Classify *user_message* with a cheap Flash-Lite call and return (filtered_tools, categories).
 
     Falls back to (all_tools, []) if classification fails or returns no match,
     so the main model call always has at least one tool available.
     """
     try:
-        from google.genai import types as _gtypes
-        resp = _get_client().models.generate_content(
-            model=ROUTER_MODEL,
-            contents=user_message,
-            config=_gtypes.GenerateContentConfig(
-                system_instruction=_SYSTEM + "\n\n" + _EXAMPLES,
-            ),
-        )
+        response = _get_llm().invoke([
+            SystemMessage(content=_SYSTEM + "\n\n" + _EXAMPLES),
+            HumanMessage(content=user_message),
+        ])
         try:
             from src import observability as _obs
-            if resp.usage_metadata:
-                _obs.log_api_call(
-                    ROUTER_MODEL,
-                    resp.usage_metadata.prompt_token_count,
-                    resp.usage_metadata.candidates_token_count,
-                    source="router",
-                )
+            usage = response.usage_metadata or {}
+            _obs.log_api_call(
+                ROUTER_MODEL,
+                usage.get("input_tokens", 0),
+                usage.get("output_tokens", 0),
+                source="router",
+            )
         except Exception:
             pass
-        raw = resp.text.strip()
+        raw = (response.content or "").strip()
         # Strip markdown fences if the model added them
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
