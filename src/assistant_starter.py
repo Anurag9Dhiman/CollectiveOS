@@ -67,6 +67,7 @@ from src.connectors.lens_analyze import lens_analyze as _lens_analyze
 from src.connectors import appliances as _appliances
 from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
+from src.connectors.computer import computer_use
 from src import memory, graph_memory, router, permissions, observability as _obs
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
@@ -197,6 +198,7 @@ TOOL_FUNCTIONS = {
     "telegram_send":         _telegram.send_message,
     "lens_analyze":          _lens_analyze,
     "push_notification":     _push_notification,
+    "computer_use":          computer_use,
 }
 
 TOOLS = [
@@ -1756,6 +1758,34 @@ TOOLS = [
                 },
             },
             "required": ["title", "body"],
+        },
+    },
+    {
+        "name": "computer_use",
+        "description": (
+            "Give Claude direct control of this Mac to complete a multi-step desktop task: "
+            "take screenshots, move the mouse, click, type, scroll, and navigate apps. "
+            "Use for tasks that require interacting with the UI of an app that has no API — "
+            "e.g. 'fill in this web form', 'click through this wizard', 'resize this window', "
+            "'copy text from this app'. "
+            "Claude will take screenshots and act autonomously until the task is done. "
+            "IMPORTANT: this is a destructive write-tier action — always confirm with the user "
+            "before calling it. Requires ANTHROPIC_API_KEY to be set."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "Clear description of what to do on screen. Be specific: name the app, "
+                        "the target element, and the desired outcome. "
+                        "Example: 'Open Safari, go to example.com, click the Sign Up button, "
+                        "fill in the email field with test@test.com, and click Submit.'"
+                    ),
+                },
+            },
+            "required": ["task"],
         },
     },
 ]
