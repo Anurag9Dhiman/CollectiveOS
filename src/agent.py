@@ -56,6 +56,8 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "github_create_issue", "slack_send_message",
     "car_lock", "car_climate", "appliances_control",
     "push_notification",
+    "task_plan",
+    "task_cancel",
 })
 
 MAX_ITER = 10
