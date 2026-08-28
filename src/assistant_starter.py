@@ -1841,6 +1841,37 @@ MAX_LOOP = 10  # hard cap on tool-use iterations per user message
 
 _TRANSIENT_MARKERS = ("Timeout", "Connection", "Network", "Reset", "BrokenPipe")
 
+# Read-only tools whose results can be cached in Redis.
+# TTL in seconds — chosen conservatively to balance freshness vs. API load.
+CACHE_TTL: dict[str, int] = {
+    "health_get_sleep":              300,
+    "health_get_activity":           300,
+    "health_get_readiness":          300,
+    "finance_get_accounts":          120,
+    "finance_get_transactions":      120,
+    "finance_get_spending_summary":  120,
+    "car_get_status":                 30,
+    "get_devices":                    60,
+    "get_device_state":               15,
+    "appliances_list":                60,
+    "appliances_get_status":          30,
+    "web_search":                     60,
+    "github_list_repos":             300,
+    "github_list_prs":                60,
+    "github_list_issues":             60,
+    "github_get_ci_status":           30,
+    "slack_list_channels":           300,
+    "slack_read_messages":            30,
+    "notion_search":                  60,
+    "notion_read_page":               60,
+    "get_tasks":                      30,
+    "get_projects":                  300,
+    "get_recent_emails":              30,
+    "search_emails":                  30,
+    "list_drive_files":               60,
+    "get_calendar_events":            30,
+}
+
 
 def _exec_tool_fn(name: str, args: dict) -> str:
     """
@@ -1848,6 +1879,10 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     Permission checks, retries on transient errors, and observability logging
     are all handled here. Errors are returned as [ERROR: ...] strings so the
     model can decide what to do rather than crashing the loop.
+
+    Read-only tools listed in CACHE_TTL are served from Redis (or the
+    in-process fallback) when a matching result exists; the live API is
+    called on a cache miss and the result is stored for the configured TTL.
     """
     allowed, err = permissions.check_tool(name)
     if not allowed:
@@ -1857,11 +1892,23 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     if func is None:
         return f"[ERROR: unknown tool '{name}']"
 
+    # Cache read-only tool results to reduce external API calls
+    ttl = CACHE_TTL.get(name, 0)
+    if ttl > 0:
+        import json as _json
+        from src import redis_client as _cache
+        cache_key = f"tool:{name}:{_json.dumps(args, sort_keys=True)}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return str(cached)
+
     t0 = time.monotonic()
     for attempt in range(2):
         try:
             result = str(func(**args))
             _obs.log_tool_call(name, int((time.monotonic() - t0) * 1000), success=True)
+            if ttl > 0:
+                _cache.set(cache_key, result, ttl=ttl)
             return result
         except Exception as exc:
             exc_type = type(exc).__name__

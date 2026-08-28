@@ -8,6 +8,7 @@ python-multipart>=0.0.9
 psycopg2-binary>=2.9.0   # used by db.py and memory.py (sync queries)
 psycopg[binary]>=3.1.0   # used by langgraph-checkpoint-postgres (PostgresSaver)
 asyncpg>=0.30.0
+redis>=5.0.0              # optional; tool-result cache + chat status store (in-process fallback if unset)
 requests>=2.31.0
 httpx>=0.28.0
 h2>=4.0.0                # HTTP/2 support for httpx (required by APNs provider API)
