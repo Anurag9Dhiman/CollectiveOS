@@ -49,9 +49,9 @@ def _run_routine(routine_id: int, name: str, prompt: str, notify_via: str) -> No
 
     _db.record_run(routine_id, result)
 
-    if notify_via == "notification":
+    if notify_via in ("notification", "both"):
         _send_notification(name, result)
-    elif notify_via == "telegram":
+    if notify_via in ("telegram", "both"):
         _send_telegram(name, result)
 
 

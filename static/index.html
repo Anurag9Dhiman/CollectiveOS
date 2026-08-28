@@ -626,6 +626,7 @@
           <select id="r-notify">
             <option value="notification">Mac notification</option>
             <option value="telegram">Telegram message</option>
+            <option value="both">Both (Mac + Telegram)</option>
             <option value="none">Silent (store only)</option>
           </select>
         </div>
@@ -1220,7 +1221,7 @@
       const lastRun = r.last_run_at
         ? new Date(r.last_run_at).toLocaleString()
         : "Never run";
-      const notifyLabel = { notification: "Mac notification", telegram: "Telegram", none: "Silent" }[r.notify_via] || r.notify_via;
+      const notifyLabel = { notification: "Mac notification", telegram: "Telegram", none: "Silent", both: "Mac + Telegram" }[r.notify_via] || r.notify_via;
       row.innerHTML = `
         <div class="routine-header">
           <span class="routine-name">${r.name}</span>
@@ -1258,7 +1259,7 @@
           headers: { "Authorization": `Bearer ${token}` },
         });
         if (res.ok) {
-          const via = { notification: "Mac notification", telegram: "Telegram message", none: "DB (silent)" }[r.notify_via] || r.notify_via;
+          const via = { notification: "Mac notification", telegram: "Telegram message", none: "DB (silent)", both: "Mac + Telegram" }[r.notify_via] || r.notify_via;
           showError(`Routine triggered — result will arrive as a ${via}.`);
         }
       });

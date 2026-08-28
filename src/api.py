@@ -162,7 +162,7 @@ class ApproveRequest(BaseModel):
 class PermissionUpdate(BaseModel):
     enabled: bool
 
-_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram"}
+_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram", "both"}
 
 class RoutineCreate(BaseModel):
     name: str
