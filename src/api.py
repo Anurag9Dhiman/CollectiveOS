@@ -471,6 +471,51 @@ def health_ingest(body: HealthIngest, _token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Wearable ingest — generic endpoint for any device
+# ---------------------------------------------------------------------------
+
+class WearableIngest(BaseModel):
+    device_id: str
+    event_type: str
+    payload: dict = {}
+
+
+@app.post("/wearable/ingest", status_code=201)
+def wearable_ingest(body: WearableIngest, _token: str = Depends(_verify_token)):
+    """
+    Receive sensor/event data from any wearable device.
+
+    Works with Garmin Connect IQ, Frame glasses (Brilliant Labs), Apple Watch
+    via Shortcuts, or any custom hardware that can make an HTTP POST.
+
+    Device setup (generic):
+      URL: http://<host>:8000/wearable/ingest
+      Method: POST
+      Headers: Authorization: Bearer <API_TOKEN>, Content-Type: application/json
+      Body: {"device_id": "my-device", "event_type": "gesture",
+             "payload": { ...device-specific fields... }}
+
+    event_type examples: gesture, sensor, location, button, voice, heartrate
+    """
+    import json as _json
+    try:
+        from src.db import connect, default_user_id
+        conn = connect()
+        uid = default_user_id(conn)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO wearable_events (user_id, device_id, event_type, payload) "
+                    "VALUES (%s, %s, %s, %s::jsonb)",
+                    (uid, body.device_id, body.event_type, _json.dumps(body.payload)),
+                )
+        conn.close()
+        return {"message": f"Event saved from {body.device_id} ({body.event_type})."}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Memory facts — direct CRUD for the facts injected into every system prompt
 # ---------------------------------------------------------------------------
 

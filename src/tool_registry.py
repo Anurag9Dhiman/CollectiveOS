@@ -159,6 +159,15 @@ TOOL_TIERS: dict[str, str] = {
 
     # ── iOS push notifications ────────────────────────────────────────────────
     "push_notification":         WRITE,
+
+    # ── Wearable devices ─────────────────────────────────────────────────────
+    "wearable_get_events":       READ,
+    "wearable_list_devices":     READ,
+
+    # ── Robot (ROS2 MCP) ──────────────────────────────────────────────────────
+    "robot_status":              READ,
+    "robot_move":                DESTRUCTIVE,   # physical motion
+    "robot_cancel":              DESTRUCTIVE,   # emergency stop (also needs gate)
 }
 
 

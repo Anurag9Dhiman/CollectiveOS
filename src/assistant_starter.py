@@ -71,6 +71,8 @@ from src.connectors.computer import computer_use
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
 from src import orchestrator as _orchestrator
+from src.connectors import wearable as _wearable
+from src.connectors import ros2_mcp as _ros2
 from src import mcp_client as _mcp
 
 _mcp.load()  # connect to any configured MCP servers at import time
@@ -263,6 +265,11 @@ TOOL_FUNCTIONS = {
     "task_list":             task_list,
     "task_cancel":           task_cancel,
     "computer_use":          computer_use,
+    "wearable_get_events":   _wearable.wearable_get_events,
+    "wearable_list_devices": _wearable.wearable_list_devices,
+    "robot_status":          _ros2.robot_status,
+    "robot_move":            _ros2.robot_move,
+    "robot_cancel":          _ros2.robot_cancel,
     # MCP server tools are merged in below
 }
 TOOL_FUNCTIONS.update(_mcp.tool_callables())
@@ -1838,29 +1845,6 @@ TOOLS = [
             "background work. "
             "Channels: notification (Mac banner), telegram (Telegram message), "
             "push (iOS APNs), both (Mac + Telegram)."
-    # Task orchestrator
-    # -----------------------------------------------------------------------
-    {
-        "name": "task_plan",
-        "description": (
-            "Plan and execute a complex multi-step task using the task orchestrator. "
-            "Use when the user asks for something that requires several sequential tool calls — "
-            "for example 'research X, summarise it, and save to Notion', or "
-            "'check my emails and add follow-up tasks to Todoist'. "
-            "The orchestrator creates a plan (up to 10 steps), runs each step, "
-            "and returns a summary of what was done. "
-            "Results are stored in the tasks database so you can check them later with task_status."
-    {
-        "name": "computer_use",
-        "description": (
-            "Control this Mac's desktop to complete a multi-step task: take screenshots, "
-            "move the mouse, click, type, scroll, and navigate apps. "
-            "Use for tasks that require interacting with an app's UI directly — "
-            "e.g. 'fill in this web form', 'click through this wizard', 'resize this window', "
-            "'copy text from this app'. "
-            "Gemini Vision analyzes each screenshot and decides what to do next, "
-            "repeating until the task is done. "
-            "IMPORTANT: this is a write-tier action — always confirm with the user before calling it."
         ),
         "input_schema": {
             "type": "object",
@@ -1877,6 +1861,24 @@ TOOLS = [
             },
             "required": ["message"],
         },
+    },
+    # -----------------------------------------------------------------------
+    # Task orchestrator
+    # -----------------------------------------------------------------------
+    {
+        "name": "task_plan",
+        "description": (
+            "Plan and execute a complex multi-step task using the task orchestrator. "
+            "Use when the user asks for something that requires several sequential tool calls — "
+            "for example 'research X, summarise it, and save to Notion', or "
+            "'check my emails and add follow-up tasks to Todoist'. "
+            "The orchestrator creates a plan (up to 10 steps), runs each step, "
+            "and returns a summary of what was done. "
+            "Results are stored in the tasks database so you can check them later with task_status."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
                 "description": {
                     "type": "string",
                     "description": "Full description of the task to accomplish, including any specific constraints or output requirements.",
@@ -1924,18 +1926,34 @@ TOOLS = [
             },
             "required": ["task_id"],
         },
+    },
+    # -----------------------------------------------------------------------
+    # Computer use (desktop agent)
+    # -----------------------------------------------------------------------
+    {
+        "name": "computer_use",
+        "description": (
+            "Control this Mac's desktop to complete a multi-step task: take screenshots, "
+            "move the mouse, click, type, scroll, and navigate apps. "
+            "Use for tasks that require interacting with an app's UI directly — "
+            "e.g. 'fill in this web form', 'click through this wizard', 'resize this window'. "
+            "Gemini Vision analyzes each screenshot and decides what to do next. "
+            "IMPORTANT: this is a write-tier action — always confirm with the user before calling it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
                 "task": {
                     "type": "string",
                     "description": (
                         "Clear description of what to do on screen. Be specific: name the app, "
-                        "the target element, and the desired outcome. "
-                        "Example: 'Open Safari, go to example.com, click the Sign Up button, "
-                        "fill in the email field with test@test.com, and click Submit.'"
+                        "the target element, and the desired outcome."
                     ),
                 },
             },
             "required": ["task"],
         },
+    },
     # -----------------------------------------------------------------------
     # MCP server management
     # -----------------------------------------------------------------------
@@ -1946,6 +1964,85 @@ TOOLS = [
             "each one exposes. Use when the user asks what MCP servers are running, or to "
             "diagnose why an MCP-backed tool isn't available."
         ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    # -----------------------------------------------------------------------
+    # Wearable devices
+    # -----------------------------------------------------------------------
+    {
+        "name": "wearable_get_events",
+        "description": (
+            "Retrieve recent events from wearable devices (Garmin, Frame glasses, "
+            "Apple Watch via Shortcuts, or any custom device that POSTs to /wearable/ingest). "
+            "Use when the user asks what their wearable detected, or to check gestures, "
+            "sensor readings, or button presses from a device."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return (default 20, max 100).",
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "Filter to a specific device ID (e.g. 'garmin-forerunner-265').",
+                },
+                "event_type": {
+                    "type": "string",
+                    "description": "Filter by event type: gesture, sensor, location, button, voice, heartrate.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wearable_list_devices",
+        "description": "List all wearable devices that have sent data, with their last-seen time and event count.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    # -----------------------------------------------------------------------
+    # Robot (ROS2 MCP)
+    # -----------------------------------------------------------------------
+    {
+        "name": "robot_status",
+        "description": (
+            "Get the current status, position, and battery of the connected robot. "
+            "Works with any ROS2-based robot via the ROS2_MCP_URL endpoint. "
+            "Returns stub data when ROS2_MCP_URL is not configured."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "robot_move",
+        "description": (
+            "Command the robot to move in a direction. "
+            "Requires HITL approval before execution. "
+            "direction: forward | backward | left | right | stop"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "direction": {
+                    "type": "string",
+                    "description": "Movement direction: forward, backward, left, right, or stop.",
+                    "enum": ["forward", "backward", "left", "right", "stop"],
+                },
+                "distance_m": {
+                    "type": "number",
+                    "description": "Distance to travel in metres (default 1.0, ignored for stop).",
+                },
+                "speed_ms": {
+                    "type": "number",
+                    "description": "Speed in metres per second (default 0.3, capped at 0.5).",
+                },
+            },
+            "required": ["direction"],
+        },
+    },
+    {
+        "name": "robot_cancel",
+        "description": "Send an emergency stop to the robot — halts all motion immediately.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
 ]
