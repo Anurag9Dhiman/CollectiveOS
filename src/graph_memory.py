@@ -21,7 +21,7 @@ from google.genai import types as _gtypes
 
 from src.db import connect, default_user_id
 
-_EXTRACT_MODEL = "models/gemini-flash-latest"
+_EXTRACT_MODEL = os.environ.get("GRAPH_MODEL", "gemini-3.6-flash")
 _extract_client: genai.Client | None = None
 
 # ---------------------------------------------------------------------------

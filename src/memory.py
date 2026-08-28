@@ -1,57 +1,33 @@
 """
-Memory store — Postgres + pgvector with local sentence embeddings.
+Memory store — Postgres + pgvector with Gemini embeddings.
 
-Replaces the SQLite + FTS5 version. The public interface is identical:
-  save(user_message, assistant_reply)
-  search(query, limit) -> str
+Embeddings are generated via the Gemini Embedding API (gemini-embedding-001,
+3072 dimensions). This replaces the local sentence-transformers model, which
+caused a PyTorch mutex deadlock under async load and produced 384-dim vectors
+mismatched with VisualOS's embedding model.
 
-Embeddings are generated locally with sentence-transformers (all-MiniLM-L6-v2,
-384 dimensions). No extra API key required; the model downloads once (~80 MB).
-
-Requires:
-  - Docker running: `docker compose up -d`
-  - pip install psycopg2-binary sentence-transformers
+Public interface is identical to the previous version — no call-site changes.
 """
 
 import datetime
-import threading
-from functools import lru_cache
+import os
 
 from src.db import connect, default_user_id
 
-# ---------------------------------------------------------------------------
-# Embedding model — loaded in a background thread so startup stays fast.
-# If the model isn't ready yet, _embed() raises RuntimeError (callers catch).
-# ---------------------------------------------------------------------------
-
-_model_ready = threading.Event()
-_model_instance = None
-_model_lock = threading.Lock()
-
-
-def _load_model_bg():
-    global _model_instance
-    try:
-        from sentence_transformers import SentenceTransformer
-        m = SentenceTransformer("all-MiniLM-L6-v2")
-        with _model_lock:
-            _model_instance = m
-        _model_ready.set()
-    except Exception:
-        _model_ready.set()  # unblock waiters even on failure
-
-
-threading.Thread(target=_load_model_bg, daemon=True, name="embed-model-loader").start()
+_EMBED_MODEL = os.environ.get("EMBED_MODEL", "gemini-embedding-001")
+_EMBED_DIM = 3072  # gemini-embedding-001 output dimension
 
 
 def _embed(text: str) -> list[float]:
-    if not _model_ready.wait(timeout=0):
-        raise RuntimeError("embedding model not ready yet")
-    with _model_lock:
-        m = _model_instance
-    if m is None:
-        raise RuntimeError("embedding model failed to load")
-    return m.encode(text, normalize_embeddings=True).tolist()
+    """Embed text using the Gemini Embedding API. Synchronous — safe to call from threads."""
+    from google import genai
+
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    resp = client.models.embed_content(
+        model=_EMBED_MODEL,
+        contents=text,
+    )
+    return list(resp.embeddings[0].values)
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +50,7 @@ def save(user_message: str, assistant_reply: str, source: str = "conversation") 
                 cur.execute(
                     """
                     INSERT INTO memory_chunks (user_id, source, content, embedding, created_at)
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s::vector, %s)
                     RETURNING id
                     """,
                     (user_id, source, content, embedding, now),
@@ -100,7 +76,7 @@ def save_fact(fact: str) -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO memory_chunks (user_id, source, content, embedding, created_at) "
-                    "VALUES (%s, 'fact', %s, %s, %s)",
+                    "VALUES (%s, 'fact', %s, %s::vector, %s)",
                     (user_id, fact, embedding, now),
                 )
             conn.commit()
@@ -131,8 +107,8 @@ def list_facts() -> list[dict]:
 
 
 def delete_fact(query: str) -> str:
-    """
-    Delete the fact most semantically similar to *query*.
+    """Delete the fact most semantically similar to *query*.
+
     Returns the deleted content, or empty string if no facts exist.
     """
     embedding = _embed(query)

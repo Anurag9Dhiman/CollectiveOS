@@ -42,17 +42,19 @@ from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 
-from src.assistant_starter import run, run_stream
+from src.assistant_starter import run_stream
 from src import conversations, memory, permissions, routines as _routines
 from src import scheduler as _scheduler
 from src import observability as _obs
+from src.agent import run as agent_run, approve as agent_approve
+from src.voice_gateway import handle_voice_ws
 
 _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
 
@@ -146,6 +148,12 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: int
+    interrupted: bool = False  # True when write-tool HITL approval is needed
+
+
+class ApproveRequest(BaseModel):
+    conversation_id: int
+    approved: bool  # True = proceed, False = cancel
 
 class PermissionUpdate(BaseModel):
     enabled: bool
@@ -218,7 +226,7 @@ def ask(
     past = memory.search(user_message)
     system_prompt = _system_prompt(past)
 
-    reply = run(user_message, system=system_prompt)
+    reply, _interrupted = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
     memory.save(user_message, reply)
     return reply
 
@@ -237,19 +245,42 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
         raise HTTPException(status_code=400, detail="message must not be empty.")
 
     conv_id = body.conversation_id or conversations.create()
-
-    # Load recent turns so the model has conversational context.
-    history = conversations.load_history(conv_id, limit=20)
+    thread_id = str(conv_id)
 
     past = memory.search(user_message)
     system_prompt = _system_prompt(past)
 
     conversations.save_message(conv_id, "user", user_message)
-    reply = run(user_message, system=system_prompt, history=history)
-    conversations.save_message(conv_id, "assistant", reply)
-    memory.save(user_message, reply)
 
-    return ChatResponse(reply=reply, conversation_id=conv_id)
+    # The LangGraph agent carries full history via PostgresSaver — no need to
+    # load and pass history manually; it's restored from the checkpoint.
+    reply, interrupted = agent_run(
+        user_message,
+        system_prompt=system_prompt,
+        thread_id=thread_id,
+    )
+
+    conversations.save_message(conv_id, "assistant", reply)
+    if not interrupted:
+        memory.save(user_message, reply)
+
+    return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=interrupted)
+
+
+@app.post("/chat/approve", response_model=ChatResponse)
+def chat_approve(body: ApproveRequest, _token: str = Depends(_verify_token)):
+    """Resume a paused graph after a write-tool HITL decision.
+
+    Send approved=true to execute the pending action, false to cancel it.
+    The conversation_id must match the one returned by the interrupted /chat call.
+    """
+    conv_id = body.conversation_id
+    thread_id = str(conv_id)
+    reply = agent_approve(thread_id=thread_id, approved=body.approved)
+    conversations.save_message(conv_id, "assistant", reply)
+    if body.approved:
+        memory.save("", reply)
+    return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=False)
 
 
 @app.get("/routines")
@@ -480,6 +511,12 @@ def _handle_tg_message(chat_id: str, text: str) -> None:
         reply = f"Sorry, something went wrong: {exc}"
     memory.save(text, reply)
     _tg_send(chat_id, reply)
+
+
+@app.websocket("/v1/ws")
+async def voice_websocket(ws: WebSocket) -> None:
+    """Voice gateway — VoiceOS connects here and speaks the voice_contract protocol."""
+    await handle_voice_ws(ws)
 
 
 @app.post("/telegram/webhook/{secret}", include_in_schema=False)
