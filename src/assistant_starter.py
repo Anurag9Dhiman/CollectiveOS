@@ -69,6 +69,9 @@ from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
 from src.connectors.computer import computer_use
 from src import memory, graph_memory, router, permissions, observability as _obs
+from src import mcp_client as _mcp
+
+_mcp.load()  # connect to any configured MCP servers at import time
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
@@ -113,12 +116,24 @@ def set_light(room: str, state: str) -> str:
     return f"OK, the {room} light is now {state} (pretend action)."
 
 
+def mcp_list_servers() -> str:
+    """List connected MCP servers and the tools they expose."""
+    servers = _mcp.list_servers()
+    if not servers:
+        return "No MCP servers connected. Add servers to mcp_servers.json to enable them."
+    lines = [f"Connected MCP servers ({len(servers)}):"]
+    for s in servers:
+        lines.append(f"  • {s['server']} — {s['tools']} tool(s)")
+    return "\n".join(lines)
+
+
 TOOL_FUNCTIONS = {
     "memory_remember":    memory_remember,
     "memory_list":        memory_list,
     "memory_forget":      memory_forget,
     "memory_graph_query": memory_graph_query,
     "usage_summary":      usage_summary,
+    "mcp_list_servers":   mcp_list_servers,
     "ai_ask":             _ai.ai_ask,
     "ai_compare":         _ai.ai_compare,
     "get_calendar_events": get_calendar_events,
@@ -199,7 +214,9 @@ TOOL_FUNCTIONS = {
     "lens_analyze":          _lens_analyze,
     "push_notification":     _push_notification,
     "computer_use":          computer_use,
+    # MCP server tools are merged in below
 }
+TOOL_FUNCTIONS.update(_mcp.tool_callables())
 
 TOOLS = [
     # -----------------------------------------------------------------------
@@ -1787,8 +1804,22 @@ TOOLS = [
             },
             "required": ["task"],
         },
+    # -----------------------------------------------------------------------
+    # MCP server management
+    # -----------------------------------------------------------------------
+    {
+        "name": "mcp_list_servers",
+        "description": (
+            "List all connected MCP (Model Context Protocol) servers and the number of tools "
+            "each one exposes. Use when the user asks what MCP servers are running, or to "
+            "diagnose why an MCP-backed tool isn't available."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
     },
 ]
+
+# Merge MCP-discovered tool schemas (populated once mcp.load() ran above)
+TOOLS.extend(_mcp.list_tools())
 
 # ---------------------------------------------------------------------------
 # Gemini tool schema converters
@@ -1871,6 +1902,37 @@ MAX_LOOP = 10  # hard cap on tool-use iterations per user message
 
 _TRANSIENT_MARKERS = ("Timeout", "Connection", "Network", "Reset", "BrokenPipe")
 
+# Read-only tools whose results can be cached in Redis.
+# TTL in seconds — chosen conservatively to balance freshness vs. API load.
+CACHE_TTL: dict[str, int] = {
+    "health_get_sleep":              300,
+    "health_get_activity":           300,
+    "health_get_readiness":          300,
+    "finance_get_accounts":          120,
+    "finance_get_transactions":      120,
+    "finance_get_spending_summary":  120,
+    "car_get_status":                 30,
+    "get_devices":                    60,
+    "get_device_state":               15,
+    "appliances_list":                60,
+    "appliances_get_status":          30,
+    "web_search":                     60,
+    "github_list_repos":             300,
+    "github_list_prs":                60,
+    "github_list_issues":             60,
+    "github_get_ci_status":           30,
+    "slack_list_channels":           300,
+    "slack_read_messages":            30,
+    "notion_search":                  60,
+    "notion_read_page":               60,
+    "get_tasks":                      30,
+    "get_projects":                  300,
+    "get_recent_emails":              30,
+    "search_emails":                  30,
+    "list_drive_files":               60,
+    "get_calendar_events":            30,
+}
+
 
 def _exec_tool_fn(name: str, args: dict) -> str:
     """
@@ -1878,6 +1940,10 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     Permission checks, retries on transient errors, and observability logging
     are all handled here. Errors are returned as [ERROR: ...] strings so the
     model can decide what to do rather than crashing the loop.
+
+    Read-only tools listed in CACHE_TTL are served from Redis (or the
+    in-process fallback) when a matching result exists; the live API is
+    called on a cache miss and the result is stored for the configured TTL.
     """
     allowed, err = permissions.check_tool(name)
     if not allowed:
@@ -1887,11 +1953,23 @@ def _exec_tool_fn(name: str, args: dict) -> str:
     if func is None:
         return f"[ERROR: unknown tool '{name}']"
 
+    # Cache read-only tool results to reduce external API calls
+    ttl = CACHE_TTL.get(name, 0)
+    if ttl > 0:
+        import json as _json
+        from src import redis_client as _cache
+        cache_key = f"tool:{name}:{_json.dumps(args, sort_keys=True)}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return str(cached)
+
     t0 = time.monotonic()
     for attempt in range(2):
         try:
             result = str(func(**args))
             _obs.log_tool_call(name, int((time.monotonic() - t0) * 1000), success=True)
+            if ttl > 0:
+                _cache.set(cache_key, result, ttl=ttl)
             return result
         except Exception as exc:
             exc_type = type(exc).__name__

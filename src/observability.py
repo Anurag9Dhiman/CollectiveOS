@@ -171,6 +171,76 @@ def log_tool_call(
     )
 
 
+def usage_data(days: int = 1) -> dict:
+    """Return raw usage numbers as a dict for the /metrics endpoint."""
+    try:
+        conn = connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(input_tokens),  0)::bigint,
+                    COALESCE(SUM(output_tokens), 0)::bigint,
+                    COALESCE(SUM(cost_usd),      0)::float,
+                    COUNT(*)::int,
+                    model
+                FROM api_usage
+                WHERE created_at >= NOW() - (%s || ' days')::interval
+                GROUP BY model
+                ORDER BY SUM(cost_usd) DESC
+                """,
+                (str(days),),
+            )
+            model_rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT
+                    tool_name,
+                    ROUND(AVG(latency_ms))::int,
+                    COUNT(*)::int,
+                    ROUND(100.0 * SUM(CASE WHEN success THEN 1 ELSE 0 END) / COUNT(*))::int
+                FROM tool_calls
+                WHERE created_at >= NOW() - (%s || ' days')::interval
+                GROUP BY tool_name
+                ORDER BY COUNT(*) DESC
+                LIMIT 20
+                """,
+                (str(days),),
+            )
+            tool_rows = cur.fetchall()
+        conn.close()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    models = [
+        {
+            "model": model,
+            "calls": calls,
+            "input_tokens": int(inp),
+            "output_tokens": int(out),
+            "cost_usd": round(float(cost), 6),
+        }
+        for inp, out, cost, calls, model in model_rows
+    ]
+    tools = [
+        {
+            "tool": tool_name,
+            "calls": calls,
+            "avg_latency_ms": avg_ms,
+            "success_pct": success_pct,
+        }
+        for tool_name, avg_ms, calls, success_pct in tool_rows
+    ]
+    total_cost = sum(m["cost_usd"] for m in models)
+    return {
+        "days": days,
+        "total_cost_usd": round(total_cost, 6),
+        "models": models,
+        "tools": tools,
+    }
+
+
 def usage_summary(days: int = 1) -> str:
     """
     Return a formatted cost and latency report for the last N days.
