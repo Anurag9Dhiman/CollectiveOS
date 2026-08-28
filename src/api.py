@@ -425,6 +425,38 @@ def health_ingest(body: HealthIngest, _token: str = Depends(_verify_token)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Memory facts — direct CRUD for the facts injected into every system prompt
+# ---------------------------------------------------------------------------
+
+class FactCreate(BaseModel):
+    content: str
+
+
+@app.get("/memory/facts")
+def list_memory_facts(_token: str = Depends(_verify_token)):
+    """Return all saved facts, newest first."""
+    return {"facts": memory.list_facts()}
+
+
+@app.post("/memory/facts", status_code=201)
+def create_memory_fact(body: FactCreate, _token: str = Depends(_verify_token)):
+    """Save a new fact into persistent memory."""
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content must not be empty.")
+    memory.save_fact(content)
+    return {"message": "Fact saved.", "facts": memory.list_facts()}
+
+
+@app.delete("/memory/facts/{fact_id}", status_code=204)
+def delete_memory_fact(fact_id: int, _token: str = Depends(_verify_token)):
+    """Delete a specific fact by ID."""
+    deleted = memory.delete_fact_by_id(fact_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Fact not found.")
+
+
 @app.post("/chat/stream")
 async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     """

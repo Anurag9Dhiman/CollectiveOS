@@ -133,6 +133,23 @@ def delete_fact(query: str) -> str:
         conn.close()
 
 
+def delete_fact_by_id(fact_id: int) -> bool:
+    """Delete a fact by its primary key. Returns True if a row was deleted."""
+    conn = connect()
+    try:
+        user_id = default_user_id(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM memory_chunks WHERE id = %s AND user_id = %s AND source = 'fact' RETURNING id",
+                (fact_id, user_id),
+            )
+            deleted = cur.fetchone() is not None
+        conn.commit()
+        return deleted
+    finally:
+        conn.close()
+
+
 def get_all_facts_str() -> str:
     """Return all saved facts as a bullet list for injection into the system prompt."""
     facts = list_facts()
