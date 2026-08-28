@@ -103,6 +103,42 @@
       40%           { transform: translateY(-6px); }
     }
 
+    /* HITL approval UI */
+    .hitl-badge {
+      font-size: 0.7rem;
+      background: #3d2c00;
+      color: #e3a000;
+      border-radius: 4px;
+      padding: 2px 7px;
+      margin-left: 7px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      vertical-align: middle;
+    }
+    .msg.interrupted .bubble {
+      border-color: #9e6a03;
+    }
+    .hitl-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 0 4px;
+    }
+    .hitl-btn {
+      border: none;
+      border-radius: 6px;
+      font-size: 0.84rem;
+      padding: 6px 18px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .hitl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .hitl-btn.approve { background: #238636; color: #fff; }
+    .hitl-btn.approve:hover:not(:disabled) { background: #2ea043; }
+    .hitl-btn.reject  { background: #161b22; color: #f85149; border: 1px solid #f85149; }
+    .hitl-btn.reject:hover:not(:disabled)  { background: #220d0d; }
+
     #token-bar {
       padding: 8px 20px;
       background: #0d1117;
@@ -845,8 +881,12 @@
   // ---------------------------------------------------------------------------
   // Send message
   // ---------------------------------------------------------------------------
+  let pendingApproval = false;  // true while waiting for HITL approve/reject
+
   form.addEventListener("submit", async e => {
     e.preventDefault();
+    if (pendingApproval) return;   // block new messages during HITL wait
+
     const text  = input.value.trim();
     const token = tokenInput.value.trim();
 
@@ -862,7 +902,7 @@
     showTyping();
 
     try {
-      const resp = await fetch("/chat/stream", {
+      const resp = await fetch("/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -879,49 +919,102 @@
         return;
       }
 
-      const bubble  = addMessage("assistant", "");
-      const reader  = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let   buffer  = "";
-      let   rawText = "";  // accumulated plain text for markdown re-render and TTS
+      const data = await resp.json();
+      conversationId = data.conversation_id;
+      localStorage.setItem(STORAGE_CONV, String(conversationId));
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const payload = JSON.parse(line.slice(6));
-
-          if (payload.meta) {
-            conversationId = payload.meta.conversation_id;
-            localStorage.setItem(STORAGE_CONV, String(conversationId));
-            continue;
-          }
-          if (payload.done) {
-            speak(rawText);
-            break;
-          }
-          if (payload.chunk) {
-            rawText += payload.chunk;
-            bubble.innerHTML = marked.parse(rawText);
-            chat.scrollTop = chat.scrollHeight;
-          }
-        }
+      if (data.interrupted) {
+        _showInterruptedMessage(data.reply, data.conversation_id, token);
+        return;   // keep input disabled until HITL resolves
       }
+
+      addMessage("assistant", data.reply);
+      speak(data.reply);
     } catch (err) {
       removeTyping();
       showError("Network error — is the server running?");
     } finally {
+      if (!pendingApproval) {
+        submitBtn.disabled = false;
+        micBtn.disabled    = false;
+        input.focus();
+      }
+    }
+  });
+
+  function _showInterruptedMessage(replyText, convId, token) {
+    pendingApproval = true;
+
+    const wrap    = document.createElement("div");
+    wrap.className = "msg assistant interrupted";
+    wrap.id = "hitl-card";
+
+    const label   = document.createElement("div");
+    label.className = "label";
+    label.innerHTML = 'Assistant <span class="hitl-badge">Awaiting approval</span>';
+
+    const bubble  = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.innerHTML = marked.parse(replyText);
+
+    const actions = document.createElement("div");
+    actions.className = "hitl-actions";
+
+    const approveBtn = document.createElement("button");
+    approveBtn.className = "hitl-btn approve";
+    approveBtn.textContent = "Approve";
+
+    const rejectBtn  = document.createElement("button");
+    rejectBtn.className = "hitl-btn reject";
+    rejectBtn.textContent = "Reject";
+
+    approveBtn.addEventListener("click", () => _sendApproval(convId, token, true,  wrap));
+    rejectBtn.addEventListener("click",  () => _sendApproval(convId, token, false, wrap));
+
+    actions.appendChild(approveBtn);
+    actions.appendChild(rejectBtn);
+    wrap.appendChild(label);
+    wrap.appendChild(bubble);
+    wrap.appendChild(actions);
+    chat.appendChild(wrap);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  async function _sendApproval(convId, token, approved, hitlEl) {
+    hitlEl.querySelectorAll(".hitl-btn").forEach(b => b.disabled = true);
+
+    try {
+      const resp = await fetch("/chat/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ conversation_id: convId, approved }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        showError(`Error ${resp.status}: ${err.detail || resp.statusText}`);
+        hitlEl.querySelectorAll(".hitl-btn").forEach(b => b.disabled = false);
+        return;
+      }
+
+      const data = await resp.json();
+      hitlEl.remove();
+      addMessage("assistant", data.reply);
+      speak(data.reply);
+    } catch (err) {
+      showError("Network error during approval.");
+      hitlEl.querySelectorAll(".hitl-btn").forEach(b => b.disabled = false);
+      return;
+    } finally {
+      pendingApproval = false;
       submitBtn.disabled = false;
       micBtn.disabled    = false;
       input.focus();
     }
-  });
+  }
 
   // ---------------------------------------------------------------------------
   // Settings panel — connector permissions
