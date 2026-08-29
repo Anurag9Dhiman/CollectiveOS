@@ -1054,6 +1054,7 @@
   <button id="graph-btn"    class="header-btn" title="Knowledge graph">🕸 Graph</button>
   <button id="history-btn"  class="header-btn" title="Conversation history">📖 History</button>
   <button id="watchers-btn" class="header-btn" title="Condition watchers">👁 Watch</button>
+  <button id="export-btn"   class="header-btn" title="Export all data as JSON">⬇ Export</button>
 </header>
 
 <div id="chat"></div>
@@ -2850,6 +2851,32 @@
   });
   graphSearch.addEventListener("input", renderGraphList);
   graphFilter.addEventListener("change", renderGraphList);
+
+  // ── Data export ──────────────────────────────────────────────────────────────
+  const exportBtn = document.getElementById("export-btn");
+  exportBtn.addEventListener("click", async () => {
+    exportBtn.disabled = true;
+    exportBtn.textContent = "⬇ Exporting…";
+    try {
+      const res = await apiFetch("/export");
+      if (!res.ok) { alert("Export failed: " + res.statusText); return; }
+      const blob = await res.blob();
+      const date = new Date().toISOString().slice(0, 10);
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `collectiveos-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("Export error: " + err.message);
+    } finally {
+      exportBtn.disabled = false;
+      exportBtn.textContent = "⬇ Export";
+    }
+  });
 </script>
 
 </body>
