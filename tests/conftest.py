@@ -64,6 +64,13 @@ for _lib in _MOCK_LIBS:
     if _lib not in sys.modules:
         sys.modules[_lib] = MagicMock()
 
+# Link google sub-package mocks so `from google import genai` and
+# `patch("google.genai.Client", ...)` both target the same object.
+# Without this, `sys.modules["google"].genai` and `sys.modules["google.genai"]`
+# are two separate MagicMocks and patches on one don't affect the other.
+sys.modules["google"].genai = sys.modules["google.genai"]
+sys.modules["google.genai"].types = sys.modules["google.genai.types"]
+
 # ---------------------------------------------------------------------------
 # 2. Stub src.assistant_starter (heavy module-level side effects)
 # ---------------------------------------------------------------------------
