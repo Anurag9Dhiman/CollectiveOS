@@ -7,9 +7,10 @@ and the bus handles dispatch, including fan-out for "both".
 
 Supported channels:
   notification  — Mac notification via osascript (macOS only)
+  slack         — Slack bot message to SLACK_CHANNEL_ID  (primary app)
   telegram      — Telegram bot message to TELEGRAM_CHAT_ID
   push          — iOS APNs push notification
-  both          — Mac notification + Telegram simultaneously
+  both          — Mac notification + Slack simultaneously
   api           — no side effect; caller handles the text (default)
   none          — silently discard
 
@@ -25,7 +26,7 @@ import subprocess
 
 log = logging.getLogger("collectiveos.output_bus")
 
-VALID_CHANNELS = frozenset({"notification", "telegram", "push", "both", "api", "none"})
+VALID_CHANNELS = frozenset({"notification", "slack", "telegram", "push", "both", "api", "none"})
 
 
 def deliver(title: str, body: str, channel: str = "api") -> None:
@@ -43,7 +44,13 @@ def deliver(title: str, body: str, channel: str = "api") -> None:
         except Exception as exc:
             log.warning("Mac notification failed: %s", exc)
 
-    if channel in ("telegram", "both"):
+    if channel in ("slack", "both"):
+        try:
+            _send_slack(title, body)
+        except Exception as exc:
+            log.warning("Slack delivery failed: %s", exc)
+
+    if channel == "telegram":
         try:
             _send_telegram(title, body)
         except Exception as exc:
@@ -68,6 +75,25 @@ def _send_notification(title: str, body: str) -> None:
     safe_body = body[:250].replace("\\", "\\\\").replace('"', '\\"')
     script = f'display notification "{safe_body}" with title "{safe_title}"'
     subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10, check=False)
+
+
+def _send_slack(title: str, body: str) -> None:
+    token = os.environ.get("SLACK_BOT_TOKEN", "")
+    channel_id = os.environ.get("SLACK_CHANNEL_ID", "")
+    if not token or not channel_id:
+        log.warning("Slack delivery skipped — SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set")
+        return
+    import requests
+    text = f"*{title}*\n\n{body[:3900]}"
+    resp = requests.post(
+        "https://slack.com/api/chat.postMessage",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"channel": channel_id, "text": text},
+        timeout=15,
+    )
+    data = resp.json()
+    if not data.get("ok"):
+        log.warning("Slack postMessage failed: %s", data.get("error"))
 
 
 def _send_telegram(title: str, body: str) -> None:

@@ -1397,8 +1397,10 @@
           <label>Deliver result via</label>
           <select id="r-notify">
             <option value="notification">Mac notification</option>
-            <option value="telegram">Telegram message</option>
-            <option value="both">Both (Mac + Telegram)</option>
+            <option value="slack">Slack</option>
+            <option value="telegram">Telegram</option>
+            <option value="both">Mac + Slack</option>
+            <option value="push">iOS push</option>
             <option value="none">Silent (store only)</option>
           </select>
         </div>
@@ -1579,9 +1581,10 @@
           <label>Notify via</label>
           <select id="watcher-notify">
             <option value="notification">Mac notification</option>
+            <option value="slack">Slack</option>
             <option value="telegram">Telegram</option>
             <option value="push">iOS push</option>
-            <option value="both">Mac + Telegram</option>
+            <option value="both">Mac + Slack</option>
             <option value="none">None (log only)</option>
           </select>
         </div>
@@ -1689,9 +1692,10 @@
         <div class="briefing-row">
           <label>Notify via</label>
           <select id="briefing-notify">
+            <option value="slack">Slack</option>
             <option value="notification">Mac notification</option>
+            <option value="both">Mac + Slack</option>
             <option value="telegram">Telegram</option>
-            <option value="both">Both</option>
             <option value="none">Silent (DB only)</option>
           </select>
         </div>
@@ -2453,7 +2457,7 @@
       const lastRun = r.last_run_at
         ? new Date(r.last_run_at).toLocaleString()
         : "Never run";
-      const notifyLabel = { notification: "Mac notification", telegram: "Telegram", none: "Silent", both: "Mac + Telegram" }[r.notify_via] || r.notify_via;
+      const notifyLabel = { notification: "Mac notification", slack: "Slack", telegram: "Telegram", none: "Silent", both: "Mac + Slack", push: "iOS push" }[r.notify_via] || r.notify_via;
       row.innerHTML = `
         <div class="routine-header">
           <span class="routine-name">${r.name}</span>
@@ -2491,7 +2495,7 @@
           headers: { "Authorization": `Bearer ${token}` },
         });
         if (res.ok) {
-          const via = { notification: "Mac notification", telegram: "Telegram message", none: "DB (silent)", both: "Mac + Telegram" }[r.notify_via] || r.notify_via;
+          const via = { notification: "Mac notification", slack: "Slack", telegram: "Telegram", none: "DB (silent)", both: "Mac + Slack", push: "iOS push" }[r.notify_via] || r.notify_via;
           showError(`Routine triggered — result will arrive as a ${via}.`);
         }
       });
