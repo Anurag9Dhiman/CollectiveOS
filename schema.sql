@@ -353,7 +353,7 @@ CREATE TABLE IF NOT EXISTS watchers (
     interval_min    INTEGER NOT NULL DEFAULT 60,  -- how often to check (minutes)
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
     notify_via      TEXT NOT NULL DEFAULT 'notification'
-                    CHECK (notify_via IN ('notification', 'telegram', 'push', 'both', 'none')),
+                    CHECK (notify_via IN ('notification', 'slack', 'telegram', 'push', 'both', 'none')),
     last_checked    TIMESTAMPTZ,
     last_triggered  TIMESTAMPTZ,
     last_result     TEXT,               -- last prompt result (for debugging)
