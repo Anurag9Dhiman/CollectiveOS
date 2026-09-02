@@ -57,6 +57,7 @@ from src import observability as _obs
 from src import redis_client as _cache
 from src.agent import run as agent_run, approve as agent_approve
 from src.voice_gateway import handle_voice_ws
+from src.wearable_stream import handle_wearable_ws
 
 _REPLY_CACHE_TTL = 3600  # keep last chat reply in Redis for 1 hour
 
@@ -861,6 +862,48 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Wearable always-on stream — WebSocket for glasses / watch / phone
+# ---------------------------------------------------------------------------
+
+@app.websocket("/wearable/ws")
+async def wearable_websocket(ws: WebSocket, token: str = "") -> None:
+    """
+    Always-on wearable stream — implements the VisionClaw architecture.
+
+    Connect from any wearable (Meta Ray-Ban glasses, phone, watch) and send
+    a continuous stream of transcripts and optional camera frames.  A cheap
+    intent classifier decides whether to invoke the full agent.
+
+    Auth: pass ?token=<API_TOKEN> as a query parameter.
+
+    Wire protocol (JSON over WebSocket):
+
+      Client → Server
+        {"type": "transcript", "text": "...", "device_id": "glasses-1"}
+        {"type": "frame",      "image_b64": "...", "device_id": "...",
+                               "image_mime": "image/jpeg"}
+        {"type": "context",    "text": "...", "image_b64": "...",
+                               "image_mime": "image/jpeg", "device_id": "..."}
+        {"type": "ping"}
+
+      Server → Client
+        {"type": "ack",   "message": "...", "triggered": false}
+        {"type": "reply", "text": "...",    "triggered": true}
+        {"type": "pong"}
+        {"type": "error", "message": "..."}
+
+    The server replies with triggered=false to every non-intent transcript
+    (so the client knows the message was received) and triggered=true only
+    when the intent classifier fires and the agent has responded.
+    """
+    expected = os.environ.get("API_TOKEN", "")
+    if not expected or token != expected:
+        await ws.close(code=4001)
+        return
+    await handle_wearable_ws(ws, token)
 
 
 # ---------------------------------------------------------------------------
