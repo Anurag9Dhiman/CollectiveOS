@@ -924,6 +924,42 @@ def robot_status_endpoint(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Morning briefing
+# ---------------------------------------------------------------------------
+
+@app.get("/briefing")
+def briefing_now(_token: str = Depends(_verify_token)):
+    """Generate and return a morning briefing immediately."""
+    from src import briefing as _briefing
+    return _briefing.generate()
+
+
+@app.get("/briefing/schedule")
+def briefing_schedule_get(_token: str = Depends(_verify_token)):
+    """Return the current briefing schedule configuration."""
+    from src import briefing as _briefing
+    return _briefing.get_config()
+
+
+@app.post("/briefing/schedule")
+def briefing_schedule_set(body: dict, _token: str = Depends(_verify_token)):
+    """
+    Update the briefing schedule.
+
+    Accepted fields: enabled (bool), hour (0-23), minute (0-59),
+    timezone (IANA string, e.g. "America/New_York"), notify_via (str).
+    """
+    from src import briefing as _briefing, scheduler as _sched
+    cfg = _briefing.set_config(body)
+    # Re-register the scheduler job with the updated config
+    try:
+        _briefing.register_job(_sched._scheduler)
+    except Exception as exc:
+        log.warning("Could not re-register briefing job: %s", exc)
+    return cfg
+
+
+# ---------------------------------------------------------------------------
 # Wearable always-on stream — WebSocket for glasses / watch / phone
 # ---------------------------------------------------------------------------
 

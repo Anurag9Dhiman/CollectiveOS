@@ -166,6 +166,12 @@ def start() -> None:
             id="watcher_poll",
             replace_existing=True,
         )
+        # Morning briefing — reads .briefing_config.json and schedules if enabled
+        try:
+            from src import briefing as _briefing
+            _briefing.register_job(_scheduler)
+        except Exception as exc:
+            log.warning("Could not register briefing job: %s", exc)
         log.info("APScheduler started")
 
 
