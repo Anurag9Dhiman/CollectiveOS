@@ -42,3 +42,10 @@ collectiveos = "collectiveos.cli:app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["collectiveos*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
