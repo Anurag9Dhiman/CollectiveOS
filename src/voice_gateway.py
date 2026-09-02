@@ -153,7 +153,7 @@ async def _run_task(
         if entity_refs:
             prefix = "Visual context: " + json.dumps(entity_refs) + "\n\n"
 
-        past = memory.search(text)
+        past = memory.search_with_graph(text)
         system = _system_prompt(past)
         thread_id = f"voice_{user_id}"
 
