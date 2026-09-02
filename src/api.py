@@ -910,6 +910,20 @@ def computer_stop(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Robot status — live state for the floor-plan UI panel
+# ---------------------------------------------------------------------------
+
+@app.get("/robot/status")
+def robot_status_endpoint(_token: str = Depends(_verify_token)):
+    """Return the current robot state (room, battery, last action).
+
+    When ROS2_MCP_URL is unset this reads from the local simulator state file.
+    """
+    from src.connectors import ros2_sim as _sim
+    return _sim.get_state()
+
+
+# ---------------------------------------------------------------------------
 # Wearable always-on stream — WebSocket for glasses / watch / phone
 # ---------------------------------------------------------------------------
 

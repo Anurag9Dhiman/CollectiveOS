@@ -270,6 +270,8 @@ TOOL_FUNCTIONS = {
     "robot_status":          _ros2.robot_status,
     "robot_move":            _ros2.robot_move,
     "robot_cancel":          _ros2.robot_cancel,
+    "robot_navigate":        _ros2.robot_navigate,
+    "robot_describe_scene":  _ros2.robot_describe_scene,
     # MCP server tools are merged in below
 }
 TOOL_FUNCTIONS.update(_mcp.tool_callables())
@@ -2043,6 +2045,36 @@ TOOLS = [
     {
         "name": "robot_cancel",
         "description": "Send an emergency stop to the robot — halts all motion immediately.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "robot_navigate",
+        "description": (
+            "Navigate the robot to a named room or location by planning the shortest "
+            "path through the home and executing it. "
+            "destination must be one of: bedroom, hallway, living_room, office, kitchen. "
+            "Requires HITL approval before execution — physical motion."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "destination": {
+                    "type": "string",
+                    "description": "Target room name. One of: bedroom, hallway, living_room, office, kitchen.",
+                    "enum": ["bedroom", "hallway", "living_room", "office", "kitchen"],
+                },
+            },
+            "required": ["destination"],
+        },
+    },
+    {
+        "name": "robot_describe_scene",
+        "description": (
+            "Ask the robot to describe its current environment — visible objects, "
+            "exits, and notable features in the room it is currently in. "
+            "Read-only: does not move the robot. "
+            "Use before navigating or when the user asks 'what can you see?'."
+        ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
 ]

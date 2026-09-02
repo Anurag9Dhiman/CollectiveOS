@@ -1173,6 +1173,93 @@
     }
     .graph-relation-target { color: #58a6ff; cursor: pointer; }
     .graph-relation-target:hover { text-decoration: underline; }
+
+    /* ── Robot panel ──────────────────────────────────────────────────────── */
+    #robot-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); z-index: 100;
+    }
+    #robot-overlay.open { display: block; }
+    #robot-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 420px; background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #robot-panel > header {
+      padding: 14px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #robot-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #robot-status-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #3fb950; flex-shrink: 0;
+    }
+    #robot-status-dot.offline { background: #484f58; }
+    #robot-body { flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+
+    /* Floor plan grid */
+    #robot-floorplan {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: auto auto;
+      gap: 6px;
+    }
+    .room-cell {
+      border-radius: 8px; padding: 10px 8px;
+      text-align: center; font-size: 0.72rem; font-weight: 500;
+      border: 1.5px solid #21262d; color: #8b949e;
+      background: #0d1117; cursor: pointer; transition: all 0.2s;
+      line-height: 1.3;
+    }
+    .room-cell:hover { border-color: #58a6ff; color: #c9d1d9; }
+    .room-cell.current {
+      background: #0d2136; border-color: #58a6ff;
+      color: #79c0ff; font-weight: 700;
+    }
+    .room-cell.empty { background: transparent; border-color: transparent; cursor: default; }
+    .room-cell .room-icon { font-size: 1.4rem; display: block; margin-bottom: 4px; }
+
+    /* Status row */
+    #robot-stat-row {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    }
+    .robot-stat { font-size: 0.78rem; color: #8b949e; }
+    .robot-stat span { color: #c9d1d9; font-weight: 600; }
+    #robot-battery-bar {
+      height: 6px; border-radius: 3px; background: #21262d;
+      flex: 1; overflow: hidden; min-width: 60px;
+    }
+    #robot-battery-fill { height: 100%; border-radius: 3px; background: #3fb950; transition: width 0.4s; }
+
+    /* Last action */
+    #robot-last-action {
+      font-size: 0.78rem; color: #8b949e; font-style: italic;
+      min-height: 1.4em;
+    }
+
+    /* Navigation controls */
+    #robot-nav-row {
+      display: flex; gap: 8px; align-items: center;
+    }
+    #robot-dest-select {
+      flex: 1; padding: 7px 10px; border-radius: 8px;
+      background: #0d1117; border: 1px solid #21262d;
+      color: #c9d1d9; font-size: 0.82rem;
+    }
+    #robot-go-btn {
+      padding: 7px 16px; border-radius: 8px;
+      background: #1f6feb; color: #fff; border: none;
+      font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    }
+    #robot-go-btn:hover { background: #388bfd; }
+    #robot-go-btn:disabled { opacity: 0.5; cursor: default; }
+    #robot-scan-btn {
+      padding: 7px 14px; border-radius: 8px;
+      background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+      font-size: 0.82rem; cursor: pointer; width: 100%;
+    }
+    #robot-scan-btn:hover { background: #2d333b; }
   </style>
 </head>
 <body>
@@ -1192,6 +1279,7 @@
   <button id="export-btn"    class="header-btn" title="Export all data as JSON">⬇ Export</button>
   <button id="stream-btn"    class="header-btn" title="Always-on wearable stream">📡 Stream</button>
   <button id="computer-btn"  class="header-btn" title="Computer agent live view">💻 Computer</button>
+  <button id="robot-btn"     class="header-btn" title="Robot live view">🤖 Robot</button>
 </header>
 
 <div id="chat"></div>
@@ -1307,6 +1395,66 @@
       <span id="computer-verify-badge"></span>
     </div>
     <div id="computer-action-log"></div>
+  </div>
+</div>
+
+<!-- Robot live view panel -->
+<div id="robot-overlay">
+  <div id="robot-panel">
+    <header>
+      <span id="robot-status-dot"></span>
+      <h2>🤖 Robot</h2>
+      <button id="robot-close">✕</button>
+    </header>
+    <div id="robot-body">
+      <!-- Floor plan -->
+      <div id="robot-floorplan">
+        <!-- Row 0 -->
+        <div class="room-cell" data-room="bedroom">
+          <span class="room-icon">🛏</span>Bedroom
+        </div>
+        <div class="room-cell" data-room="hallway">
+          <span class="room-icon">🚪</span>Hallway
+        </div>
+        <div class="room-cell" data-room="office">
+          <span class="room-icon">💼</span>Office
+        </div>
+        <!-- Row 1 -->
+        <div class="room-cell empty"></div>
+        <div class="room-cell" data-room="kitchen">
+          <span class="room-icon">🍳</span>Kitchen
+        </div>
+        <div class="room-cell empty"></div>
+        <!-- Row 2 -->
+        <div class="room-cell" data-room="living_room">
+          <span class="room-icon">🛋</span>Living Room
+        </div>
+        <div class="room-cell empty"></div>
+        <div class="room-cell empty"></div>
+      </div>
+
+      <!-- Stats row -->
+      <div id="robot-stat-row">
+        <div class="robot-stat">Battery: <span id="robot-battery-pct">—</span>%</div>
+        <div id="robot-battery-bar"><div id="robot-battery-fill" style="width:0%"></div></div>
+      </div>
+      <div id="robot-last-action">—</div>
+
+      <!-- Navigate -->
+      <div id="robot-nav-row">
+        <select id="robot-dest-select">
+          <option value="bedroom">Bedroom</option>
+          <option value="hallway" selected>Hallway</option>
+          <option value="living_room">Living Room</option>
+          <option value="office">Office</option>
+          <option value="kitchen">Kitchen</option>
+        </select>
+        <button id="robot-go-btn">Navigate →</button>
+      </div>
+
+      <!-- Scan scene -->
+      <button id="robot-scan-btn">👁 Describe current scene</button>
+    </div>
   </div>
 </div>
 
@@ -3281,6 +3429,108 @@
       startComputerStream();
     }
   };
+
+  // ── Robot live view ───────────────────────────────────────────────────────
+  const robotBtn    = document.getElementById("robot-btn");
+  const robotOvl    = document.getElementById("robot-overlay");
+  const robotClose  = document.getElementById("robot-close");
+  const robotDot    = document.getElementById("robot-status-dot");
+  const robotBatPct = document.getElementById("robot-battery-pct");
+  const robotBatFil = document.getElementById("robot-battery-fill");
+  const robotLastAct= document.getElementById("robot-last-action");
+  const robotGoBtn  = document.getElementById("robot-go-btn");
+  const robotDest   = document.getElementById("robot-dest-select");
+  const robotScan   = document.getElementById("robot-scan-btn");
+  const roomCells   = document.querySelectorAll(".room-cell[data-room]");
+
+  let _robotPollTimer = null;
+
+  function robotUpdateUI(state) {
+    if (!state) { robotDot.classList.add("offline"); return; }
+    robotDot.classList.remove("offline");
+    const pct = state.battery ?? 0;
+    robotBatPct.textContent = pct;
+    robotBatFil.style.width = pct + "%";
+    robotBatFil.style.background = pct > 40 ? "#3fb950" : pct > 20 ? "#f0c000" : "#f85149";
+
+    const room = state.room || "";
+    roomCells.forEach(c => c.classList.toggle("current", c.dataset.room === room));
+    robotDest.value = room;
+
+    const act = state.last_action || "—";
+    const ts  = state.last_action_ts ? ` (${state.last_action_ts})` : "";
+    robotLastAct.textContent = act + ts;
+  }
+
+  async function robotPoll() {
+    try {
+      const state = await apiFetch("/robot/status");
+      robotUpdateUI(state);
+    } catch (_) {
+      robotDot.classList.add("offline");
+    }
+  }
+
+  function robotStartPolling() {
+    robotPoll();
+    if (!_robotPollTimer) {
+      _robotPollTimer = setInterval(robotPoll, 5000);
+    }
+  }
+
+  function robotStopPolling() {
+    if (_robotPollTimer) { clearInterval(_robotPollTimer); _robotPollTimer = null; }
+  }
+
+  // Clicking a room cell sets the destination dropdown
+  roomCells.forEach(c => {
+    c.addEventListener("click", () => {
+      robotDest.value = c.dataset.room;
+    });
+  });
+
+  robotBtn.addEventListener("click", () => {
+    robotOvl.classList.add("open");
+    robotStartPolling();
+  });
+  robotClose.addEventListener("click", () => {
+    robotOvl.classList.remove("open");
+    robotStopPolling();
+  });
+  robotOvl.addEventListener("click", e => {
+    if (e.target === robotOvl) { robotOvl.classList.remove("open"); robotStopPolling(); }
+  });
+
+  robotGoBtn.addEventListener("click", async () => {
+    const dest = robotDest.value;
+    if (!dest) return;
+    const label = dest.replace(/_/g, " ");
+    robotGoBtn.disabled = true;
+    // Inject a chat message to trigger the agent tool
+    try {
+      await apiFetch("/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: `Navigate the robot to the ${label}.`, thread_id: "robot-nav" }),
+      });
+      setTimeout(robotPoll, 3000); // re-poll after a short delay
+    } finally {
+      robotGoBtn.disabled = false;
+    }
+  });
+
+  robotScan.addEventListener("click", async () => {
+    robotScan.disabled = true;
+    robotScan.textContent = "Scanning…";
+    try {
+      await apiFetch("/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: "Describe what the robot can see right now.", thread_id: "robot-scene" }),
+      });
+    } finally {
+      robotScan.disabled = false;
+      robotScan.textContent = "👁 Describe current scene";
+    }
+  });
 </script>
 
 </body>
