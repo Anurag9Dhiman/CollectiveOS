@@ -755,6 +755,77 @@
     }
     #save-fact-btn:hover { background: #388bfd; }
 
+    /* ── Computer live view panel ───────────────────────────────────────── */
+    #computer-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 100;
+    }
+    #computer-overlay.open { display: block; }
+    #computer-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 600px; background: #0d1117;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #computer-panel > header {
+      padding: 14px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    }
+    #computer-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #computer-run-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #484f58; flex-shrink: 0; transition: background 0.3s;
+    }
+    #computer-run-dot.running { background: #f0c000; animation: pulse 1s infinite; }
+    #computer-run-dot.done    { background: #3fb950; }
+    #computer-run-dot.error   { background: #f85149; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    #computer-stop-btn {
+      padding: 5px 12px; border-radius: 6px; border: none;
+      background: #da3633; color: #fff; font-size: 0.8rem;
+      cursor: pointer; display: none;
+    }
+    #computer-stop-btn.visible { display: block; }
+    #computer-status {
+      font-size: 0.78rem; color: #8b949e;
+    }
+    #computer-screenshot-wrap {
+      flex-shrink: 0; background: #161b22;
+      border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 200px; max-height: 340px; overflow: hidden;
+      position: relative;
+    }
+    #computer-screenshot {
+      max-width: 100%; max-height: 340px;
+      object-fit: contain; display: none;
+    }
+    #computer-screenshot.visible { display: block; }
+    #computer-screenshot-placeholder {
+      color: #484f58; font-size: 0.85rem;
+    }
+    #computer-verify-badge {
+      position: absolute; top: 8px; right: 10px;
+      font-size: 0.72rem; padding: 2px 8px; border-radius: 12px;
+      font-weight: 600; display: none;
+    }
+    #computer-verify-badge.PROCEED { display: block; background:#1a3a1a; color:#3fb950; }
+    #computer-verify-badge.STUCK   { display: block; background:#3a2e00; color:#f0c000; }
+    #computer-verify-badge.ERROR   { display: block; background:#3a0a0a; color:#f85149; }
+    #computer-verify-badge.DONE    { display: block; background:#0d2136; color:#79c0ff; }
+    #computer-action-log {
+      flex: 1; overflow-y: auto; padding: 10px 16px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .computer-log-entry {
+      font-size: 0.8rem; line-height: 1.45; padding: 6px 10px;
+      border-radius: 6px; font-family: monospace;
+    }
+    .computer-log-entry.action { background: #161b22; color: #c9d1d9; }
+    .computer-log-entry.system { color: #3fb950; }
+    .computer-log-entry.result { background: #0d2136; color: #79c0ff; }
+    .computer-log-entry.stop   { color: #f85149; }
+
     /* ── Wearable stream panel ──────────────────────────────────────────── */
     #stream-overlay {
       display: none; position: fixed; inset: 0;
@@ -1120,6 +1191,7 @@
   <button id="watchers-btn" class="header-btn" title="Condition watchers">👁 Watch</button>
   <button id="export-btn"    class="header-btn" title="Export all data as JSON">⬇ Export</button>
   <button id="stream-btn"    class="header-btn" title="Always-on wearable stream">📡 Stream</button>
+  <button id="computer-btn"  class="header-btn" title="Computer agent live view">💻 Computer</button>
 </header>
 
 <div id="chat"></div>
@@ -1219,6 +1291,25 @@
 </div>
 
 <!-- Condition watchers panel -->
+<!-- Computer agent live view panel -->
+<div id="computer-overlay">
+  <div id="computer-panel">
+    <header>
+      <span id="computer-run-dot"></span>
+      <h2>💻 Computer Agent</h2>
+      <span id="computer-status">Idle</span>
+      <button id="computer-stop-btn">⏹ Stop</button>
+      <button id="computer-close">✕</button>
+    </header>
+    <div id="computer-screenshot-wrap">
+      <span id="computer-screenshot-placeholder">No screenshot yet — trigger a computer_use task to begin.</span>
+      <img id="computer-screenshot" alt="Current screen" />
+      <span id="computer-verify-badge"></span>
+    </div>
+    <div id="computer-action-log"></div>
+  </div>
+</div>
+
 <!-- Wearable stream panel -->
 <div id="stream-overlay">
   <div id="stream-panel">
@@ -3061,6 +3152,135 @@
     const cached = sessionStorage.getItem("api_token");
     if (cached) window._API_TOKEN = cached;
   }
+
+  // ── Computer Agent live view ──────────────────────────────────────────────
+  const computerBtn      = document.getElementById("computer-btn");
+  const computerOvl      = document.getElementById("computer-overlay");
+  const computerClose    = document.getElementById("computer-close");
+  const computerDot      = document.getElementById("computer-run-dot");
+  const computerStatus   = document.getElementById("computer-status");
+  const computerStopBtn  = document.getElementById("computer-stop-btn");
+  const computerImg      = document.getElementById("computer-screenshot");
+  const computerPH       = document.getElementById("computer-screenshot-placeholder");
+  const computerBadge    = document.getElementById("computer-verify-badge");
+  const computerLog      = document.getElementById("computer-action-log");
+
+  let _computerES = null;   // active EventSource
+
+  function computerLogEntry(text, cls = "action") {
+    const el = document.createElement("div");
+    el.className = `computer-log-entry ${cls}`;
+    el.textContent = text;
+    computerLog.appendChild(el);
+    computerLog.scrollTop = computerLog.scrollHeight;
+  }
+
+  function computerSetState(state) {
+    // state: 'idle' | 'running' | 'done' | 'error'
+    computerDot.className = state === "idle" ? "" : state;
+    computerStatus.textContent = {
+      idle: "Idle", running: "Running…", done: "Done", error: "Error",
+    }[state] || state;
+    computerStopBtn.classList.toggle("visible", state === "running");
+    computerBtn.classList.toggle("active", state === "running");
+  }
+
+  function computerShowScreenshot(b64) {
+    if (!b64) return;
+    computerImg.src = "data:image/png;base64," + b64;
+    computerImg.classList.add("visible");
+    computerPH.style.display = "none";
+  }
+
+  function computerShowBadge(verdict) {
+    computerBadge.className = verdict ? "computer-verify-badge " + verdict : "";
+    computerBadge.textContent = verdict || "";
+  }
+
+  function startComputerStream() {
+    if (_computerES) { _computerES.close(); _computerES = null; }
+    computerLog.innerHTML = "";
+    computerImg.classList.remove("visible");
+    computerPH.style.display = "";
+    computerShowBadge(null);
+    computerSetState("running");
+
+    _computerES = new EventSource("/computer/stream", {
+      headers: { Authorization: "Bearer " + (window._API_TOKEN || "") },
+    });
+    // Note: native EventSource doesn't support custom headers in all browsers;
+    // the endpoint uses Depends(_verify_token) so this works when the browser
+    // already has an auth cookie, or when using fetch-based SSE polyfills.
+    // As a fallback the UI still shows the log even if the stream 403s.
+
+    _computerES.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.event === "start") {
+          computerLogEntry(`▶ Task: ${msg.task}`, "system");
+        } else if (msg.event === "action") {
+          const a = msg.action || {};
+          const aDesc = a.action === "type"
+            ? `type "${(a.text || "").slice(0, 40)}"`
+            : a.action === "key"
+            ? `key ${a.text}`
+            : a.action === "done"
+            ? `done`
+            : `${a.action} @ (${(a.coordinate||[]).join(", ")})`;
+          computerLogEntry(`[${msg.iteration + 1}] ${aDesc}`);
+          if (msg.screenshot_b64) computerShowScreenshot(msg.screenshot_b64);
+          if (msg.verify) computerShowBadge(msg.verify);
+        } else if (msg.event === "done") {
+          computerLogEntry(`✓ ${msg.result}`, "result");
+          computerSetState("done");
+          if (_computerES) { _computerES.close(); _computerES = null; }
+        } else if (msg.event === "stop") {
+          computerLogEntry("⏹ Stopped by user.", "stop");
+          computerSetState("idle");
+          if (_computerES) { _computerES.close(); _computerES = null; }
+        }
+      } catch (_) {}
+    };
+    _computerES.onerror = () => {
+      if (_computerES && _computerES.readyState === EventSource.CLOSED) {
+        computerSetState("done");
+        _computerES = null;
+      }
+    };
+  }
+
+  // Auto-start stream whenever the computer_use tool call appears in progress events
+  // (the chat stream emits {"progress": "computer use"} when the tool fires)
+  const _origAddMessage = window.addMessage;  // may be defined by chat JS
+  document.addEventListener("computer-use-started", startComputerStream);
+
+  computerBtn.addEventListener("click", () => {
+    computerOvl.classList.add("open");
+    // If no stream is active yet, open it speculatively
+    if (!_computerES) startComputerStream();
+  });
+  computerClose.addEventListener("click",  () => computerOvl.classList.remove("open"));
+  computerOvl.addEventListener("click", e => {
+    if (e.target === computerOvl) computerOvl.classList.remove("open");
+  });
+  computerStopBtn.addEventListener("click", async () => {
+    computerStopBtn.disabled = true;
+    try {
+      await apiFetch("/computer/stop", { method: "POST" });
+    } finally {
+      computerStopBtn.disabled = false;
+    }
+  });
+
+  // Hook into the chat SSE stream: when a progress event for "computer use"
+  // arrives, open the panel and start the SSE feed automatically
+  const _origSSEHandler = window._handleSSEProgress;
+  window._handleComputerProgress = (toolName) => {
+    if (toolName && toolName.toLowerCase().includes("computer")) {
+      computerOvl.classList.add("open");
+      startComputerStream();
+    }
+  };
 </script>
 
 </body>

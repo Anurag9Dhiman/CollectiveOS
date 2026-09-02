@@ -85,12 +85,20 @@ def computer_use(task: str) -> str:
     screen_w, screen_h = _screen_size()
 
     from src import observability as _obs
+    from src import computer_stream as _cs
+
+    # Register this run with the progress bus
+    run_id = _cs.begin_run(task)
 
     # Seed: take first screenshot and start the loop
     screenshot_data = _take_screenshot_b64()
     history: list[dict[str, Any]] = []
 
     for iteration in range(_MAX_ITER):
+        # Honour a stop request from the web UI
+        if _cs.should_stop():
+            _cs.end_run(run_id, "Stopped by user.", iteration)
+            return "[computer_use: stopped by user]"
         # Build the prompt for this iteration
         if iteration == 0:
             user_text = (
@@ -144,14 +152,23 @@ def computer_use(task: str) -> str:
             return f"[computer_use: could not parse action from model response: {raw[:200]}]"
 
         if action["action"] == "done":
-            return action.get("result", "Task completed.")
+            result = action.get("result", "Task completed.")
+            _cs.end_run(run_id, result, iteration + 1)
+            return result
 
         screenshot_data = _execute_action(action)
 
+        # Emit progress event for the live-view SSE stream
+        _cs.emit_action(run_id, iteration, action, screenshot_data)
+
         # Periodic verification: check if the agent is making progress
+        verify_verdict: str | None = None
         if (iteration + 1) % _VERIFY_EVERY == 0 and screenshot_data:
-            verdict = _verify_progress(client, task, screenshot_data)
+            verify_verdict = _verify_progress(client, task, screenshot_data)
+            _cs.emit_action(run_id, iteration, action, screenshot_data, verify_verdict)
+            verdict = verify_verdict
             if verdict == "DONE":
+                _cs.end_run(run_id, "Task completed (verified).", iteration + 1)
                 return "Task completed (verified by progress check)."
             elif verdict == "ERROR":
                 # Inject a hint into the next iteration so the model knows to recover
@@ -173,7 +190,9 @@ def computer_use(task: str) -> str:
                     ))],
                 })
 
-    return f"[computer_use: stopped after {_MAX_ITER} iterations without completing the task]"
+    msg = f"[computer_use: stopped after {_MAX_ITER} iterations without completing the task]"
+    _cs.end_run(run_id, msg, _MAX_ITER)
+    return msg
 
 
 # ---------------------------------------------------------------------------
