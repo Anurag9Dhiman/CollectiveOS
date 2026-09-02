@@ -236,13 +236,11 @@ def ask(
     if not user_message:
         raise HTTPException(status_code=400, detail="q must not be empty.")
 
-    past = memory.search(user_message)
+    past = memory.search_with_graph(user_message)
     system_prompt = _system_prompt(past)
 
-    reply, _interrupted = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
-    memory.save_smart(user_message, reply)
     reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
-    memory.save(user_message, reply)
+    memory.save_smart(user_message, reply)
     return reply
 
 
@@ -298,7 +296,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     conv_id = body.conversation_id or conversations.create()
     thread_id = str(conv_id)
 
-    past = memory.search(user_message)
+    past = memory.search_with_graph(user_message)
     system_prompt = _system_prompt(past)
 
     conversations.save_message(conv_id, "user", user_message)
@@ -319,19 +317,17 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
         memory.save_smart(user_message, reply)
         _titler.title_async(conv_id)   # generate title in background (skips if already set)
 
+    _cache.set(
+        f"chat:status:{thread_id}",
+        {"reply": reply, "interrupted": interrupted, "conversation_id": conv_id},
+        ttl=_REPLY_CACHE_TTL,
+    )
     return ChatResponse(
         reply=reply,
         conversation_id=conv_id,
         interrupted=interrupted,
         destructive=destructive,
     )
-    _cache.set(
-        f"chat:status:{thread_id}",
-        {"reply": reply, "interrupted": interrupted, "conversation_id": conv_id},
-        ttl=_REPLY_CACHE_TTL,
-    )
-
-    return ChatResponse(reply=reply, conversation_id=conv_id, interrupted=interrupted)
 
 
 @app.get("/chat/status/{conversation_id}", response_model=ChatResponse)
@@ -763,7 +759,7 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
     conv_id = body.conversation_id or conversations.create()
     thread_id = str(conv_id)
 
-    past = memory.search(user_message)
+    past = memory.search_with_graph(user_message)
     system_prompt = _system_prompt(past)
     conversations.save_message(conv_id, "user", user_message)
 
@@ -889,7 +885,7 @@ def _tg_send(chat_id: str, text: str) -> None:
 
 def _handle_tg_message(chat_id: str, text: str) -> None:
     """Run the agent and reply — executed in a background thread."""
-    past = memory.search(text)
+    past = memory.search_with_graph(text)
     try:
         reply = run(text, system=_system_prompt(past))
     except Exception as exc:

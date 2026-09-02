@@ -25,6 +25,18 @@ _MODEL = os.environ.get("GEMINI_COMPUTER_MODEL", "gemini-3.6-flash")
 _MAX_ITER = 20
 _ACTION_PAUSE = 0.5   # seconds to wait after each action for the UI to settle
 
+_VERIFY_EVERY = 3   # run a verification check every N actions
+
+_VERIFY_SYSTEM = (
+    "You are a verifier for a computer-use agent on macOS. "
+    "Look at the screenshot and answer ONLY with one word:\n"
+    "  PROCEED  — the task is making visible progress, keep going\n"
+    "  STUCK    — the screen hasn't changed meaningfully; a different approach is needed\n"
+    "  ERROR    — an error dialog, crash, or blocking UI element is visible\n"
+    "  DONE     — the task appears to be fully complete\n"
+    "No explanation. One word only."
+)
+
 _SYSTEM = """You are a computer-use agent controlling a macOS desktop.
 You will receive a screenshot and a task. Respond ONLY with a JSON object
 describing the single next action to take. Do not explain. Do not add text
@@ -136,6 +148,31 @@ def computer_use(task: str) -> str:
 
         screenshot_data = _execute_action(action)
 
+        # Periodic verification: check if the agent is making progress
+        if (iteration + 1) % _VERIFY_EVERY == 0 and screenshot_data:
+            verdict = _verify_progress(client, task, screenshot_data)
+            if verdict == "DONE":
+                return "Task completed (verified by progress check)."
+            elif verdict == "ERROR":
+                # Inject a hint into the next iteration so the model knows to recover
+                history.append({
+                    "role": "user",
+                    "parts": [_gtypes.Part(text=(
+                        "⚠ Verifier detected an error dialog or blocking UI element. "
+                        "Dismiss it (press Escape or click OK/Cancel) before continuing."
+                    ))],
+                })
+                history.append({"role": "model", "parts": [_gtypes.Part(text='{"action": "key", "text": "Escape"}')]})
+            elif verdict == "STUCK":
+                history.append({
+                    "role": "user",
+                    "parts": [_gtypes.Part(text=(
+                        "⚠ Verifier: no visible progress in the last few steps. "
+                        "Try a different approach — use a menu, keyboard shortcut, "
+                        "or look for a different UI element to interact with."
+                    ))],
+                })
+
     return f"[computer_use: stopped after {_MAX_ITER} iterations without completing the task]"
 
 
@@ -161,6 +198,40 @@ def _parse_action(text: str) -> dict[str, Any] | None:
         return json.loads(text[start:end])
     except json.JSONDecodeError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Progress verifier
+# ---------------------------------------------------------------------------
+
+def _verify_progress(client, task: str, screenshot_b64: str) -> str:
+    """
+    Ask the VLM whether the task is progressing, stuck, errored, or done.
+    Returns one of: PROCEED | STUCK | ERROR | DONE
+    Falls back to PROCEED on any error so the main loop is never blocked.
+    """
+    try:
+        from google.genai import types as _gtypes
+
+        contents = [_gtypes.Content(role="user", parts=[
+            _gtypes.Part(text=f"Task: {task}\nIs this task progressing?"),
+            _gtypes.Part(inline_data=_gtypes.Blob(
+                mime_type="image/png",
+                data=base64.b64decode(screenshot_b64),
+            )),
+        ])]
+        resp = client.models.generate_content(
+            model=_MODEL,
+            contents=contents,
+            config=_gtypes.GenerateContentConfig(
+                system_instruction=_VERIFY_SYSTEM,
+                temperature=0.0,
+            ),
+        )
+        word = (resp.text or "").strip().upper().split()[0] if resp.text else "PROCEED"
+        return word if word in {"PROCEED", "STUCK", "ERROR", "DONE"} else "PROCEED"
+    except Exception:
+        return "PROCEED"
 
 
 # ---------------------------------------------------------------------------

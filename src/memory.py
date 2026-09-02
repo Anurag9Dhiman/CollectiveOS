@@ -211,36 +211,114 @@ def get_all_facts_str() -> str:
     return "\n".join(f"- {f['content']}" for f in facts)
 
 
-def search(query: str, limit: int = 3) -> str:
-    """Return the most semantically similar past exchanges for the query."""
+def search(query: str, limit: int = 5) -> str:
+    """
+    Hybrid retrieval: cosine vector similarity + keyword (ILIKE) merged with
+    Reciprocal Rank Fusion (RRF, k=60).  Returns top *limit* chunks as text.
+    """
+    if not query or not query.strip():
+        return ""
     try:
         embedding = _embed(query)
         conn = connect()
         try:
             user_id = default_user_id(conn)
             with conn.cursor() as cur:
+                # --- Leg 1: cosine similarity ---
                 cur.execute(
                     """
-                    SELECT content, created_at,
-                           1 - (embedding <=> %s::vector) AS similarity
+                    SELECT id, content, created_at,
+                           ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector) AS rank
                     FROM memory_chunks
-                    WHERE user_id = %s
+                    WHERE user_id = %s AND embedding IS NOT NULL
                     ORDER BY embedding <=> %s::vector
                     LIMIT %s
                     """,
-                    (embedding, user_id, embedding, limit),
+                    (embedding, user_id, embedding, limit * 3),
                 )
-                rows = cur.fetchall()
+                vec_rows = {r[0]: (r[1], r[2], int(r[3])) for r in cur.fetchall()}
+
+                # --- Leg 2: keyword (ILIKE) ---
+                like = f"%{query.strip()[:120]}%"
+                cur.execute(
+                    """
+                    SELECT id, content, created_at,
+                           ROW_NUMBER() OVER (ORDER BY created_at DESC) AS rank
+                    FROM memory_chunks
+                    WHERE user_id = %s AND content ILIKE %s
+                    LIMIT %s
+                    """,
+                    (user_id, like, limit * 3),
+                )
+                kw_rows = {r[0]: (r[1], r[2], int(r[3])) for r in cur.fetchall()}
         finally:
             conn.close()
     except Exception:
         return ""
 
-    if not rows:
-        return ""
+    # --- RRF merge (k=60) ---
+    k = 60
+    scores: dict[int, float] = {}
+    all_ids = set(vec_rows) | set(kw_rows)
+    for chunk_id in all_ids:
+        score = 0.0
+        if chunk_id in vec_rows:
+            score += 1.0 / (k + vec_rows[chunk_id][2])
+        if chunk_id in kw_rows:
+            score += 1.0 / (k + kw_rows[chunk_id][2])
+        scores[chunk_id] = score
+
+    ranked = sorted(scores, key=lambda i: scores[i], reverse=True)[:limit]
 
     parts = []
-    for content, created_at, similarity in rows:
+    for chunk_id in ranked:
+        content, created_at, _ = (vec_rows if chunk_id in vec_rows else kw_rows)[chunk_id]
         date = created_at.strftime("%Y-%m-%d") if created_at else ""
-        parts.append(f"[{date} | similarity {similarity:.2f}]\n{content}")
+        parts.append(f"[{date}]\n{content}")
     return "\n\n".join(parts)
+
+
+def search_with_graph(query: str, limit: int = 5) -> str:
+    """
+    Hybrid vector+keyword retrieval (search()) augmented with knowledge graph
+    context for any named entities detected in the query.
+
+    Entity detection is purely lexical — checks whether known entity names
+    appear in the query text — so it costs one DB read, no LLM call.
+    """
+    vector_context = search(query, limit=limit)
+
+    # Detect entities in the query via a fast ILIKE scan of the entities table
+    graph_parts: list[str] = []
+    try:
+        from src import graph_memory as _gm
+
+        conn = connect()
+        try:
+            user_id = default_user_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name FROM entities WHERE user_id = %s "
+                    "ORDER BY LENGTH(name) DESC LIMIT 100",
+                    (user_id,),
+                )
+                entity_names = [r[0] for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+        query_lower = query.lower()
+        matched = [n for n in entity_names if n.lower() in query_lower][:3]
+        for name in matched:
+            result = _gm.query_graph(name)
+            if result and "no entity found" not in result.lower():
+                graph_parts.append(result)
+    except Exception:
+        pass
+
+    if not graph_parts:
+        return vector_context
+
+    graph_section = "\n\n---\n".join(graph_parts)
+    if vector_context:
+        return vector_context + "\n\n[Knowledge graph]\n" + graph_section
+    return graph_section
