@@ -168,6 +168,8 @@ TOOL_TIERS: dict[str, str] = {
     "robot_status":              READ,
     "robot_move":                DESTRUCTIVE,   # physical motion
     "robot_cancel":              DESTRUCTIVE,   # emergency stop (also needs gate)
+    "robot_navigate":            DESTRUCTIVE,   # path-planned motion between rooms
+    "robot_describe_scene":      READ,
 }
 
 
