@@ -58,6 +58,7 @@ from src import redis_client as _cache
 from src.agent import run as agent_run, approve as agent_approve
 from src.voice_gateway import handle_voice_ws
 from src.wearable_stream import handle_wearable_ws
+from src import computer_stream as _cs
 
 _REPLY_CACHE_TTL = 3600  # keep last chat reply in Redis for 1 hour
 
@@ -862,6 +863,50 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Computer-use live stream — SSE progress feed + stop control
+# ---------------------------------------------------------------------------
+
+@app.get("/computer/stream")
+async def computer_stream_sse(_token: str = Depends(_verify_token)):
+    """
+    Server-Sent Events stream of computer-use progress.
+
+    Open this stream before (or immediately after) triggering a computer_use
+    tool call.  The stream emits one JSON event per action taken by the agent
+    and closes automatically when the run finishes or is stopped.
+
+    Event types:
+      data: {"event": "start",  "task": "...", "run_id": "..."}
+      data: {"event": "action", "run_id": "...", "iteration": N,
+                                "action": {...}, "screenshot_b64": "...",
+                                "verify": "PROCEED|STUCK|ERROR|DONE|null"}
+      data: {"event": "done",   "run_id": "...", "result": "...", "iterations": N}
+      data: {"event": "stop"}
+
+    Keep-alive comments (": keep-alive") are sent every 5 s between events.
+    """
+    async def _generate():
+        for event in _cs.event_stream(timeout=5.0):
+            if event is None:
+                yield ": keep-alive\n\n"
+            else:
+                yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/computer/stop")
+def computer_stop(_token: str = Depends(_verify_token)):
+    """Request the currently running computer-use agent to stop after its next action."""
+    stopped = _cs.request_stop()
+    return {"message": "Stop signal sent." if stopped else "No active computer-use run."}
 
 
 # ---------------------------------------------------------------------------
