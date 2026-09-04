@@ -15,45 +15,72 @@ Early build. The agent loop runs with placeholder tools (`src/assistant_starter.
 Next milestones: first real read-only connector, then Postgres-backed memory.
 See `docs/mvp_plan.md` for the full phased plan.
 
-## Architecture (do not drift from this without discussion)
+## Architecture
 
-- **Pattern: a single "augmented LLM" agent** — one model in a tool-use loop, with
-  retrieval and memory. NOT a multi-agent system.
-- **Prefer deterministic workflows**; use the model's judgment only where a step is
-  genuinely open-ended.
-- Add a cheap **routing** step (classify, then narrow the tool list) only once the
-  tool count grows. No orchestrator / multi-agent until a concrete need proves it.
-- **Connectors are the unit of integration**: each external service or device is a
-  tool — via an MCP server where one exists, otherwise a custom Python client.
+**Hub-and-spoke multi-agent system.** CollectiveOS is the hub; VisualOS and
+VoiceOS are peer agents with fixed, narrow roles.
+
+```
+VoiceOS ──WS /v1/ws──► CollectiveOS Orchestrator ──► Task Agent (LangGraph loop)
+                                │                           │
+                                └──► VisualOS Agent    tools, memory, HITL
+                                     (context enrich)
+```
+
+- **Orchestrator** (`src/multi_agent.py`) — classifies and routes. When a
+  `scan_session_id` is present in `entity_refs`, it fetches VisualOS context and
+  injects it as a prefix before delegating to the task agent.
+- **Task agent** (`src/agent.py`) — the LangGraph loop with PostgresSaver
+  checkpointing. Handles tool calls, write-action HITL, and conversation history.
+- **Peer agents** (`src/agents/`) — each wraps one remote service. Registered at
+  startup from env vars and from the `agent_connectors` table; remote agents can
+  also self-register via `POST /agents/register`.
+- **Connectors** are still the unit of local integration — each external API or
+  device is a tool called inside the task agent loop. Connectors do not know about
+  LangGraph; they are plain Python functions.
+- **Prefer deterministic workflows**; use the model's judgment only where a step
+  is genuinely open-ended.
+- **No new peer agent** until the concrete need justifies it. Adding a peer agent
+  is the right move when the capability requires its own LLM loop, persistent
+  session, or multi-modal pipeline — not just a new API call.
 
 ## Tech stack
 
 - Language: **Python**.
-- LLM: **Anthropic SDK** with tool use. No agent framework yet.
-- Models: `claude-sonnet-4-6` as the default workhorse; `claude-haiku-4-5` for
-  routing/classification; `claude-opus-4-8` only for genuinely hard reasoning.
-- Connectors: **MCP servers** + custom API clients.
-- API layer (later): **FastAPI**.
-- Database: **PostgreSQL + pgvector** — one database for both structured data and
-  vector search. SQLite is acceptable for the earliest local experiments.
-- Embeddings: a **dedicated embeddings model** (Anthropic's models generate text,
-  not embeddings) — a hosted embeddings API or a local open-source model.
-- Cache / queue (later): Redis.
+- LLM: **Google Gemini SDK** (`google-genai`) with tool use via LangGraph.
+- Models: `models/gemini-flash-lite-latest` as the default workhorse; a dedicated
+  router model for intent classification; vision via `VISION_MODEL` env var.
+- Peer agents: **VisualOS** (visual intelligence), **VoiceOS** (voice front-end).
+- Agent framework: **LangGraph** with **PostgresSaver** checkpointing.
+- Connectors: custom Python clients in `src/connectors/`; MCP servers where available.
+- API layer: **FastAPI** (`src/api.py`).
+- Database: **PostgreSQL + pgvector** — structured data, vector embeddings, and
+  LangGraph checkpoints all in one DB.
+- Embeddings: `gemini-embedding-001` (3072 dims) via `EMBED_MODEL` env var.
+- Cache: **Redis** (optional; falls back to in-process dict).
 
 ## Repository layout
 
-- `src/` — application code. The agent loop lives here.
+- `src/api.py` — FastAPI app; all HTTP + WebSocket endpoints.
+- `src/agent.py` — LangGraph task agent (tool calls, HITL, checkpointing).
+- `src/multi_agent.py` — orchestrator; routes messages to the right peer agent.
+- `src/agents/` — peer agent clients (`base.py`, `visual_agent.py`, `task_agent.py`).
+- `src/connectors/` — local tool connectors (one file per integration).
+- `src/voice_gateway.py` — VoiceOS WebSocket handler (`/v1/ws`).
 - `docs/mvp_plan.md` — the full phased build plan (read before planning work).
 - `docs/device_coverage.md` — per-device connectivity tiers; **read before adding
   any device connector**.
-- `docs/diagrams/` — architecture diagrams (images, for humans).
 - `.env` — secrets. Never committed. See `.env.example`.
 
 ## How the agent loop works
 
-See `src/assistant_starter.py`. The model returns either a tool call (we run it,
-feed the result back, and loop) or a final answer (we stop). Every new connector
-just replaces the *body* of a tool function — the loop itself never changes.
+All messages enter via `src/multi_agent.run()` (orchestrator). The orchestrator
+enriches context (e.g. fetches VisualOS scan context), then calls the task agent.
+The task agent (`src/agent.py`) is a LangGraph StateGraph: it calls Gemini, which
+returns either a tool call (executed, then loops) or a final text reply (stops).
+Write-tool calls pause at `interrupt_before=["write_tools"]` for HITL approval via
+`POST /chat/approve`. Every new connector replaces the body of one tool function —
+the loop and the orchestrator do not change.
 
 ## Data model (summary)
 
