@@ -75,6 +75,8 @@ TRIM_KEEP = 20             # how many recent entries to retain after trimming
 class AgentState(TypedDict):
     # Gemini-format conversation history: list of {"role": ..., "parts": [...]} dicts.
     # Stored as plain Python dicts so PostgresSaver can JSON-serialise them.
+    # NOTE: inline_data (images) are NEVER stored here — they live in image_b64/image_mime
+    # for the current turn only and are injected at call time, then dropped.
     history: list[dict]
     system_prompt: str
     active_tools: list[dict]  # router-selected subset of TOOLS
@@ -83,6 +85,8 @@ class AgentState(TypedDict):
     approved: bool | None      # set by /chat/approve; None until asked
     iteration: int             # loop-count guard
     has_destructive: bool      # True when any pending_write tool is DESTRUCTIVE
+    image_b64: str | None      # current-turn image; injected into first Gemini call only
+    image_mime: str            # MIME type for image_b64
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +247,20 @@ def agent_node(state: AgentState) -> dict:
     # Trim long histories before the Gemini call; persists the compacted form.
     history = _trim_history(state["history"])
 
-    history_objs = _history_to_gemini(history)
+    # If an image was passed for this turn, inject it into the last user message
+    # for the Gemini call only — it is NOT stored in the checkpoint history.
+    image_b64 = state.get("image_b64")
+    image_mime = state.get("image_mime") or "image/jpeg"
+    history_for_call = history
+    if image_b64 and history:
+        last = history[-1]
+        if last.get("role") == "user":
+            augmented_parts = last["parts"] + [
+                {"inline_data": {"mime_type": image_mime, "data": image_b64}}
+            ]
+            history_for_call = history[:-1] + [{"role": "user", "parts": augmented_parts}]
+
+    history_objs = _history_to_gemini(history_for_call)
     response = _call_gemini(
         history_objs,
         state["system_prompt"],
@@ -265,7 +282,7 @@ def agent_node(state: AgentState) -> dict:
     iteration = state.get("iteration", 0) + 1
 
     if not fn_calls:
-        # Done — no more tool calls
+        # Done — no more tool calls. Clear image_b64 so it never persists.
         return {
             "reply": _response_text(response),
             "history": history + [
@@ -273,6 +290,7 @@ def agent_node(state: AgentState) -> dict:
             ],
             "iteration": iteration,
             "pending_write": [],
+            "image_b64": None,
         }
 
     # Add model's tool-call turn to history
@@ -481,19 +499,28 @@ def run(
     image_b64: optional base64-encoded image bytes for the current turn only
                (not persisted to DB — just passed as context for this call).
     """
-    from src import router
-
-    # Import TOOLS only here to avoid circular imports at module level
     from src.assistant_starter import TOOLS
-    active_tools, _ = router.select_tools(user_message, TOOLS)
+
+    # Router classifies text only — skip it when an image is present so we
+    # don't waste a round-trip on a call that can't see the image.
+    if image_b64:
+        active_tools = TOOLS
+    else:
+        from src import router
+        active_tools, _ = router.select_tools(user_message, TOOLS)
 
     # Build user parts — text plus optional inline image
     user_parts: list[dict] = [{"text": user_message}]
     if image_b64:
         user_parts.append({"inline_data": {"mime_type": image_mime, "data": image_b64}})
 
-    # Seed state: prepend prior history + new user message
+    # Build checkpoint-safe history: text only, never base64 blobs.
+    # The image is passed via AgentState.image_b64 and injected into the
+    # Gemini call inside agent_node, then cleared — so it never accumulates.
     prior = history or []
+    user_parts: list[dict] = [{"text": user_message}]
+    if image_b64:
+        user_parts.append({"text": f"[Image attached: {image_mime}]"})
     init_history = prior + [{"role": "user", "parts": user_parts}]
 
     initial_state: AgentState = {
@@ -505,6 +532,8 @@ def run(
         "approved": None,
         "iteration": 0,
         "has_destructive": False,
+        "image_b64": image_b64,
+        "image_mime": image_mime or "image/jpeg",
     }
 
     graph = get_graph()
