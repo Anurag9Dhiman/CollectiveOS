@@ -144,23 +144,22 @@ async def _run_task(
     user_id: str,
     pending_hitl: dict[str, str],
 ) -> None:
-    from src.agent import run as agent_run
-    from src import memory
+    from src import memory, multi_agent
     from src.api import _system_prompt
 
     try:
-        prefix = ""
-        if entity_refs:
-            prefix = "Visual context: " + json.dumps(entity_refs) + "\n\n"
-
         past = memory.search_with_graph(text)
         system = _system_prompt(past)
         thread_id = f"voice_{user_id}"
 
         loop = asyncio.get_event_loop()
-        reply, interrupted, _destructive = await loop.run_in_executor(
-            None, agent_run, prefix + text, system, thread_id
+        result = await loop.run_in_executor(
+            None,
+            multi_agent.run,
+            text, entity_refs, None, "image/jpeg", system, thread_id,
         )
+        reply = result.text
+        interrupted = result.metadata.get("interrupted", False)
 
         if interrupted:
             # Agent paused before a write action — ask VoiceOS to confirm.
@@ -174,7 +173,7 @@ async def _run_task(
             # Do not send speak/done yet; _resume_task will do that on response.
             return
 
-        memory.save_smart(text, reply)
+        memory.save_smart(text, reply)   # save the original user text, not the enriched prefix
 
         await _send(ws, {
             "type": "speak",

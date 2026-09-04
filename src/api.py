@@ -55,7 +55,8 @@ from src import titler as _titler
 from src import scheduler as _scheduler
 from src import observability as _obs
 from src import redis_client as _cache
-from src.agent import run as agent_run, approve as agent_approve
+from src import multi_agent as _orchestrator
+from src.agent import approve as agent_approve
 from src.voice_gateway import handle_voice_ws
 from src.wearable_stream import handle_wearable_ws
 from src import computer_stream as _cs
@@ -70,6 +71,7 @@ async def _lifespan(app: FastAPI):
     _obs.configure_logging()
     _scheduler.load_all()
     _scheduler.start()
+    _orchestrator.setup()   # register built-in agents + reload any DB-persisted ones
     yield
     _scheduler.shutdown()
 
@@ -152,6 +154,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[int] = None
     image_b64: Optional[str] = None        # base64-encoded image for this turn only
     image_mime: str = "image/jpeg"         # MIME type: image/jpeg, image/png, image/webp, image/gif
+    entity_refs: Optional[dict] = None     # agent context: scan_session_id, region, etc.
 
 class ChatResponse(BaseModel):
     reply: str
@@ -241,7 +244,8 @@ def ask(
     past = memory.search_with_graph(user_message)
     system_prompt = _system_prompt(past)
 
-    reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
+    result = _orchestrator.run(user_message, system_prompt=system_prompt, thread_id="ask")
+    reply = result.text
     memory.save_smart(user_message, reply)
     return reply
 
@@ -303,16 +307,20 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     conversations.save_message(conv_id, "user", user_message)
 
-    # The LangGraph agent carries full history via PostgresSaver — no need to
-    # load and pass history manually; it's restored from the checkpoint.
-    # image_b64 is forwarded for this turn only and is NOT persisted to DB.
-    reply, interrupted, destructive = agent_run(
+    # Route through the multi-agent orchestrator.
+    # The orchestrator enriches with VisualOS context (if scan_session_id present),
+    # then delegates to the task agent (LangGraph loop) with PostgresSaver checkpointing.
+    result = _orchestrator.run(
         user_message,
-        system_prompt=system_prompt,
-        thread_id=thread_id,
+        entity_refs=body.entity_refs or {},
         image_b64=body.image_b64 or None,
         image_mime=body.image_mime or "image/jpeg",
+        system_prompt=system_prompt,
+        thread_id=thread_id,
     )
+    reply = result.text
+    interrupted = result.metadata.get("interrupted", False)
+    destructive = result.metadata.get("destructive", False)
 
     conversations.save_message(conv_id, "assistant", reply)
     if not interrupted:
@@ -541,6 +549,66 @@ def update_connector_config(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return {"connector": connector, "config": updates}
+
+
+# ---------------------------------------------------------------------------
+# Multi-agent registry — register, list, and remove peer agents
+# ---------------------------------------------------------------------------
+
+class AgentRegisterRequest(BaseModel):
+    name: str                          # logical name, e.g. "visual", "calendar"
+    url: str                           # base URL of the agent service
+    protocol: str = "rest"             # "rest" | "a2a" | "ws"
+    capabilities: List[str]            # what tasks this agent handles
+    api_key: Optional[str] = None      # passed as X-API-Key on outbound calls
+    health_url: Optional[str] = None   # GET this to check liveness
+
+
+@app.get("/agents")
+def list_agents(_token: str = Depends(_verify_token)):
+    """Return all registered peer agents with their capabilities and liveness."""
+    from src.agents.base import AgentRegistry
+    return {"agents": AgentRegistry.list_all()}
+
+
+@app.post("/agents/register", status_code=201)
+def register_agent(body: AgentRegisterRequest, _token: str = Depends(_verify_token)):
+    """Register (or update) a peer agent in the registry.
+
+    Remote services (VisualOS, VoiceOS, future agents) call this on startup
+    so CollectiveOS can delegate tasks to them.  Built-in agents are also
+    registered here on CollectiveOS startup (via multi_agent.setup()).
+    """
+    if body.protocol not in ("rest", "a2a", "ws"):
+        raise HTTPException(status_code=400, detail="protocol must be rest, a2a, or ws")
+    if not body.capabilities:
+        raise HTTPException(status_code=400, detail="capabilities must not be empty")
+
+    client = _orchestrator._build_client(
+        body.name, body.url, body.protocol, body.capabilities, body.api_key or ""
+    )
+    if client is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No client class available for protocol {body.protocol!r} with these capabilities."
+        )
+
+    from src.agents.base import AgentRegistry
+    AgentRegistry.register(body.name, client)
+    _orchestrator.persist_agent(
+        body.name, body.url, body.protocol, body.capabilities,
+        body.api_key or "", body.health_url or "",
+    )
+    return {"message": f"Agent '{body.name}' registered.", "capabilities": body.capabilities}
+
+
+@app.delete("/agents/{name}", status_code=204)
+def unregister_agent(name: str, _token: str = Depends(_verify_token)):
+    """Unregister a peer agent by name."""
+    from src.agents.base import AgentRegistry
+    if not AgentRegistry.unregister(name):
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found.")
+    _orchestrator.remove_agent(name)
 
 
 @app.post("/health-ingest", status_code=201)
