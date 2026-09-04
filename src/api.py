@@ -244,7 +244,8 @@ def ask(
     past = memory.search_with_graph(user_message)
     system_prompt = _system_prompt(past)
 
-    reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
+    result = _orchestrator.run(user_message, system_prompt=system_prompt, thread_id="ask")
+    reply = result.text
     memory.save_smart(user_message, reply)
     return reply
 

@@ -157,6 +157,20 @@ def _mock_conversations(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _mock_orchestrator(monkeypatch):
+    import src.multi_agent as ma
+    from src.agents.base import AgentResult
+    monkeypatch.setattr(ma, "setup", lambda: None, raising=False)
+    monkeypatch.setattr(
+        ma, "run",
+        lambda text, entity_refs=None, image_b64=None, image_mime="image/jpeg",
+               system_prompt="", thread_id="default":
+            AgentResult(text="Test reply", metadata={"interrupted": False, "destructive": False}),
+        raising=False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _mock_permissions(monkeypatch):
     import src.permissions as perm
     monkeypatch.setattr(perm, "is_enabled", lambda name: True, raising=False)
