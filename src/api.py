@@ -161,6 +161,7 @@ class ChatResponse(BaseModel):
     conversation_id: int
     interrupted: bool = False    # True when write-tool HITL approval is needed
     destructive: bool = False    # True when pending action is DESTRUCTIVE tier (sends msg / controls hardware)
+    scan_session_id: Optional[str] = None  # VisualOS session id when a new scan was created; pass back as entity_refs["scan_session_id"] on next turn
 
 
 class ApproveRequest(BaseModel):
@@ -321,6 +322,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     reply = result.text
     interrupted = result.metadata.get("interrupted", False)
     destructive = result.metadata.get("destructive", False)
+    scan_session_id = result.metadata.get("scan_session_id") or None
 
     conversations.save_message(conv_id, "assistant", reply)
     if not interrupted:
@@ -337,6 +339,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
         conversation_id=conv_id,
         interrupted=interrupted,
         destructive=destructive,
+        scan_session_id=scan_session_id,
     )
 
 
