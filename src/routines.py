@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS routines (
     schedule    TEXT NOT NULL,
     enabled     BOOLEAN NOT NULL DEFAULT TRUE,
     notify_via  TEXT NOT NULL DEFAULT 'notification'
-                CHECK (notify_via IN ('notification', 'none', 'telegram', 'both', 'push')),
+                CHECK (notify_via IN ('notification', 'slack', 'telegram', 'push', 'both', 'none')),
     last_run_at TIMESTAMPTZ,
     last_result TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -30,7 +30,7 @@ DO $$
 BEGIN
     ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_notify_via_check;
     ALTER TABLE routines ADD CONSTRAINT routines_notify_via_check
-        CHECK (notify_via IN ('notification', 'none', 'telegram', 'both', 'push'));
+        CHECK (notify_via IN ('notification', 'slack', 'telegram', 'push', 'both', 'none'));
 EXCEPTION WHEN others THEN NULL;
 END $$;
 """

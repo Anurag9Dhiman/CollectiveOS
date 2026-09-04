@@ -167,7 +167,7 @@ class ApproveRequest(BaseModel):
 class PermissionUpdate(BaseModel):
     enabled: bool
 
-_NOTIFY_VIA_OPTIONS = {"notification", "none", "telegram", "both"}
+_NOTIFY_VIA_OPTIONS = {"notification", "slack", "telegram", "push", "both", "none"}
 
 class RoutineCreate(BaseModel):
     name: str
@@ -471,7 +471,7 @@ def list_watchers(_token: str = Depends(_verify_token)):
 
 @app.post("/watchers", status_code=201)
 def create_watcher(body: WatcherCreate, _token: str = Depends(_verify_token)):
-    valid_channels = {"notification", "telegram", "push", "both", "none"}
+    valid_channels = {"notification", "slack", "telegram", "push", "both", "none"}
     if body.notify_via not in valid_channels:
         raise HTTPException(status_code=400, detail=f"notify_via must be one of {sorted(valid_channels)}")
     if body.interval_min < 1:
@@ -1002,6 +1002,112 @@ async def wearable_websocket(ws: WebSocket, token: str = "") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Slack two-way interface — Events API webhook + output helpers
+# ---------------------------------------------------------------------------
+
+def _slack_send(channel_id: str, text: str) -> None:
+    """Post a message to a Slack channel via the Web API."""
+    token = os.environ.get("SLACK_BOT_TOKEN", "")
+    if not token:
+        return
+    import requests as _req
+    try:
+        _req.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"channel": channel_id, "text": text[:4000]},
+            timeout=15,
+        )
+    except Exception:
+        pass
+
+
+def _handle_slack_message(channel_id: str, text: str) -> None:
+    """Run the agent on a Slack message and post the reply — background thread."""
+    past = memory.search_with_graph(text)
+    try:
+        reply = run(text, system=_system_prompt(past))
+    except Exception as exc:
+        reply = f"Sorry, something went wrong: {exc}"
+    memory.save_smart(text, reply)
+    _slack_send(channel_id, reply)
+
+
+def _verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
+    """Verify Slack's HMAC-SHA256 request signature. Returns True if valid."""
+    import hashlib
+    import hmac
+    import time as _time
+    secret = os.environ.get("SLACK_SIGNING_SECRET", "")
+    if not secret:
+        return True  # Skip verification if secret not configured
+    try:
+        if abs(_time.time() - float(timestamp)) > 300:
+            return False
+        sig_base = f"v0:{timestamp}:{body.decode()}"
+        expected = "v0=" + hmac.new(
+            secret.encode(), sig_base.encode(), hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature)
+    except Exception:
+        return False
+
+
+@app.post("/slack/events", include_in_schema=False)
+async def slack_events(request: Request):
+    """
+    Receive events from Slack (Events API) and reply via the agent.
+
+    Setup (one time):
+      1. Add to .env:
+           SLACK_BOT_TOKEN=xoxb-...
+           SLACK_CHANNEL_ID=C...        (channel to post proactive messages to)
+           SLACK_SIGNING_SECRET=...     (App → Basic Information → Signing Secret)
+      2. In your Slack App → Event Subscriptions:
+           - Enable Events
+           - Request URL: https://<your-domain>/slack/events
+           - Subscribe to bot events: message.im  (for DMs)
+             and/or message.channels / message.groups (for channels)
+      3. Invite the bot: /invite @your-bot  in the desired channel or DM it.
+    """
+    body_bytes = await request.body()
+
+    # Verify Slack's request signature
+    ts  = request.headers.get("X-Slack-Request-Timestamp", "")
+    sig = request.headers.get("X-Slack-Signature", "")
+    if not _verify_slack_signature(body_bytes, ts, sig):
+        raise HTTPException(status_code=403, detail="Invalid Slack signature")
+
+    body = json.loads(body_bytes)
+
+    # URL verification challenge (one-time, during setup)
+    if body.get("type") == "url_verification":
+        return {"challenge": body["challenge"]}
+
+    # Acknowledge immediately — Slack retries if it doesn't get 200 within 3 s.
+    # Ignore retried deliveries so the agent doesn't run twice.
+    if request.headers.get("X-Slack-Retry-Num"):
+        return {"ok": True}
+
+    event = body.get("event", {})
+
+    # Only handle human text messages (not bot echoes or subtypes)
+    if event.get("type") != "message" or event.get("bot_id") or event.get("subtype"):
+        return {"ok": True}
+
+    text = (event.get("text") or "").strip()
+    channel_id = event.get("channel", "")
+    if not text or not channel_id:
+        return {"ok": True}
+
+    threading.Thread(
+        target=_handle_slack_message,
+        args=(channel_id, text),
+        daemon=True,
+    ).start()
+    return {"ok": True}
+
+
 # Telegram webhook — two-way Telegram interface
 # ---------------------------------------------------------------------------
 
