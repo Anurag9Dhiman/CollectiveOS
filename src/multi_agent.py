@@ -16,10 +16,12 @@ Architecture
 
 Capability routing
 ──────────────────
-  scan_session_id in entity_refs  →  fetch scan context from VisualOS,
-                                     inject into task agent as prefix
-  image_b64 present               →  skip router, pass to task agent directly
-  everything else                 →  task agent (router selects tools)
+  screen-capture intent, no image_b64  →  capture screen → VisualOS /analyze
+                                            (bypasses task agent; returns card directly)
+  scan_session_id in entity_refs       →  fetch scan context from VisualOS,
+                                            inject as prefix → task agent
+  image_b64 present                    →  task agent (Gemini Vision + all tools)
+  everything else                      →  task agent (router selects tools)
 
 Adding a new peer agent
 ───────────────────────
@@ -105,6 +107,27 @@ def _build_client(
 # Main entry point
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Visual intent detection
+# ---------------------------------------------------------------------------
+
+# High-confidence phrases that mean "look at / capture the screen right now".
+# Deliberately narrow — ambiguous queries fall through to the task agent which
+# uses the capture_screen tool when it decides one is needed.
+_VISUAL_CAPTURE_PHRASES: frozenset[str] = frozenset({
+    "screenshot", "screen capture", "capture screen", "take a screenshot",
+    "what's on my screen", "what is on my screen", "what do you see",
+    "capture my screen", "look at my screen", "describe my screen",
+    "what am i looking at", "what's on the screen", "what is on the screen",
+    "scan my screen", "analyze my screen", "read my screen",
+})
+
+
+def _is_screen_capture_query(text: str) -> bool:
+    lower = text.lower()
+    return any(phrase in lower for phrase in _VISUAL_CAPTURE_PHRASES)
+
+
 def run(
     text: str,
     entity_refs: dict | None = None,
@@ -115,27 +138,43 @@ def run(
 ) -> AgentResult:
     """Route one user message through the agent pipeline.
 
-    Steps:
-      1. If entity_refs carries a scan_session_id, fetch VisualOS context.
-      2. Inject any visual context as a prefix to the message.
-      3. Delegate to the task agent (LangGraph loop).
+    Routing priority
+    ────────────────
+    1. Screen-capture intent (no image_b64) → capture screen → VisualOS /analyze
+       Returns the card directly; no Gemini synthesis needed.
+    2. scan_session_id in entity_refs → fetch VisualOS ScanContext → inject as
+       prefix → task agent answers the follow-up with full tool access.
+    3. Everything else → task agent (LangGraph loop, all tools available).
+
+    image_b64 present → always goes to the task agent so Gemini Vision sees it
+    in conversation context alongside all available tools.
 
     Returns an AgentResult whose .metadata carries:
-      interrupted (bool)  — HITL approval needed
-      destructive (bool)  — pending action is high-risk
+      interrupted (bool)    — HITL approval needed (task agent only)
+      destructive (bool)    — pending action is high-risk
+      scan_session_id (str) — VisualOS session id when a new scan was created
     """
     entity_refs = entity_refs or {}
 
-    # ── Step 1: Visual context enrichment ──────────────────────────────────
-    visual_prefix = _enrich_visual_context(text, entity_refs)
+    # ── Route 1: Screen-capture intent ──────────────────────────────────────
+    # Only trigger when no inline image is already provided (if the client
+    # attached image_b64 they want Gemini Vision + full tool context).
+    if not image_b64 and _is_screen_capture_query(text):
+        visual_agent = AgentRegistry.find_by_capability("visual")
+        if visual_agent is not None:
+            result = _route_to_visualos(visual_agent, text)
+            if result is not None:
+                return result
+        # VisualOS unavailable or not registered → fall through to task agent
 
-    # ── Step 2: Build enriched message ─────────────────────────────────────
+    # ── Route 2: Follow-up on existing scan → enrich + task agent ───────────
+    visual_prefix = _enrich_visual_context(text, entity_refs)
     enriched = (
         f"[Visual context]\n{visual_prefix}\n\n[User message]\n{text}"
         if visual_prefix else text
     )
 
-    # ── Step 3: Task agent ─────────────────────────────────────────────────
+    # ── Route 3: Task agent ──────────────────────────────────────────────────
     task_agent = AgentRegistry.find_by_capability("task")
     if task_agent is None:
         logger.error("No task agent registered — returning error reply")
@@ -152,6 +191,47 @@ def run(
         image_b64=image_b64,
         image_mime=image_mime,
     )
+
+
+def _route_to_visualos(visual_agent: "VisualOSClient", question: str) -> "AgentResult | None":
+    """Capture the screen and analyse it via VisualOS. Returns None on failure."""
+    import os
+    import platform
+    import subprocess
+    import tempfile
+
+    if platform.system() != "Darwin":
+        return None   # screencapture is macOS-only; fall through to task agent
+
+    tmp = tempfile.mktemp(suffix=".png")
+    try:
+        r = subprocess.run(
+            ["screencapture", "-x", tmp],
+            capture_output=True, timeout=15,
+        )
+        if r.returncode != 0 or not os.path.exists(tmp):
+            return None
+        subprocess.run(["sips", "-Z", "1280", tmp], capture_output=True, timeout=10)
+        with open(tmp, "rb") as fh:
+            image_bytes = fh.read()
+    except Exception as exc:
+        logger.warning("Screen capture failed in orchestrator: %s", exc)
+        return None
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+    result = visual_agent.analyze_image(image_bytes, question)
+
+    if result.text.startswith("[VisualOS unavailable"):
+        return None   # let task agent fall back to its own Gemini Vision path
+
+    # Surface the scan_session_id in metadata so the caller can thread it
+    # back as entity_refs["scan_session_id"] on the next turn.
+    if result.session_id:
+        result.metadata["scan_session_id"] = result.session_id
+
+    return result
 
 
 def _enrich_visual_context(text: str, entity_refs: dict) -> str:
