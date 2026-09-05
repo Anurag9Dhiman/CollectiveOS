@@ -265,6 +265,67 @@ class TestBrowserPath:
         assert "Email found" in result.result
 
 
+# ── Phase 23: Adaptive wait ───────────────────────────────────────────────────
+
+class TestStableScreenWait:
+    @pytest.mark.asyncio
+    async def test_returns_immediately_without_cv2(self):
+        """Without OpenCV, returns after a single poll interval."""
+        agent = _nav_agent()
+        frames = [b"frame-A"]
+        agent._capture_screenshot = MagicMock(side_effect=frames)
+
+        with patch("src.agents.nav_agent._CV2_OK", False), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await agent._wait_for_stable_screen()
+
+        assert result == b"frame-A"
+        assert agent._capture_screenshot.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_returns_on_first_stable_pair(self):
+        """With OpenCV, returns as soon as two consecutive frames match."""
+        agent = _nav_agent()
+        # frame-A changes to frame-B, then frame-B stays the same → stable
+        agent._capture_screenshot = MagicMock(side_effect=[b"frame-A", b"frame-B", b"frame-B"])
+        # First call: changing (A→B), second call: stable (B==B)
+        agent._verify_screen_change = MagicMock(side_effect=[True, False])
+
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await agent._wait_for_stable_screen(max_wait=2.0, poll_interval=0.2)
+
+        assert result == b"frame-B"
+        assert agent._capture_screenshot.call_count == 3   # initial + 2 polls
+
+    @pytest.mark.asyncio
+    async def test_returns_last_frame_on_timeout(self):
+        """If screen keeps changing until max_wait, returns the last captured frame."""
+        agent = _nav_agent()
+        # Always changing: A→B→C→D→… — never stable
+        frames = [b"frame-%d" % i for i in range(20)]
+        agent._capture_screenshot = MagicMock(side_effect=frames)
+        agent._verify_screen_change = MagicMock(return_value=True)  # always changing
+
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await agent._wait_for_stable_screen(max_wait=0.4, poll_interval=0.2)
+
+        # Should have polled until 0.4s (2 extra polls after initial) and returned last frame
+        assert result.startswith(b"frame-")
+        assert agent._capture_screenshot.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_integration_replaces_fixed_sleep(self):
+        """The desktop loop no longer calls asyncio.sleep(0.35) directly after execute."""
+        import inspect
+        from src.agents.nav_agent import NavAgent
+        src = inspect.getsource(NavAgent._run_desktop)
+        # The old fixed sleep should be gone; adaptive wait method should be present
+        assert "asyncio.sleep(0.35)" not in src
+        assert "_wait_for_stable_screen" in src
+
+
 # ── LangGraph tool wrapper ────────────────────────────────────────────────────
 
 class TestNavigateComputerTool:

@@ -542,10 +542,9 @@ class NavAgent:
             # 6. Execute
             before_b64 = base64.b64encode(shot_bytes).decode() if record else ""
             outcome = await self._execute(action)
-            await asyncio.sleep(0.35)
 
-            # 7. OpenCV verification — did the screen change?
-            after_bytes = self._capture_screenshot()
+            # 7. Wait for screen to stabilise (adaptive — up to 2 s)
+            after_bytes = await self._wait_for_stable_screen()
             changed = self._verify_screen_change(shot_bytes, after_bytes)
             if not changed and action_type not in (_Act.type_text, _Act.key_press, _Act.wait):
                 stuck_count += 1
@@ -605,6 +604,37 @@ class NavAgent:
         img = img.resize((_DISPLAY_W, _DISPLAY_H), Image.LANCZOS)
         img.save(_SHOT_FEED, format="PNG")
         return _SHOT_FEED.read_bytes()
+
+    async def _wait_for_stable_screen(
+        self,
+        max_wait: float = 2.0,
+        poll_interval: float = 0.2,
+    ) -> bytes:
+        """Poll until two consecutive screenshots look the same (screen has settled).
+
+        Fast actions (keypress, click with instant response) settle in ~200 ms.
+        Page loads, app launches, and animations are waited out up to max_wait seconds.
+
+        Returns the final stable (or last captured) screenshot bytes.
+        Falls back to a single-poll capture when OpenCV is unavailable.
+        """
+        await asyncio.sleep(poll_interval)
+        prev = self._capture_screenshot()
+
+        if not _CV2_OK:
+            return prev   # no comparison possible — single poll is enough
+
+        elapsed = poll_interval
+        while elapsed < max_wait:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+            current = self._capture_screenshot()
+            if not self._verify_screen_change(prev, current):
+                return current   # stable: two frames matched
+            prev = current
+
+        logger.debug("_wait_for_stable_screen: screen still changing after %.1fs", max_wait)
+        return prev
 
     def _get_frontmost_app(self) -> str:
         if _PYOBJC_OK:
