@@ -1,5 +1,5 @@
 """
-Computer Navigation Agent — free-only stack.
+Computer Navigation Agent — free-only stack (Phase 2).
 
 Two execution paths, zero paid APIs:
 
@@ -8,8 +8,13 @@ Two execution paths, zero paid APIs:
                   Install: pip install browser-use && playwright install chromium
 
   Desktop path  — Gemini Flash vision (free tier) + pyautogui
-                  Best for: native macOS apps (Finder, Terminal, Mail, custom apps)
-                  Uses: screencapture + AppleScript AX tree + JSON action loop
+                  Phase 2 improvements vs Phase 1:
+                    • Full AXUIElement accessibility tree via pyobjc (40-100× more context
+                      than a single focused-element AppleScript call; falls back gracefully)
+                    • Coordinate scaling: Gemini sees 1280×800; pyautogui uses logical
+                      screen coords — scale factor computed lazily from pyautogui.size()
+                    • OpenCV screen-diff verification: detects when an action had no effect
+                      and informs Gemini so it can retry or take a different approach
 
 Three use-cases share one run() call:
   1. Autonomous computer agent  — default
@@ -45,17 +50,73 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# ── Gemini free-tier config ──────────────────────────────────────────────────
+# ── Optional Phase-2 dependencies (graceful fallback if not installed) ────────
+try:
+    import ApplicationServices as _AS   # pyobjc-framework-ApplicationServices
+    import AppKit as _AK                # pyobjc-framework-AppKit
+    _PYOBJC_OK = True
+except ImportError:
+    _PYOBJC_OK = False
+    logger.debug("pyobjc not available — AX tree falls back to AppleScript (Phase 1 mode)")
+
+try:
+    import cv2 as _cv2
+    import numpy as _np
+    _CV2_OK = True
+except ImportError:
+    _CV2_OK = False
+    logger.debug("opencv-python not available — screen-change verification disabled")
+
+# ── Gemini free-tier config ───────────────────────────────────────────────────
 _GEMINI_KEY   = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
 _VISION_MODEL = os.getenv("VISION_MODEL", "models/gemini-2.0-flash")   # free tier
 _NAV_MAX_ITER = int(os.getenv("NAV_MAX_ITER", "20"))
 
-# Resize target fed to Gemini (keeps token count + free-tier quota down)
+# Gemini sees a screenshot resized to this resolution
 _DISPLAY_W, _DISPLAY_H = 1280, 800
 
 _TMP       = Path("/tmp")
 _SHOT_RAW  = _TMP / "nav_raw.png"
 _SHOT_FEED = _TMP / "nav_feed.png"
+
+# ── Coordinate scaling ────────────────────────────────────────────────────────
+# Gemini returns coords in 1280×800 screenshot space.
+# pyautogui needs logical screen coords (e.g. 1512×982 on a Retina MacBook).
+# We compute one scale factor per process and cache it.
+
+_scale_cache: Optional[tuple[float, float]] = None
+
+
+def _get_scale() -> tuple[float, float]:
+    """
+    Returns (sx, sy) where sx = _DISPLAY_W / screen_logical_width.
+    Multiply by sx/sy to go screenshot→logical; divide to go logical→screenshot.
+    """
+    global _scale_cache
+    if _scale_cache is None:
+        try:
+            sw, sh = pyautogui.size()
+            _scale_cache = (_DISPLAY_W / sw, _DISPLAY_H / sh)
+        except Exception:
+            _scale_cache = (1.0, 1.0)
+    return _scale_cache
+
+
+def _to_screen(sx_coord: int, sy_coord: int) -> tuple[int, int]:
+    """Screenshot coords → actual logical screen coords for pyautogui."""
+    sx, sy = _get_scale()
+    return int(sx_coord / sx), int(sy_coord / sy)
+
+
+# ── AX tree constants ─────────────────────────────────────────────────────────
+_INTERACTIVE_ROLES = frozenset({
+    "AXButton", "AXTextField", "AXTextArea", "AXLink",
+    "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXComboBox",
+    "AXPopUpButton", "AXSlider", "AXCell", "AXStaticText",
+    "AXMenuBarItem", "AXTabGroup", "AXSearchField",
+})
+_MAX_AX_ELEMS = 60
+_MAX_AX_DEPTH = 5
 
 # Keywords whose presence in an action triggers HITL confirmation
 _WRITE_KEYWORDS = frozenset({
@@ -71,7 +132,7 @@ _BROWSER_SIGNALS = frozenset({
     "slack.com", "calendar", "drive", "docs", "sheets",
 })
 
-# App-specific prompting hints to reduce iterations
+# App-specific keyboard-shortcut hints (complement AX tree data)
 _APP_HINTS: dict[str, str] = {
     "Mail":          "Apple Mail: ⌘N = new, ⌘R = reply, ⌘⇧D = send.",
     "Safari":        "Safari: ⌘L = focus address bar, ⌘T = new tab.",
@@ -85,7 +146,7 @@ _APP_HINTS: dict[str, str] = {
 }
 
 
-# ── Action schema (returned by Gemini vision as JSON) ────────────────────────
+# ── Action schema (returned by Gemini vision as JSON) ─────────────────────────
 
 class _Act(str, Enum):
     click        = "click"
@@ -105,16 +166,16 @@ _ACTION_SCHEMA = {
         "action":    {"type": "string",
                       "enum": [a.value for a in _Act],
                       "description": "The action to execute."},
-        "x":         {"type": "integer", "description": "X pixel coordinate (0–1280)."},
-        "y":         {"type": "integer", "description": "Y pixel coordinate (0–800)."},
+        "x":         {"type": "integer", "description": "X pixel coordinate in screenshot space (0–1280)."},
+        "y":         {"type": "integer", "description": "Y pixel coordinate in screenshot space (0–800)."},
         "text":      {"type": "string",  "description": "Text to type or key combo (e.g. 'cmd+r')."},
         "direction": {"type": "string",  "enum": ["up", "down"],
                       "description": "Scroll direction."},
         "amount":    {"type": "integer", "description": "Scroll clicks (1-10)."},
-        "start_x":   {"type": "integer", "description": "Drag start X."},
-        "start_y":   {"type": "integer", "description": "Drag start Y."},
-        "end_x":     {"type": "integer", "description": "Drag end X."},
-        "end_y":     {"type": "integer", "description": "Drag end Y."},
+        "start_x":   {"type": "integer", "description": "Drag start X (screenshot space)."},
+        "start_y":   {"type": "integer", "description": "Drag start Y (screenshot space)."},
+        "end_x":     {"type": "integer", "description": "Drag end X (screenshot space)."},
+        "end_y":     {"type": "integer", "description": "Drag end Y (screenshot space)."},
         "result":    {"type": "string",  "description": "Summary when action=done."},
         "reason":    {"type": "string",  "description": "One-line reason for this action."},
     },
@@ -122,7 +183,7 @@ _ACTION_SCHEMA = {
 }
 
 
-# ── Data classes ─────────────────────────────────────────────────────────────
+# ── Data classes ──────────────────────────────────────────────────────────────
 
 @dataclass
 class NavResult:
@@ -136,8 +197,9 @@ class NavResult:
 
 class NavAgent:
     """
-    Computer navigation agent — 100% free stack.
-    Gemini Flash vision (free tier) + browser-use (MIT) + pyautogui (MIT).
+    Computer navigation agent — 100% free stack, Phase 2.
+    Gemini Flash vision (free) + browser-use (MIT) + pyautogui (MIT).
+    Phase 2 adds: pyobjc AX tree, OpenCV verification, coordinate scaling.
     """
 
     def __init__(self) -> None:
@@ -162,18 +224,15 @@ class NavAgent:
           - Web / browser tasks → browser-use + Gemini Flash
           - Native desktop tasks → Gemini vision loop + pyautogui
         """
-        use_browser = self._is_browser_task(task)
-
-        if use_browser:
+        if self._is_browser_task(task):
             return await self._run_browser(task, context, hitl_callback, record)
-        else:
-            return await self._run_desktop(
-                task, context,
-                hitl_callback=hitl_callback,
-                first_person_frame=first_person_frame,
-                robot_camera_frame=robot_camera_frame,
-                record=record,
-            )
+        return await self._run_desktop(
+            task, context,
+            hitl_callback=hitl_callback,
+            first_person_frame=first_person_frame,
+            robot_camera_frame=robot_camera_frame,
+            record=record,
+        )
 
     # ── Browser path (browser-use + Gemini Flash, MIT/free) ──────────────────
 
@@ -186,7 +245,6 @@ class NavAgent:
     ) -> NavResult:
         """browser-use library with Gemini Flash backend."""
         try:
-            # browser-use uses LangChain's LLM interface; use langchain-google-genai
             from browser_use import Agent as BrowserAgent
             from langchain_google_genai import ChatGoogleGenerativeAI
         except ImportError:
@@ -202,21 +260,15 @@ class NavAgent:
                 record=record,
             )
 
-        full_task = task
-        if context:
-            full_task = f"{task}\n\nContext about the user:\n{context}"
-
+        full_task = f"{task}\n\nUser context:\n{context}" if context else task
         llm = ChatGoogleGenerativeAI(
-            model=_VISION_MODEL.replace("models/", ""),  # langchain wants bare name
+            model=_VISION_MODEL.replace("models/", ""),
             google_api_key=_GEMINI_KEY,
         )
-
         agent = BrowserAgent(task=full_task, llm=llm)
-
         try:
             result = await agent.run(max_steps=_NAV_MAX_ITER)
-            final_text = str(result) if result else "Browser task completed."
-            return NavResult(status="done", result=final_text)
+            return NavResult(status="done", result=str(result) or "Browser task completed.")
         except Exception as exc:
             logger.error("browser-use failed: %s", exc)
             return NavResult(status="error", result=str(exc))
@@ -234,33 +286,34 @@ class NavAgent:
         record: bool,
     ) -> NavResult:
         """
-        Perceive-decide-act loop.
-          1. Capture screenshot + AX tree summary
-          2. Ask Gemini Flash: 'what is the next action?' → JSON
+        Perceive-decide-act loop (Phase 2).
+          1. Capture screenshot + full AXUIElement tree
+          2. Ask Gemini Flash for next action → JSON (structured output)
           3. HITL gate for irreversible actions
-          4. Execute via pyautogui
-          5. Repeat
+          4. Execute via pyautogui (with coordinate scaling)
+          5. OpenCV verification: warn Gemini if screen didn't change
+          6. Repeat
         """
         steps: list[dict] = []
         demos: list[dict] = []
-        history: list[dict] = []     # conversation turns for context continuity
+        history: list[dict] = []
 
         system_prompt = self._build_system_prompt(task, context)
 
         for iteration in range(_NAV_MAX_ITER):
             # 1. Perceive
-            shot_bytes  = self._capture_screenshot()
-            app_name    = self._get_frontmost_app()
-            ax_summary  = self._get_ax_summary(app_name)
+            shot_bytes = self._capture_screenshot()
+            app_name   = self._get_frontmost_app()
+            ax_context = self._get_ax_tree(app_name)   # Phase 2: full AX tree
 
-            # 2. Build vision prompt
+            # 2. Build prompt
             parts = self._build_parts(
-                shot_bytes, ax_summary, task, history,
+                shot_bytes, ax_context, history,
                 first_person_frame if iteration == 0 else None,
                 robot_camera_frame if iteration == 0 else None,
             )
 
-            # 3. Ask Gemini Flash for next action (structured JSON output)
+            # 3. Ask Gemini
             try:
                 response = self._gemini.models.generate_content(
                     model=_VISION_MODEL,
@@ -291,11 +344,10 @@ class NavAgent:
                     steps=steps,
                 )
 
-            # 5. HITL gate for write/irreversible actions
+            # 5. HITL gate
             if hitl_callback and self._needs_confirmation(action):
                 description = self._action_description(action)
-                approved = await hitl_callback(description)
-                if not approved:
+                if not await hitl_callback(description):
                     return NavResult(
                         status="hitl_paused",
                         result=f"Cancelled: {description}",
@@ -306,7 +358,14 @@ class NavAgent:
             # 6. Execute
             before_b64 = base64.b64encode(shot_bytes).decode() if record else ""
             outcome = await self._execute(action)
-            await asyncio.sleep(0.35)   # UI settle time
+            await asyncio.sleep(0.35)
+
+            # 7. OpenCV verification — did the screen change?
+            after_bytes = self._capture_screenshot()
+            changed = self._verify_screen_change(shot_bytes, after_bytes)
+            if not changed and action_type not in (_Act.type_text, _Act.key_press, _Act.wait):
+                outcome += " [WARNING: screen unchanged — element may not be clickable or UI is loading]"
+                logger.debug("NavAgent iter %d — screen unchanged after %s", iteration, action_type)
 
             step = {
                 "iteration": iteration,
@@ -314,6 +373,7 @@ class NavAgent:
                 "reason": reason,
                 "outcome": outcome,
                 "app": app_name,
+                "screen_changed": changed,
             }
             steps.append(step)
 
@@ -325,8 +385,12 @@ class NavAgent:
                     "timestamp": time.time(),
                 })
 
-            # Update conversation history for next iteration
-            history.append({"action": action_type, "outcome": outcome, "app": app_name})
+            history.append({
+                "action": action_type,
+                "outcome": outcome,
+                "app": app_name,
+                "screen_changed": changed,
+            })
 
         if record:
             self._save_demos(task, demos)
@@ -337,10 +401,10 @@ class NavAgent:
             steps=steps,
         )
 
-    # ── Perceive ──────────────────────────────────────────────────────────────
+    # ── Perceive ─────────────────────────────────────────────────────────────
 
     def _capture_screenshot(self) -> bytes:
-        """screencapture → resize to _DISPLAY_W×_DISPLAY_H → PNG bytes."""
+        """screencapture (physical pixels) → resize to 1280×800 → PNG bytes."""
         subprocess.run(
             ["screencapture", "-x", "-t", "png", str(_SHOT_RAW)],
             capture_output=True, check=False,
@@ -351,6 +415,13 @@ class NavAgent:
         return _SHOT_FEED.read_bytes()
 
     def _get_frontmost_app(self) -> str:
+        if _PYOBJC_OK:
+            try:
+                app = _AK.NSWorkspace.sharedWorkspace().frontmostApplication()
+                return app.localizedName() or "Unknown"
+            except Exception:
+                pass
+        # AppleScript fallback
         script = (
             'tell application "System Events" to '
             'return name of first application process whose frontmost is true'
@@ -359,16 +430,78 @@ class NavAgent:
                            capture_output=True, text=True, timeout=2)
         return r.stdout.strip() or "Unknown"
 
-    def _get_ax_summary(self, app: str) -> str:
-        """Fast AppleScript accessibility snapshot — Phase 2 will use full pyobjc AXUIElement."""
+    def _get_ax_tree(self, app: str) -> str:
+        """
+        Phase 2: Full AXUIElement tree via pyobjc.
+        Falls back to AppleScript focused-element summary when pyobjc is unavailable.
+
+        Returns a compact string of interactive elements with their center coordinates
+        already scaled to the 1280×800 screenshot space, e.g.:
+          AXButton[Send]@(940,752) AXTextField[To:]@(400,200) AXLink[Inbox]@(80,340)
+        """
+        if _PYOBJC_OK:
+            try:
+                return self._pyobjc_ax_tree(app)
+            except Exception as exc:
+                logger.debug("pyobjc AX tree failed (%s) — falling back to AppleScript", exc)
+
+        return self._applescript_ax_summary(app)
+
+    def _pyobjc_ax_tree(self, app: str) -> str:
+        """Walk the live AXUIElement tree for the frontmost application."""
+        pid = _AK.NSWorkspace.sharedWorkspace().frontmostApplication().processIdentifier()
+        app_elem = _AS.AXUIElementCreateApplication(pid)
+
+        sx, sy = _get_scale()   # screenshot / screen_logical
+        results: list[str] = []
+        self._walk_ax(app_elem, depth=0, results=results, sx=sx, sy=sy)
+
+        hint = _APP_HINTS.get(app, "")
+        tree_str = " ".join(results[:_MAX_AX_ELEMS]) or "no interactive elements found"
+        hint_part = f" | Hint: {hint}" if hint else ""
+        return f"App: {app} | AX elements: {tree_str}{hint_part}"
+
+    def _walk_ax(
+        self, elem: object, depth: int,
+        results: list[str], sx: float, sy: float,
+    ) -> None:
+        if depth > _MAX_AX_DEPTH or len(results) >= _MAX_AX_ELEMS:
+            return
+
+        role  = self._ax_attr(elem, "AXRole") or ""
+        title = (self._ax_attr(elem, "AXTitle") or
+                 self._ax_attr(elem, "AXDescription") or
+                 self._ax_attr(elem, "AXPlaceholderValue") or "")
+        value = str(self._ax_attr(elem, "AXValue") or "")
+        pos   = self._ax_attr(elem, "AXPosition")
+        size  = self._ax_attr(elem, "AXSize")
+
+        if role in _INTERACTIVE_ROLES and pos and size and (title or value):
+            # Center in logical screen coords, then scale to screenshot space
+            cx = int((pos.x + size.width  / 2) * sx)
+            cy = int((pos.y + size.height / 2) * sy)
+            label = (title or value)[:35].replace("\n", " ")
+            results.append(f"{role}[{label}]@({cx},{cy})")
+
+        for child in (self._ax_attr(elem, "AXChildren") or []):
+            self._walk_ax(child, depth + 1, results, sx, sy)
+
+    @staticmethod
+    def _ax_attr(elem: object, attr: str) -> object:
+        try:
+            err, val = _AS.AXUIElementCopyAttributeValue(elem, attr, None)
+            return val if err == 0 else None
+        except Exception:
+            return None
+
+    def _applescript_ax_summary(self, app: str) -> str:
+        """Phase 1 AppleScript fallback — focused element only."""
         script = f'''
         tell application "System Events"
             tell process "{app}"
                 try
                     set fe to value of attribute "AXFocusedUIElement"
-                    set feRole to role of fe
-                    set feDesc to description of fe
-                    return feRole & ": " & feDesc
+                    return (role of fe) & ": " & (description of fe)
                 on error
                     return "no focused element"
                 end try
@@ -377,82 +510,103 @@ class NavAgent:
         '''
         r = subprocess.run(["osascript", "-e", script],
                            capture_output=True, text=True, timeout=3)
-        focused = r.stdout.strip()[:100] or "none"
+        focused  = r.stdout.strip()[:100] or "none"
         app_hint = _APP_HINTS.get(app, "")
         hint_part = f" | Hint: {app_hint}" if app_hint else ""
         return f"App: {app} | Focused: {focused}{hint_part}"
+
+    # ── OpenCV screen-change verification ─────────────────────────────────────
+
+    def _verify_screen_change(self, before: bytes, after: bytes) -> bool:
+        """
+        Returns True if the screen visibly changed between the two PNG frames.
+        Uses mean absolute pixel difference on grayscale; threshold = 0.5/255.
+        Falls back to True (assume success) when opencv is not installed.
+        """
+        if not _CV2_OK:
+            return True
+        try:
+            b = _cv2.imdecode(_np.frombuffer(before, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+            a = _cv2.imdecode(_np.frombuffer(after,  _np.uint8), _cv2.IMREAD_GRAYSCALE)
+            return float(_cv2.absdiff(b, a).mean()) > 0.5
+        except Exception:
+            return True
 
     # ── Prompt builders ───────────────────────────────────────────────────────
 
     def _build_system_prompt(self, task: str, context: str) -> str:
         prompt = (
-            "You are a macOS desktop automation agent. "
-            "You receive a screenshot (resized to 1280×800) and control "
-            "the computer via mouse and keyboard actions.\n\n"
+            "You are a macOS desktop automation agent.\n"
+            "You receive a screenshot (1280×800) and an AX elements list.\n"
+            "AX elements format: Role[label]@(cx,cy) — cx,cy are centres in screenshot space.\n\n"
             "Rules:\n"
             "- Return exactly one action per response as JSON matching the schema.\n"
-            "- Coordinates (x, y) must be within 0–1280 (x) and 0–800 (y).\n"
+            "- Coordinates (x, y) must be in screenshot space: x∈[0,1280], y∈[0,800].\n"
+            "- Prefer AX element centres over visually estimated positions — they are exact.\n"
+            "- If a previous step reports [WARNING: screen unchanged], try a different approach.\n"
             "- Before any irreversible action (send, submit, delete, purchase, book), "
             "  set action=wait and explain in 'reason' — the user will confirm.\n"
             "- When the task is fully complete, set action=done and summarise in 'result'.\n"
-            "- Be precise with coordinates. Click the centre of the target element.\n"
         )
         if context:
             prompt += f"\nUser context:\n{context}\n"
-        prompt += f"\nTask to complete: {task}"
+        prompt += f"\nTask: {task}"
         return prompt
 
     def _build_parts(
         self,
         shot_bytes: bytes,
-        ax_summary: str,
-        task: str,
+        ax_context: str,
         history: list[dict],
         first_person_frame: Optional[bytes],
         robot_camera_frame: Optional[bytes],
     ) -> list[gtypes.Part]:
         parts: list[gtypes.Part] = []
 
-        # Wearable first-person context (first iteration only)
         if first_person_frame:
             parts.append(gtypes.Part.from_bytes(data=first_person_frame, mime_type="image/jpeg"))
-            parts.append(gtypes.Part.from_text(text="[Wearable camera — what the user physically sees]\n"))
+            parts.append(gtypes.Part.from_text(text="[Wearable camera — user's physical view]\n"))
 
-        # Robot camera (first iteration only)
         if robot_camera_frame:
             parts.append(gtypes.Part.from_bytes(data=robot_camera_frame, mime_type="image/jpeg"))
             parts.append(gtypes.Part.from_text(text="[Robot camera]\n"))
 
-        # Current screenshot
         parts.append(gtypes.Part.from_bytes(data=shot_bytes, mime_type="image/png"))
 
-        # Accessibility + history context
-        state_text = f"Screen state: {ax_summary}\n"
+        state_text = f"Screen state: {ax_context}\n"
         if history:
-            recent = history[-4:]   # last 4 steps as context
-            hist_lines = " → ".join(f"{s['action']}({s['app']})" for s in recent)
+            recent = history[-4:]
+            hist_lines = " → ".join(
+                f"{s['action']}({'✓' if s.get('screen_changed', True) else '✗'})"
+                for s in recent
+            )
             state_text += f"Recent steps: {hist_lines}\n"
-        state_text += "What is the next single action to complete the task? Return JSON only."
+        state_text += "What is the next single action? Return JSON only."
 
         parts.append(gtypes.Part.from_text(text=state_text))
         return parts
 
-    # ── Execute ───────────────────────────────────────────────────────────────
+    # ── Execute (with coordinate scaling) ────────────────────────────────────
 
     async def _execute(self, action: dict) -> str:
+        """Execute an action. Coordinates from Gemini are in 1280×800 screenshot space;
+        _to_screen() converts them to logical screen coords for pyautogui."""
         t = action.get("action", "wait")
 
         if t == _Act.click:
-            pyautogui.click(action["x"], action["y"])
-            return f"Clicked ({action['x']}, {action['y']})."
+            x, y = _to_screen(action["x"], action["y"])
+            pyautogui.click(x, y)
+            return f"Clicked ({action['x']},{action['y']}) → screen ({x},{y})."
 
         elif t == _Act.double_click:
-            pyautogui.doubleClick(action["x"], action["y"])
-            return f"Double-clicked ({action['x']}, {action['y']})."
+            x, y = _to_screen(action["x"], action["y"])
+            pyautogui.doubleClick(x, y)
+            return f"Double-clicked ({action['x']},{action['y']}) → screen ({x},{y})."
 
         elif t == _Act.right_click:
-            pyautogui.click(action["x"], action["y"], button="right")
-            return f"Right-clicked ({action['x']}, {action['y']})."
+            x, y = _to_screen(action["x"], action["y"])
+            pyautogui.click(x, y, button="right")
+            return f"Right-clicked ({action['x']},{action['y']}) → screen ({x},{y})."
 
         elif t == _Act.type_text:
             text = action.get("text", "")
@@ -461,26 +615,26 @@ class NavAgent:
 
         elif t == _Act.key_press:
             chord = action.get("text", "")
-            # Normalise: "cmd+r" → ["cmd", "r"]
             keys = [k.strip() for k in re.split(r"[+\-]", chord)]
             pyautogui.hotkey(*keys)
             return f"Pressed: {chord}."
 
         elif t == _Act.scroll:
-            x, y = action.get("x", 640), action.get("y", 400)
+            x, y = _to_screen(action.get("x", 640), action.get("y", 400))
             direction = action.get("direction", "down")
             amount = int(action.get("amount", 3))
             delta = amount if direction == "up" else -amount
             pyautogui.scroll(delta, x=x, y=y)
-            return f"Scrolled {direction} {amount}× at ({x}, {y})."
+            return f"Scrolled {direction} {amount}× at screen ({x},{y})."
 
         elif t == _Act.drag:
-            pyautogui.mouseDown(action["start_x"], action["start_y"])
+            sx1, sy1 = _to_screen(action["start_x"], action["start_y"])
+            sx2, sy2 = _to_screen(action["end_x"],   action["end_y"])
+            pyautogui.mouseDown(sx1, sy1)
             await asyncio.sleep(0.1)
-            pyautogui.moveTo(action["end_x"], action["end_y"], duration=0.35)
+            pyautogui.moveTo(sx2, sy2, duration=0.35)
             pyautogui.mouseUp()
-            return (f"Dragged ({action['start_x']},{action['start_y']}) "
-                    f"→ ({action['end_x']},{action['end_y']}).")
+            return f"Dragged screen ({sx1},{sy1}) → ({sx2},{sy2})."
 
         elif t == _Act.wait:
             await asyncio.sleep(1.0)
@@ -501,25 +655,26 @@ class NavAgent:
         if t == _Act.key_press:
             return f'Press shortcut: {action.get("text", "")}'
         if "x" in action and "y" in action:
-            return f"{t} at ({action['x']}, {action['y']})"
+            return f"{t} at screenshot ({action['x']},{action['y']})"
         return str(action)
 
     # ── Routing ───────────────────────────────────────────────────────────────
 
     @staticmethod
     def _is_browser_task(task: str) -> bool:
-        """Heuristic: route to browser-use if the task is clearly web-based."""
         t = task.lower()
         return any(sig in t for sig in _BROWSER_SIGNALS)
 
-    # ── Demo recording (robot learning) ──────────────────────────────────────
+    # ── Demo recording ────────────────────────────────────────────────────────
 
     def _save_demos(self, task: str, demos: list[dict]) -> None:
         out_dir = Path("data/demonstrations")
         out_dir.mkdir(parents=True, exist_ok=True)
         out_file = out_dir / f"demo_{int(time.time())}.json"
         slim = [{k: v for k, v in d.items() if k != "before_screenshot_b64"} for d in demos]
-        out_file.write_text(json.dumps({"task": task, "steps": len(demos), "demos": slim}, indent=2))
+        out_file.write_text(
+            json.dumps({"task": task, "steps": len(demos), "demos": slim}, indent=2)
+        )
         logger.info("NavAgent: saved %d demo steps → %s", len(demos), out_file)
 
 
@@ -549,14 +704,6 @@ async def navigate_computer(
 
     Use for: email, calendar, docs, GitHub, Notion, Slack, any app on screen.
     Do NOT use for: smart home, health streams, push notifications (direct connectors).
-
-    Args:
-        task:           Natural language task description.
-        context:        Optional user context (name, preferences).
-        hitl_callback:  Async fn(description) → bool; gates irreversible actions.
-
-    Returns:
-        Plain-text summary of what was accomplished.
     """
     result = await _get_agent().run(task, context, hitl_callback=hitl_callback)
     return f"[{result.status}] {result.result} ({len(result.steps)} steps)"

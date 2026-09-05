@@ -53,6 +53,8 @@ _MOCK_LIBS = [
     "sounddevice", "pyaudio", "numpy",
     # Nav agent
     "browser_use", "PIL", "PIL.Image",
+    "cv2", "numpy",
+    "ApplicationServices", "AppKit",
     # Misc external
     "spotipy", "spotipy.oauth2",
     "tavily",

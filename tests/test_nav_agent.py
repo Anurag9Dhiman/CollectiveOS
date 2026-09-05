@@ -103,7 +103,7 @@ class TestDesktopLoop:
         # Mock screencapture and PIL
         agent._capture_screenshot = MagicMock(return_value=b"fake-png")
         agent._get_frontmost_app  = MagicMock(return_value="Finder")
-        agent._get_ax_summary     = MagicMock(return_value="App: Finder | Focused: none")
+        agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: AXButton[OK]@(640,400)")
 
         # Mock Gemini response sequence
         responses = [_make_gemini_response(r) for r in gemini_responses]
@@ -206,7 +206,7 @@ class TestBrowserPath:
         agent = _nav_agent()
         agent._capture_screenshot = MagicMock(return_value=b"fake-png")
         agent._get_frontmost_app  = MagicMock(return_value="Chrome")
-        agent._get_ax_summary     = MagicMock(return_value="")
+        agent._get_ax_tree        = MagicMock(return_value="App: Chrome | AX elements: none")
         agent._gemini.models.generate_content = MagicMock(
             return_value=_make_gemini_response({"action": "done", "result": "Found it."})
         )
@@ -255,3 +255,123 @@ class TestNavigateComputerTool:
         assert isinstance(out, str)
         assert "done" in out
         assert "2 steps" in out
+
+
+# ── Phase 2: coordinate scaling ───────────────────────────────────────────────
+
+class TestCoordinateScaling:
+    def test_to_screen_identity_when_scale_is_one(self):
+        """When scale=(1,1), screenshot coords == screen coords."""
+        from src.agents.nav_agent import _to_screen
+        with patch("src.agents.nav_agent._scale_cache", (1.0, 1.0)):
+            assert _to_screen(640, 400) == (640, 400)
+
+    def test_to_screen_scales_down_for_retina(self):
+        """For a 1512×982 logical screen, scale=(1280/1512, 800/982)."""
+        from src.agents.nav_agent import _to_screen
+        sx = 1280 / 1512
+        sy = 800  / 982
+        with patch("src.agents.nav_agent._scale_cache", (sx, sy)):
+            x, y = _to_screen(640, 400)
+            # 640 / (1280/1512) = 640 * 1512/1280 = 756
+            assert x == 756
+            assert y == int(400 / sy)
+
+    def test_get_scale_uses_pyautogui_size(self):
+        """_get_scale() reads pyautogui.size() and caches the result."""
+        import src.agents.nav_agent as mod
+        import pyautogui
+        original = mod._scale_cache
+        mod._scale_cache = None   # force recompute
+        try:
+            pyautogui.size = MagicMock(return_value=(1512, 982))
+            sx, sy = mod._get_scale()
+            assert abs(sx - 1280/1512) < 0.001
+            assert abs(sy - 800/982)   < 0.001
+        finally:
+            mod._scale_cache = original
+
+
+# ── Phase 2: OpenCV verification ──────────────────────────────────────────────
+
+class TestScreenVerification:
+    def test_verify_returns_true_when_cv2_unavailable(self):
+        """When OpenCV is not installed, verification always returns True (safe default)."""
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        with patch("src.agents.nav_agent._CV2_OK", False):
+            assert agent._verify_screen_change(b"before", b"after") is True
+
+    def test_verify_true_on_different_frames(self):
+        """Two different byte arrays → changed=True (mocked cv2)."""
+        import src.agents.nav_agent as mod
+        agent = mod.NavAgent()
+        # Make cv2 available in the module with a diff that exceeds threshold
+        fake_diff = MagicMock()
+        fake_diff.mean.return_value = 5.0   # > 0.5 threshold
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("src.agents.nav_agent._cv2") as mock_cv2, \
+             patch("src.agents.nav_agent._np") as mock_np:
+            mock_np.frombuffer.return_value = b"data"
+            mock_cv2.imdecode.return_value = MagicMock()
+            mock_cv2.absdiff.return_value = fake_diff
+            assert agent._verify_screen_change(b"A", b"B") is True
+
+    def test_verify_false_on_identical_frames(self):
+        """Same frame → changed=False."""
+        import src.agents.nav_agent as mod
+        agent = mod.NavAgent()
+        fake_diff = MagicMock()
+        fake_diff.mean.return_value = 0.0   # no change
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("src.agents.nav_agent._cv2") as mock_cv2, \
+             patch("src.agents.nav_agent._np") as mock_np:
+            mock_np.frombuffer.return_value = b"data"
+            mock_cv2.imdecode.return_value = MagicMock()
+            mock_cv2.absdiff.return_value = fake_diff
+            assert agent._verify_screen_change(b"A", b"A") is False
+
+
+# ── Phase 2: AX tree fallback ─────────────────────────────────────────────────
+
+class TestAXTree:
+    def test_falls_back_to_applescript_when_pyobjc_unavailable(self):
+        """When _PYOBJC_OK is False, _get_ax_tree calls the AppleScript path."""
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        agent._applescript_ax_summary = MagicMock(return_value="App: Finder | Focused: none")
+        with patch("src.agents.nav_agent._PYOBJC_OK", False):
+            result = agent._get_ax_tree("Finder")
+        agent._applescript_ax_summary.assert_called_once_with("Finder")
+        assert "Finder" in result
+
+    def test_falls_back_on_pyobjc_exception(self):
+        """If pyobjc AX walk raises, falls back to AppleScript."""
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        agent._pyobjc_ax_tree = MagicMock(side_effect=RuntimeError("AX denied"))
+        agent._applescript_ax_summary = MagicMock(return_value="fallback")
+        with patch("src.agents.nav_agent._PYOBJC_OK", True):
+            result = agent._get_ax_tree("Terminal")
+        assert result == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_unchanged_screen_adds_warning_to_history(self):
+        """When screen doesn't change after a click, outcome contains [WARNING]."""
+        agent = _nav_agent()
+        agent._capture_screenshot = MagicMock(return_value=b"same-bytes")
+        agent._get_frontmost_app  = MagicMock(return_value="Finder")
+        agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: none")
+        agent._verify_screen_change = MagicMock(return_value=False)  # no change
+        agent._gemini.models.generate_content = MagicMock(side_effect=[
+            _make_gemini_response({"action": "click", "x": 100, "y": 100, "reason": "click item"}),
+            _make_gemini_response({"action": "done", "result": "Done."}),
+        ])
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("click Finder item", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "done"
+        click_step = result.steps[0]
+        assert "WARNING" in click_step["outcome"]
+        assert click_step["screen_changed"] is False
