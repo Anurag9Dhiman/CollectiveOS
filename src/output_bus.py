@@ -38,6 +38,12 @@ def deliver(title: str, body: str, channel: str = "api") -> None:
     if channel in ("api", "none"):
         return
 
+    try:
+        from src.activity import log_event
+        log_event("notification", title, f"→ {channel}: {body[:200]}")
+    except Exception:
+        pass
+
     if channel in ("notification", "both"):
         try:
             _send_notification(title, body)

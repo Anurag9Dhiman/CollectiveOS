@@ -56,6 +56,13 @@ def _run_routine(routine_id: int, name: str, prompt: str, notify_via: str) -> No
     if notify_via in ("telegram", "both"):
         _send_telegram(name, result)
 
+    try:
+        from src.activity import log_event
+        status = "error" if result.startswith("Error:") else "ok"
+        log_event("routine", name, f"[{status}] {result[:300]}")
+    except Exception:
+        pass
+
 
 def _send_notification(title: str, body: str) -> None:
     import platform

@@ -69,6 +69,8 @@ _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     _obs.configure_logging()
+    from src.activity import bootstrap as _activity_bootstrap
+    _activity_bootstrap()
     _scheduler.load_all()
     _scheduler.start()
     _orchestrator.setup()   # register built-in agents + reload any DB-persisted ones
@@ -1011,6 +1013,21 @@ def cancel_task_endpoint(task_id: int, _token: str = Depends(_verify_token)):
     from src.orchestrator import cancel_task
     result = cancel_task(task_id)
     return {"message": result}
+
+
+# ---------------------------------------------------------------------------
+# Activity log — chronological record of proactive agent actions
+# ---------------------------------------------------------------------------
+
+@app.get("/activity")
+def activity_endpoint(limit: int = 100, days: int = 7,
+                      _token: str = Depends(_verify_token)):
+    """
+    Return recent activity events (routine runs, watcher triggers,
+    notification deliveries), newest first.
+    """
+    from src.activity import list_events
+    return list_events(limit=limit, days=days)
 
 
 # ---------------------------------------------------------------------------
