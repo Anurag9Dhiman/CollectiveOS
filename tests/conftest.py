@@ -51,6 +51,8 @@ _MOCK_LIBS = [
     # ML / audio
     "sentence_transformers", "pyautogui",
     "sounddevice", "pyaudio", "numpy",
+    # Nav agent
+    "browser_use", "PIL", "PIL.Image",
     # Misc external
     "spotipy", "spotipy.oauth2",
     "tavily",
