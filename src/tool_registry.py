@@ -170,6 +170,14 @@ TOOL_TIERS: dict[str, str] = {
     "robot_cancel":              DESTRUCTIVE,   # emergency stop (also needs gate)
     "robot_navigate":            DESTRUCTIVE,   # path-planned motion between rooms
     "robot_describe_scene":      READ,
+
+    # ── Computer Navigation Agent ─────────────────────────────────────────────
+    # Marked WRITE (not DESTRUCTIVE) because the nav agent has its own internal
+    # HITL gate for irreversible sub-actions (send, delete, purchase …).
+    # The LangGraph gate fires once before the agent starts; the internal gate
+    # fires again before each irreversible step inside the agent loop.
+    "navigate_computer":         WRITE,
+    "computer_use":              WRITE,         # legacy connector — prefer navigate_computer
 }
 
 
