@@ -14,37 +14,22 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 ROUTER_MODEL = os.environ.get("GEMINI_ROUTER_MODEL", "gemini-2.0-flash-lite")
 
-# Map intent category → tool names. Extend as connectors grow.
+# Map intent category → tool names.
+# External service connectors (Gmail, Calendar, Slack, etc.) are removed;
+# those tasks now go through navigate_computer.
 _CATEGORY_TOOLS: dict[str, list[str]] = {
-    "memory":   ["memory_remember", "memory_list", "memory_forget", "memory_graph_query", "usage_summary"],
-    "calendar": ["get_calendar_events", "create_event"],
-    "email":    ["get_recent_emails", "search_emails", "create_draft", "send_email"],
-    "drive":    ["list_drive_files", "read_drive_file"],
-    "tasks":    ["get_tasks", "get_projects", "add_task", "complete_task", "update_task"],
-    "home":     ["get_devices", "get_device_state", "control_device", "set_light"],
-    "music":    ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
-    "system":   ["get_system_info", "get_wifi_info", "show_notification", "notify_user", "open_application", "set_system_volume", "capture_screen", "computer_use"],
-    "search":   ["web_search"],
-    "messages": ["imessage_get_messages", "imessage_send"],
-    "files":    ["list_directory", "read_local_file", "write_local_file"],
-    "browser":   ["browser_get_active_tab", "browser_list_tabs", "browser_open_url"],
-    "contacts":  ["contacts_search"],
-    "reminders": ["reminders_list", "reminders_add", "reminders_complete"],
-    "notes":     ["notes_list", "notes_read", "notes_create", "notes_append"],
-    "clipboard": ["clipboard_read", "clipboard_write"],
-    "telegram":  ["telegram_get_messages", "telegram_send"],
-    "notion":    ["notion_search", "notion_read_page", "notion_create_page", "notion_append_to_page"],
-    "github":    ["github_list_repos", "github_list_prs", "github_list_issues", "github_get_ci_status", "github_create_issue"],
-    "slack":     ["slack_list_channels", "slack_read_messages", "slack_send_message"],
-    "health":    ["health_get_sleep", "health_get_activity", "health_get_readiness"],
-    "finance":   ["finance_get_accounts", "finance_get_transactions", "finance_get_spending_summary"],
-    "car":       ["car_get_status", "car_lock", "car_climate"],
-    "appliances":["appliances_list", "appliances_get_status", "appliances_control"],
-    "ai":        ["ai_ask", "ai_compare"],
-    "orchestrator": ["task_plan", "task_status", "task_list", "task_cancel"],
-    "wearable":     ["wearable_get_events", "wearable_list_devices"],
-    "robot":        ["robot_status", "robot_move", "robot_cancel"],
-    "computer":     ["navigate_computer"],
+    "memory":      ["memory_remember", "memory_list", "memory_forget", "memory_graph_query", "usage_summary"],
+    "home":        ["get_devices", "get_device_state", "control_device", "set_light"],
+    "music":       ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
+    "system":      ["get_system_info", "get_wifi_info", "show_notification", "notify_user", "open_application", "set_system_volume"],
+    "files":       ["list_directory", "read_local_file", "write_local_file"],
+    "health":      ["health_get_sleep", "health_get_activity", "health_get_readiness"],
+    "car":         ["car_get_status", "car_lock", "car_climate"],
+    "appliances":  ["appliances_list", "appliances_get_status", "appliances_control"],
+    "orchestrator":["task_plan", "task_status", "task_list", "task_cancel"],
+    "wearable":    ["wearable_get_events", "wearable_list_devices"],
+    "robot":       ["robot_status", "robot_move", "robot_cancel"],
+    "computer":    ["navigate_computer"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -55,125 +40,69 @@ _SYSTEM = (
     f"{_CATEGORIES_STR}. "
     "Return ONLY a valid JSON array — no explanation, no markdown. "
     "Multiple categories are allowed. "
+    "For any task involving an app, website, email client, calendar app, messaging app, "
+    "or any screen interaction, return [\"computer\"]. "
     "If no category fits, return []."
 )
 
 _EXAMPLES = (
     "Examples:\n"
-    "  what's on my calendar this week → [\"calendar\"]\n"
-    "  any emails from Alice? → [\"email\"]\n"
-    "  show my tasks and upcoming events → [\"tasks\", \"calendar\"]\n"
     "  turn off the living room lights → [\"home\"]\n"
-    "  find the budget doc in Drive → [\"drive\"]\n"
-    "  what's the weather today → [\"search\"]\n"
-    "  latest news about AI → [\"search\"]\n"
-    "  what is the current price of Bitcoin → [\"search\"]\n"
-    "  how do I fix a Python import error → [\"search\"]\n"
-    "  what movies are playing this weekend → [\"search\"]\n"
-    "  schedule a meeting and search for the venue address → [\"calendar\", \"search\"]\n"
-    "  did Alice text me? → [\"messages\"]\n"
-    "  show my recent texts → [\"messages\"]\n"
-    "  send a message to mom → [\"messages\"]\n"
-    "  text John that I'm running late → [\"messages\"]\n"
-    "  what's on my screen right now → [\"system\"]\n"
-    "  what does this error say → [\"system\"]\n"
-    "  can you see what app I have open → [\"system\"]\n"
+    "  dim the bedroom lights to 40% → [\"home\"]\n"
+    "  what devices are online → [\"home\"]\n"
+    "  play some jazz on Spotify → [\"music\"]\n"
+    "  pause the music → [\"music\"]\n"
+    "  set volume to 60 → [\"music\"]\n"
+    "  what song is playing → [\"music\"]\n"
+    "  what's the system info → [\"system\"]\n"
+    "  what wifi am I on → [\"system\"]\n"
+    "  send me a notification → [\"system\"]\n"
+    "  open Finder → [\"system\"]\n"
+    "  set volume to 50 → [\"system\"]\n"
     "  what's in my Downloads folder → [\"files\"]\n"
     "  read the file ~/Documents/notes.txt → [\"files\"]\n"
     "  save this to a file on my Desktop → [\"files\"]\n"
-    "  list my project files → [\"files\"]\n"
-    "  what page am I on → [\"browser\"]\n"
-    "  what tabs do I have open → [\"browser\"]\n"
-    "  open this URL in my browser → [\"browser\"]\n"
-    "  show me the GitHub page for this repo → [\"browser\"]\n"
-    "  what's John's phone number → [\"contacts\"]\n"
-    "  find Alice's email → [\"contacts\"]\n"
-    "  what are my reminders → [\"reminders\"]\n"
-    "  remind me to call the dentist tomorrow → [\"reminders\"]\n"
-    "  what notes do I have → [\"notes\"]\n"
-    "  read my shopping list note → [\"notes\"]\n"
-    "  add milk to my shopping list note → [\"notes\"]\n"
-    "  what's in my clipboard → [\"clipboard\"]\n"
-    "  copy this to clipboard → [\"clipboard\"]\n"
-    "  any new Telegram messages → [\"telegram\"]\n"
-    "  send a Telegram to John → [\"telegram\"]\n"
-    "  message my Telegram bot → [\"telegram\"]\n"
-    "  search my Notion for meeting notes → [\"notion\"]\n"
-    "  what does my project plan page say → [\"notion\"]\n"
-    "  create a new Notion page for my ideas → [\"notion\"]\n"
-    "  add this to my daily notes in Notion → [\"notion\"]\n"
-    "  show my GitHub repos → [\"github\"]\n"
-    "  any open PRs on CollectiveOS → [\"github\"]\n"
-    "  what issues are open in my repo → [\"github\"]\n"
-    "  did CI pass on main → [\"github\"]\n"
-    "  create a GitHub issue for this bug → [\"github\"]\n"
-    "  what channels do I have in Slack → [\"slack\"]\n"
-    "  show recent messages in #general → [\"slack\"]\n"
-    "  what did the team say in Slack today → [\"slack\"]\n"
-    "  send a Slack message to the engineering channel → [\"slack\"]\n"
-    "  DM John on Slack → [\"slack\"]\n"
     "  how did I sleep last night → [\"health\"]\n"
     "  what's my HRV this week → [\"health\"]\n"
-    "  show my step count for the last 7 days → [\"health\"]\n"
-    "  what's my readiness score today → [\"health\"]\n"
-    "  how is my recovery looking → [\"health\"]\n"
-    "  how much have I spent on the API today → [\"memory\"]\n"
-    "  what's my API cost this week → [\"memory\"]\n"
-    "  which tools are slowest → [\"memory\"]\n"
-    "  show my usage summary → [\"memory\"]\n"
-    "  remember that I prefer dark roast coffee → [\"memory\"]\n"
-    "  remember my gym schedule is Monday Wednesday Friday → [\"memory\"]\n"
-    "  what do you remember about me → [\"memory\"]\n"
-    "  forget that I said I was vegetarian → [\"memory\"]\n"
-    "  what facts have you saved → [\"memory\"]\n"
-    "  what do you know about Alice → [\"memory\"]\n"
-    "  how is Alice related to the project → [\"memory\"]\n"
-    "  show me the knowledge graph for CollectiveOS → [\"memory\"]\n"
-    "  what connections do you see between Bob and the gym → [\"memory\"]\n"
-    "  what's my bank balance → [\"finance\"]\n"
-    "  show my recent transactions → [\"finance\"]\n"
-    "  how much did I spend on food this month → [\"finance\"]\n"
-    "  what's my account balance → [\"finance\"]\n"
+    "  show my step count → [\"health\"]\n"
+    "  what's my readiness score → [\"health\"]\n"
     "  is my car locked → [\"car\"]\n"
     "  lock the car → [\"car\"]\n"
     "  turn on the car climate → [\"car\"]\n"
-    "  what's the charge level of my car → [\"car\"]\n"
     "  list my smart appliances → [\"appliances\"]\n"
     "  turn off the washing machine → [\"appliances\"]\n"
-    "  what's the status of my dryer → [\"appliances\"]\n"
-    "  ask ChatGPT to explain quantum computing → [\"ai\"]\n"
-    "  what does Grok think about climate change → [\"ai\"]\n"
-    "  compare what GPT and Gemini say about Python → [\"ai\"]\n"
-    "  ask all AIs about the meaning of life → [\"ai\"]\n"
-    "  get Gemini to write a haiku → [\"ai\"]\n"
-    "  check my Telegram messages → [\"telegram\"]\n"
-    "  send a Telegram message to John → [\"telegram\"]\n"
+    "  remember that I prefer dark roast coffee → [\"memory\"]\n"
+    "  what do you remember about me → [\"memory\"]\n"
+    "  forget that I said I was vegetarian → [\"memory\"]\n"
+    "  how much have I spent on the API today → [\"memory\"]\n"
+    "  what connections exist between Alice and the gym → [\"memory\"]\n"
     "  run a multi-step task for me → [\"orchestrator\"]\n"
-    "  research X and save it to Notion → [\"orchestrator\", \"search\", \"notion\"]\n"
-    "  check my tasks and create follow-ups → [\"orchestrator\", \"tasks\"]\n"
-    "  what tasks have you run recently → [\"orchestrator\"]\n"
     "  cancel that task → [\"orchestrator\"]\n"
+    "  what tasks have you run recently → [\"orchestrator\"]\n"
     "  what's the status of task 5 → [\"orchestrator\"]\n"
-    "  click the submit button for me → [\"computer\"]\n"
-    "  automate filling out this form → [\"computer\"]\n"
-    "  control my desktop to open that file → [\"computer\"]\n"
-    "  use the computer to complete this task → [\"computer\"]\n"
-    "  open Gmail and send an email to John → [\"computer\"]\n"
-    "  go to github.com and check my latest PR → [\"computer\"]\n"
-    "  open Notion and update my weekly plan page → [\"computer\"]\n"
-    "  navigate to Slack and post a message in #general → [\"computer\"]\n"
-    "  open Terminal and run git status → [\"computer\"]\n"
-    "  open Finder and move the file to Downloads → [\"computer\"]\n"
-    "  book that restaurant on OpenTable → [\"computer\"]\n"
-    "  fill in the form at that website → [\"computer\"]\n"
-    "  use the computer to reply to that Notion comment → [\"computer\"]\n"
     "  what did my wearable detect → [\"wearable\"]\n"
     "  show me my Garmin events → [\"wearable\"]\n"
-    "  what devices have sent data → [\"wearable\"]\n"
     "  what is the robot doing → [\"robot\"]\n"
     "  move the robot forward 2 metres → [\"robot\"]\n"
     "  stop the robot → [\"robot\"]\n"
-    "  what's the robot battery level → [\"robot\"]\n"
+    "  click the submit button for me → [\"computer\"]\n"
+    "  open Gmail and send an email to John → [\"computer\"]\n"
+    "  check my calendar for today → [\"computer\"]\n"
+    "  send a Slack message to the engineering channel → [\"computer\"]\n"
+    "  go to github.com and check my latest PR → [\"computer\"]\n"
+    "  open Notion and update my weekly plan page → [\"computer\"]\n"
+    "  search the web for the best Python libraries → [\"computer\"]\n"
+    "  what's the weather today → [\"computer\"]\n"
+    "  open Terminal and run git status → [\"computer\"]\n"
+    "  book that restaurant on OpenTable → [\"computer\"]\n"
+    "  navigate to Slack and post a message in #general → [\"computer\"]\n"
+    "  open Finder and move the file to Downloads → [\"computer\"]\n"
+    "  did Alice text me → [\"computer\"]\n"
+    "  reply to that email from Bob → [\"computer\"]\n"
+    "  show my tasks in Todoist → [\"computer\"]\n"
+    "  find the budget doc in Drive → [\"computer\"]\n"
+    "  what issues are open in my GitHub repo → [\"computer\"]\n"
+    "  any new Telegram messages → [\"computer\"]\n"
 )
 
 _llm: ChatGoogleGenerativeAI | None = None

@@ -2,16 +2,16 @@
 
 Three tiers:
   READ        — read-only; never requires confirmation.
-  WRITE       — mutates local state (calendar, tasks, notes, memory, files).
+  WRITE       — mutates local state or queues an action for review.
                 Requires user confirmation via the HITL interrupt gate.
-  DESTRUCTIVE — sends a message to an external party, controls a physical device,
-                or takes an action that cannot easily be undone.
+  DESTRUCTIVE — controls a physical device or takes an action that cannot
+                easily be undone.
                 Requires confirmation AND signals the client to show a stronger warning.
 
 Any tool name not listed here defaults to WRITE (conservative fallback).
 
-Import pattern — prefer the helpers over the raw dicts:
-    from src.tool_registry import tier_of, WRITE_TOOLS, DESTRUCTIVE_TOOLS
+Note: external-service API connectors (Gmail, Calendar, Todoist, Slack, etc.)
+have been removed. All screen-navigable tasks go through navigate_computer.
 """
 
 from __future__ import annotations
@@ -35,35 +35,10 @@ TOOL_TIERS: dict[str, str] = {
     "usage_summary":             READ,
     "mcp_list_servers":          READ,
 
-    # ── External AI models ───────────────────────────────────────────────────
-    "ai_ask":                    READ,
-    "ai_compare":                READ,
-
-    # ── Google Calendar ──────────────────────────────────────────────────────
-    "get_calendar_events":       READ,
-    "create_event":              WRITE,
-
-    # ── Gmail ────────────────────────────────────────────────────────────────
-    "get_recent_emails":         READ,
-    "search_emails":             READ,
-    "create_draft":              WRITE,
-    "send_email":                DESTRUCTIVE,   # sends to external party
-
-    # ── Google Drive ─────────────────────────────────────────────────────────
-    "list_drive_files":          READ,
-    "read_drive_file":           READ,
-
-    # ── Todoist ──────────────────────────────────────────────────────────────
-    "get_tasks":                 READ,
-    "get_projects":              READ,
-    "add_task":                  WRITE,
-    "complete_task":             WRITE,
-    "update_task":               WRITE,
-
     # ── Home Assistant ───────────────────────────────────────────────────────
     "get_devices":               READ,
     "get_device_state":          READ,
-    "control_device":            DESTRUCTIVE,   # physical device control
+    "control_device":            DESTRUCTIVE,
     "set_light":                 WRITE,
 
     # ── Spotify ──────────────────────────────────────────────────────────────
@@ -80,85 +55,31 @@ TOOL_TIERS: dict[str, str] = {
     "open_application":          WRITE,
     "set_system_volume":         WRITE,
 
-    # ── Web search ───────────────────────────────────────────────────────────
-    "web_search":                READ,
-
-    # ── iMessage ─────────────────────────────────────────────────────────────
-    "imessage_get_messages":     READ,
-    "imessage_send":             DESTRUCTIVE,   # sends to external party
-
-    # ── Screen capture ───────────────────────────────────────────────────────
-    "capture_screen":            READ,
-
     # ── Local filesystem ─────────────────────────────────────────────────────
     "list_directory":            READ,
     "read_local_file":           READ,
     "write_local_file":          WRITE,
-
-    # ── Browser ──────────────────────────────────────────────────────────────
-    "browser_get_active_tab":    READ,
-    "browser_list_tabs":         READ,
-    "browser_open_url":          WRITE,
-
-    # ── Apple native (Contacts / Reminders / Notes / Clipboard) ─────────────
-    "contacts_search":           READ,
-    "reminders_list":            READ,
-    "reminders_add":             WRITE,
-    "reminders_complete":        WRITE,
-    "notes_list":                READ,
-    "notes_read":                READ,
-    "notes_create":              WRITE,
-    "notes_append":              WRITE,
-    "clipboard_read":            READ,
-    "clipboard_write":           WRITE,
-
-    # ── Telegram ─────────────────────────────────────────────────────────────
-    "telegram_get_messages":     READ,
-    "telegram_send":             DESTRUCTIVE,   # sends to external party
-
-    # ── Notion ───────────────────────────────────────────────────────────────
-    "notion_search":             READ,
-    "notion_read_page":          READ,
-    "notion_create_page":        WRITE,
-    "notion_append_to_page":     WRITE,
-
-    # ── GitHub ───────────────────────────────────────────────────────────────
-    "github_list_repos":         READ,
-    "github_list_prs":           READ,
-    "github_list_issues":        READ,
-    "github_get_ci_status":      READ,
-    "github_create_issue":       WRITE,
-
-    # ── Slack ─────────────────────────────────────────────────────────────────
-    "slack_list_channels":       READ,
-    "slack_read_messages":       READ,
-    "slack_send_message":        DESTRUCTIVE,   # sends to external party / channel
 
     # ── Health ────────────────────────────────────────────────────────────────
     "health_get_sleep":          READ,
     "health_get_activity":       READ,
     "health_get_readiness":      READ,
 
-    # ── Finance ───────────────────────────────────────────────────────────────
-    "finance_get_accounts":      READ,
-    "finance_get_transactions":  READ,
-    "finance_get_spending_summary": READ,
-
     # ── Car connector ─────────────────────────────────────────────────────────
     "car_get_status":            READ,
-    "car_lock":                  DESTRUCTIVE,   # physical vehicle action
-    "car_climate":               DESTRUCTIVE,   # physical vehicle action
+    "car_lock":                  DESTRUCTIVE,
+    "car_climate":               DESTRUCTIVE,
 
     # ── Smart appliances ──────────────────────────────────────────────────────
     "appliances_list":           READ,
     "appliances_get_status":     READ,
-    "appliances_control":        DESTRUCTIVE,   # physical device control
-
-    # ── VisualOS connector ────────────────────────────────────────────────────
-    "lens_analyze":              READ,
+    "appliances_control":        DESTRUCTIVE,
 
     # ── iOS push notifications ────────────────────────────────────────────────
     "push_notification":         WRITE,
+
+    # ── Output bus ───────────────────────────────────────────────────────────
+    "notify_user":               WRITE,
 
     # ── Wearable devices ─────────────────────────────────────────────────────
     "wearable_get_events":       READ,
@@ -166,18 +87,21 @@ TOOL_TIERS: dict[str, str] = {
 
     # ── Robot (ROS2 MCP) ──────────────────────────────────────────────────────
     "robot_status":              READ,
-    "robot_move":                DESTRUCTIVE,   # physical motion
-    "robot_cancel":              DESTRUCTIVE,   # emergency stop (also needs gate)
-    "robot_navigate":            DESTRUCTIVE,   # path-planned motion between rooms
+    "robot_move":                DESTRUCTIVE,
+    "robot_cancel":              DESTRUCTIVE,
+    "robot_navigate":            DESTRUCTIVE,
     "robot_describe_scene":      READ,
+
+    # ── Orchestrator ─────────────────────────────────────────────────────────
+    "task_plan":                 WRITE,
+    "task_status":               READ,
+    "task_list":                 READ,
+    "task_cancel":               WRITE,
 
     # ── Computer Navigation Agent ─────────────────────────────────────────────
     # Marked WRITE (not DESTRUCTIVE) because the nav agent has its own internal
     # HITL gate for irreversible sub-actions (send, delete, purchase …).
-    # The LangGraph gate fires once before the agent starts; the internal gate
-    # fires again before each irreversible step inside the agent loop.
     "navigate_computer":         WRITE,
-    "computer_use":              WRITE,         # legacy connector — prefer navigate_computer
 }
 
 
@@ -209,5 +133,5 @@ def is_write(name: str) -> bool:
 
 
 def is_destructive(name: str) -> bool:
-    """True if the tool sends to an external party or controls physical hardware."""
+    """True if the tool controls physical hardware or is otherwise irreversible."""
     return tier_of(name) == DESTRUCTIVE
