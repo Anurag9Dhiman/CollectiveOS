@@ -981,6 +981,39 @@ def computer_stop(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Task orchestrator — REST endpoints for the Tasks UI panel
+# ---------------------------------------------------------------------------
+
+@app.get("/tasks")
+def list_tasks_endpoint(limit: int = 25, _token: str = Depends(_verify_token)):
+    """Return the most recent tasks ordered newest first."""
+    from src.orchestrator import list_tasks
+    try:
+        return list_tasks(limit=limit)
+    except Exception:
+        return []
+
+
+@app.get("/tasks/{task_id}")
+def get_task_endpoint(task_id: int, _token: str = Depends(_verify_token)):
+    """Return a single task with its steps."""
+    from src.orchestrator import get_task
+    from fastapi import HTTPException
+    data = get_task(task_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+    return data
+
+
+@app.post("/tasks/{task_id}/cancel")
+def cancel_task_endpoint(task_id: int, _token: str = Depends(_verify_token)):
+    """Cancel a pending or running task."""
+    from src.orchestrator import cancel_task
+    result = cancel_task(task_id)
+    return {"message": result}
+
+
+# ---------------------------------------------------------------------------
 # Robot status — live state for the floor-plan UI panel
 # ---------------------------------------------------------------------------
 
