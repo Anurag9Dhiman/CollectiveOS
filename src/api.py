@@ -995,6 +995,60 @@ def robot_status_endpoint(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Robot WebSocket — camera stream + demonstration recording
+# ---------------------------------------------------------------------------
+
+@app.websocket("/robot/ws")
+async def robot_websocket(ws: WebSocket, token: str = "") -> None:
+    """
+    Robot camera stream and task endpoint.
+
+    The robot connects here, streams its camera (type=frame) and sends
+    tasks (type=task).  The nav agent runs with record=True so every step
+    is written to data/demonstrations/ for imitation learning.
+
+    Auth: pass ?token=<API_TOKEN> as a query parameter.
+    """
+    if token != _API_TOKEN:
+        await ws.close(code=4401, reason="Unauthorized")
+        return
+    from src.robot_stream import handle_robot_ws
+    await handle_robot_ws(ws, token)
+
+
+# ---------------------------------------------------------------------------
+# Demonstrations — imitation learning data
+# ---------------------------------------------------------------------------
+
+@app.get("/demonstrations")
+def list_demonstrations(limit: int = 50, _token: str = Depends(_verify_token)):
+    """List the most recent demonstration files written by the nav agent."""
+    from src.connectors.demonstrations import list_demos
+    return list_demos(limit=limit)
+
+
+@app.get("/demonstrations/policy")
+def demonstrations_policy(_token: str = Depends(_verify_token)):
+    """
+    Aggregate all demonstrations into an action-frequency policy summary.
+    Useful as a seed for imitation learning or for inspecting agent behaviour.
+    """
+    from src.connectors.demonstrations import summarize_policy
+    return summarize_policy()
+
+
+@app.get("/demonstrations/{demo_id}")
+def get_demonstration(demo_id: str, _token: str = Depends(_verify_token)):
+    """Return the full JSON for a specific demonstration file by id."""
+    from src.connectors.demonstrations import get_demo
+    data = get_demo(demo_id)
+    if data is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Demo '{demo_id}' not found.")
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Morning briefing
 # ---------------------------------------------------------------------------
 
