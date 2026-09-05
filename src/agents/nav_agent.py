@@ -629,7 +629,57 @@ class NavAgent:
         hint = _APP_HINTS.get(app, "")
         tree_str = " ".join(results[:_MAX_AX_ELEMS]) or "no interactive elements found"
         hint_part = f" | Hint: {hint}" if hint else ""
-        return f"App: {app} | AX elements: {tree_str}{hint_part}"
+
+        dialog_warning = self._detect_modal_dialog(app_elem)
+        prefix = f"⚠️ {dialog_warning} | " if dialog_warning else ""
+        return f"{prefix}App: {app} | AX elements: {tree_str}{hint_part}"
+
+    def _detect_modal_dialog(self, app_elem: object) -> str:
+        """Return a warning string if a modal dialog/sheet/alert is blocking the UI.
+
+        Inspects AXWindows for AXSheet, AXAlert, or AXDialog containers and
+        collects their title + button labels so Gemini knows exactly how to dismiss.
+        Returns an empty string when no modal is found.
+        """
+        try:
+            windows = self._ax_attr(app_elem, "AXWindows") or []
+            for win in windows:
+                # Sheets attach as children of AXWindow; alerts may be top-level
+                candidates = [win] + list(self._ax_attr(win, "AXChildren") or [])
+                for elem in candidates:
+                    role = self._ax_attr(elem, "AXRole") or ""
+                    if role not in ("AXSheet", "AXAlert", "AXDialog"):
+                        continue
+
+                    title = (self._ax_attr(elem, "AXTitle") or
+                             self._ax_attr(elem, "AXDescription") or "")
+
+                    # Collect button labels (up to 3 levels deep)
+                    btn_labels: list[str] = []
+
+                    def _collect_btns(node: object, d: int = 0) -> None:
+                        if d > 3 or len(btn_labels) >= 5:
+                            return
+                        if self._ax_attr(node, "AXRole") == "AXButton":
+                            lbl = self._ax_attr(node, "AXTitle") or ""
+                            if lbl:
+                                btn_labels.append(lbl)
+                        for ch in (self._ax_attr(node, "AXChildren") or []):
+                            _collect_btns(ch, d + 1)
+
+                    _collect_btns(elem)
+
+                    btn_str = " / ".join(btn_labels) if btn_labels else "OK"
+                    title_str = f'"{title}"' if title else role
+                    return (
+                        f"MODAL DIALOG {title_str} is blocking the screen. "
+                        f"Buttons available: [{btn_str}]. "
+                        f"Dismiss it FIRST — press Return (default) or Escape (cancel) "
+                        f"before continuing the task."
+                    )
+        except Exception:
+            pass
+        return ""
 
     def _walk_ax(
         self, elem: object, depth: int,
@@ -665,8 +715,31 @@ class NavAgent:
             return None
 
     def _applescript_ax_summary(self, app: str) -> str:
-        """Phase 1 AppleScript fallback — focused element only."""
-        script = f'''
+        """Phase 1 AppleScript fallback — focused element + dialog detection."""
+        # Dialog check: count sheets attached to the frontmost window
+        dialog_script = f'''
+        tell application "System Events"
+            tell process "{app}"
+                try
+                    if (count of sheets) > 0 then
+                        set sh to sheet 1
+                        set shDesc to ""
+                        try
+                            set shDesc to description of sh
+                        end try
+                        set btnNames to name of every button of sh
+                        return "DIALOG: " & shDesc & " | Buttons: " & (btnNames as string)
+                    end if
+                end try
+                return ""
+            end tell
+        end tell
+        '''
+        dr = subprocess.run(["osascript", "-e", dialog_script],
+                            capture_output=True, text=True, timeout=3)
+        dialog_info = dr.stdout.strip()
+
+        focus_script = f'''
         tell application "System Events"
             tell process "{app}"
                 try
@@ -678,11 +751,18 @@ class NavAgent:
             end tell
         end tell
         '''
-        r = subprocess.run(["osascript", "-e", script],
+        r = subprocess.run(["osascript", "-e", focus_script],
                            capture_output=True, text=True, timeout=3)
         focused  = r.stdout.strip()[:100] or "none"
         app_hint = _APP_HINTS.get(app, "")
         hint_part = f" | Hint: {app_hint}" if app_hint else ""
+
+        if dialog_info:
+            return (
+                f"⚠️ MODAL DIALOG blocking screen — {dialog_info}. "
+                f"Dismiss FIRST (Return = default, Escape = cancel). "
+                f"| App: {app} | Focused: {focused}{hint_part}"
+            )
         return f"App: {app} | Focused: {focused}{hint_part}"
 
     # ── OpenCV screen-change verification ─────────────────────────────────────
