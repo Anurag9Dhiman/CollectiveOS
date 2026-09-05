@@ -202,6 +202,11 @@ def evaluate(watcher: dict) -> None:
     if triggered:
         log.info("Watcher %d (%s) condition met — notifying via %s", watcher_id, name, notify_via)
         output_bus.deliver(f"🔔 {name}", result, channel=notify_via)
+        try:
+            from src.activity import log_event
+            log_event("watcher", name, f"{condition} → {result[:250]}")
+        except Exception:
+            pass
 
 
 def check_due() -> None:
