@@ -50,6 +50,15 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+
+def _compress_for_stream(png_bytes: bytes, quality: int = 40) -> str:
+    """JPEG-compress a PNG frame and return it base64-encoded for SSE streaming."""
+    import io as _io
+    buf = _io.BytesIO()
+    Image.open(_io.BytesIO(png_bytes)).save(buf, format="JPEG", quality=quality, optimize=True)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
 # ── Optional Phase-2 dependencies (graceful fallback if not installed) ────────
 try:
     import ApplicationServices as _AS   # pyobjc-framework-ApplicationServices
@@ -328,6 +337,7 @@ class NavAgent:
         steps: list[dict] = []
         demos: list[dict] = []
         history: list[dict] = []
+        stuck_count = 0
 
         system_prompt = self._build_system_prompt(task, context)
         run_id = _cs.begin_run(task)
@@ -346,6 +356,7 @@ class NavAgent:
                 shot_bytes, ax_context, history,
                 first_person_frame if iteration == 0 else None,
                 robot_camera_frame if iteration == 0 else None,
+                stuck_count=stuck_count,
             )
 
             # 3. Ask Gemini
@@ -400,8 +411,17 @@ class NavAgent:
             after_bytes = self._capture_screenshot()
             changed = self._verify_screen_change(shot_bytes, after_bytes)
             if not changed and action_type not in (_Act.type_text, _Act.key_press, _Act.wait):
+                stuck_count += 1
                 outcome += " [WARNING: screen unchanged — element may not be clickable or UI is loading]"
-                logger.debug("NavAgent iter %d — screen unchanged after %s", iteration, action_type)
+                logger.debug("NavAgent iter %d — screen unchanged after %s (stuck=%d)", iteration, action_type, stuck_count)
+            else:
+                stuck_count = 0
+
+            # Compress post-action screenshot for live panel streaming
+            try:
+                screenshot_b64 = _compress_for_stream(after_bytes)
+            except Exception:
+                screenshot_b64 = None
 
             step = {
                 "iteration": iteration,
@@ -412,7 +432,7 @@ class NavAgent:
                 "screen_changed": changed,
             }
             steps.append(step)
-            _cs.emit_action(run_id, iteration, action, None)
+            _cs.emit_action(run_id, iteration, action, screenshot_b64)
 
             if record:
                 demos.append({
@@ -598,6 +618,7 @@ class NavAgent:
         history: list[dict],
         first_person_frame: Optional[bytes],
         robot_camera_frame: Optional[bytes],
+        stuck_count: int = 0,
     ) -> list[gtypes.Part]:
         parts: list[gtypes.Part] = []
 
@@ -620,6 +641,17 @@ class NavAgent:
             )
             state_text += f"Recent steps: {hist_lines}\n"
         state_text += "What is the next single action? Return JSON only."
+
+        if stuck_count >= 3:
+            state_text += (
+                f"\n⚠️ STUCK: screen unchanged for {stuck_count} consecutive steps. "
+                "Switch to a completely different strategy:\n"
+                "1. Spotlight search (key_press cmd+space) then type what you need.\n"
+                "2. Tab key to cycle focus to the target element.\n"
+                "3. Right-click instead of click.\n"
+                "4. Scroll to reveal a hidden element.\n"
+                "5. Press Escape and start fresh from a different entry point."
+            )
 
         parts.append(gtypes.Part.from_text(text=state_text))
         return parts
