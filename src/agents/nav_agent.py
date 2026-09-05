@@ -281,6 +281,9 @@ class NavAgent:
                 record=record,
             )
 
+        from src import computer_stream as _cs
+        run_id = _cs.begin_run(task)
+
         full_task = f"{task}\n\nUser context:\n{context}" if context else task
         llm = ChatGoogleGenerativeAI(
             model=_VISION_MODEL.replace("models/", ""),
@@ -289,11 +292,14 @@ class NavAgent:
         agent = BrowserAgent(task=full_task, llm=llm)
         try:
             result = await agent.run(max_steps=_NAV_MAX_ITER)
-            nav_result = NavResult(status="done", result=str(result) or "Browser task completed.")
+            result_str = str(result) or "Browser task completed."
+            _cs.end_run(run_id, result_str, 0)
+            nav_result = NavResult(status="done", result=result_str)
             _save_nav_memory(task, [], nav_result.result)
             return nav_result
         except Exception as exc:
             logger.error("browser-use failed: %s", exc)
+            _cs.end_run(run_id, str(exc), 0)
             return NavResult(status="error", result=str(exc))
 
     # ── Desktop vision path (Gemini Flash free tier + pyautogui) ─────────────
@@ -317,13 +323,19 @@ class NavAgent:
           5. OpenCV verification: warn Gemini if screen didn't change
           6. Repeat
         """
+        from src import computer_stream as _cs
+
         steps: list[dict] = []
         demos: list[dict] = []
         history: list[dict] = []
 
         system_prompt = self._build_system_prompt(task, context)
+        run_id = _cs.begin_run(task)
 
         for iteration in range(_NAV_MAX_ITER):
+            if _cs.should_stop():
+                _cs.end_run(run_id, "Stopped by user.", iteration)
+                return NavResult(status="error", result="Stopped by user.", steps=steps)
             # 1. Perceive
             shot_bytes = self._capture_screenshot()
             app_name   = self._get_frontmost_app()
@@ -351,6 +363,7 @@ class NavAgent:
                 action = json.loads(response.text)
             except Exception as exc:
                 logger.error("Gemini vision call failed (iter %d): %s", iteration, exc)
+                _cs.end_run(run_id, str(exc), iteration)
                 return NavResult(status="error", result=str(exc), steps=steps)
 
             action_type = action.get("action", "wait")
@@ -361,11 +374,9 @@ class NavAgent:
             if action_type == _Act.done:
                 if record:
                     self._save_demos(task, demos)
-                nav_result = NavResult(
-                    status="done",
-                    result=action.get("result", "Task completed."),
-                    steps=steps,
-                )
+                final_result = action.get("result", "Task completed.")
+                _cs.end_run(run_id, final_result, iteration)
+                nav_result = NavResult(status="done", result=final_result, steps=steps)
                 _save_nav_memory(task, steps, nav_result.result)
                 return nav_result
 
@@ -401,6 +412,7 @@ class NavAgent:
                 "screen_changed": changed,
             }
             steps.append(step)
+            _cs.emit_action(run_id, iteration, action, None)
 
             if record:
                 demos.append({
@@ -420,11 +432,9 @@ class NavAgent:
         if record:
             self._save_demos(task, demos)
 
-        return NavResult(
-            status="max_iter",
-            result=f"Reached {_NAV_MAX_ITER}-step limit without completing the task.",
-            steps=steps,
-        )
+        msg = f"Reached {_NAV_MAX_ITER}-step limit without completing the task."
+        _cs.end_run(run_id, msg, _NAV_MAX_ITER)
+        return NavResult(status="max_iter", result=msg, steps=steps)
 
     # ── Perceive ─────────────────────────────────────────────────────────────
 
