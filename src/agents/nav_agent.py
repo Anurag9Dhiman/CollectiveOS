@@ -678,6 +678,26 @@ class NavAgent:
         logger.info("NavAgent: saved %d demo steps → %s", len(demos), out_file)
 
 
+# ── Wearable frame context store ──────────────────────────────────────────────
+# Single-user system: one frame at a time stored here.
+# Set by wearable_stream before the agent runs; consumed once by navigate_computer.
+
+_first_person_frame: Optional[bytes] = None
+
+
+def set_first_person_frame(frame: Optional[bytes]) -> None:
+    """Store a wearable camera frame to be used as first_person_frame on next navigate_computer call."""
+    global _first_person_frame
+    _first_person_frame = frame
+
+
+def get_and_clear_first_person_frame() -> Optional[bytes]:
+    """Return the stored wearable frame and clear it (consume-once semantics)."""
+    global _first_person_frame
+    frame, _first_person_frame = _first_person_frame, None
+    return frame
+
+
 # ── LangGraph tool wrapper ────────────────────────────────────────────────────
 
 _agent: Optional[NavAgent] = None
@@ -694,6 +714,7 @@ async def navigate_computer(
     task: str,
     context: str = "",
     hitl_callback: Optional[Callable[[str], Awaitable[bool]]] = None,
+    _first_person_frame: Optional[bytes] = None,
 ) -> str:
     """
     LangGraph tool — navigate the computer to complete any task.
@@ -702,8 +723,12 @@ async def navigate_computer(
       • Browser/web tasks  → browser-use (MIT) + Gemini Flash free tier
       • Native macOS apps  → Gemini vision loop (free) + pyautogui
 
-    Use for: email, calendar, docs, GitHub, Notion, Slack, any app on screen.
-    Do NOT use for: smart home, health streams, push notifications (direct connectors).
+    _first_person_frame: internal; not in tool schema. Injected by the sync
+    shim from the wearable frame store when triggered by Frame glasses.
     """
-    result = await _get_agent().run(task, context, hitl_callback=hitl_callback)
+    result = await _get_agent().run(
+        task, context,
+        hitl_callback=hitl_callback,
+        first_person_frame=_first_person_frame,
+    )
     return f"[{result.status}] {result.result} ({len(result.steps)} steps)"

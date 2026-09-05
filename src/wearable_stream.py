@@ -114,10 +114,29 @@ def _run_agent(text: str, context_lines: list[str],
     """
     Run the main agent with the transcript + rolling context as the user
     message, and return the reply string.
+
+    Phase 4: when image_b64 is present (Frame glasses camera frame), store it
+    via set_first_person_frame() so that navigate_computer picks it up as
+    first_person_frame — the agent can then see what the user physically sees.
     """
+    import base64
     from src import memory, conversations
     from src.agent import run as agent_run
     from src.api import _system_prompt  # reuse the same system prompt builder
+
+    # Phase 4: forward Frame camera frame to the nav agent
+    if image_b64:
+        try:
+            from src.agents.nav_agent import set_first_person_frame
+            set_first_person_frame(base64.b64decode(image_b64))
+        except Exception:
+            pass
+    else:
+        try:
+            from src.agents.nav_agent import set_first_person_frame
+            set_first_person_frame(None)
+        except Exception:
+            pass
 
     # Build a composite user message from rolling context + latest transcript
     if context_lines:
@@ -226,10 +245,18 @@ async def handle_wearable_ws(websocket: WebSocket, token: str) -> None:
                     last_image_mime,
                 )
 
+                # Phase 4: format reply for Frame in-lens display
+                try:
+                    from src.connectors.frame_wearable import format_for_frame
+                    frame_text = format_for_frame(reply)
+                except Exception:
+                    frame_text = reply[:150]
+
                 # Deliver via WebSocket AND output_bus (notification/push)
                 await websocket.send_text(json.dumps({
                     "type": "reply",
                     "text": reply,
+                    "frame_display": frame_text,   # pre-formatted for Frame glasses
                     "triggered": True,
                 }))
 
