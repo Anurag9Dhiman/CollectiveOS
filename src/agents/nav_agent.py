@@ -289,7 +289,9 @@ class NavAgent:
         agent = BrowserAgent(task=full_task, llm=llm)
         try:
             result = await agent.run(max_steps=_NAV_MAX_ITER)
-            return NavResult(status="done", result=str(result) or "Browser task completed.")
+            nav_result = NavResult(status="done", result=str(result) or "Browser task completed.")
+            _save_nav_memory(task, [], nav_result.result)
+            return nav_result
         except Exception as exc:
             logger.error("browser-use failed: %s", exc)
             return NavResult(status="error", result=str(exc))
@@ -359,11 +361,13 @@ class NavAgent:
             if action_type == _Act.done:
                 if record:
                     self._save_demos(task, demos)
-                return NavResult(
+                nav_result = NavResult(
                     status="done",
                     result=action.get("result", "Task completed."),
                     steps=steps,
                 )
+                _save_nav_memory(task, steps, nav_result.result)
+                return nav_result
 
             # 5. HITL gate
             if hitl_callback and self._needs_confirmation(action):
@@ -706,6 +710,48 @@ class NavAgent:
         logger.info("NavAgent: saved %d demo steps → %s", len(demos), out_file)
 
 
+# ── Navigation memory helpers ─────────────────────────────────────────────────
+
+def _save_nav_memory(task: str, steps: list[dict], result: str) -> None:
+    """Persist a concise navigation pattern to memory after a successful run.
+
+    Stored with source='nav' — searchable by the nav agent but excluded from
+    the user-facing Memory panel (which shows only source='fact' rows).
+    Runs in the calling thread; errors are swallowed so they never block a task.
+    """
+    try:
+        apps = list({s["app"] for s in steps if s.get("app") and s["app"] != "Unknown"})
+        path = "browser" if not steps else "desktop"
+        memo_parts = [f"Nav: '{task[:100]}'", f"path={path}"]
+        if apps:
+            memo_parts.append(f"apps={','.join(apps[:4])}")
+        memo_parts.append(f"steps={len(steps)}")
+        memo_parts.append(f"result={result[:150]}")
+        memo = " | ".join(memo_parts)
+
+        from src.memory import save_nav_pattern
+        save_nav_pattern(memo)
+        logger.debug("Nav memory saved: %s", memo[:80])
+    except Exception as exc:
+        logger.debug("Nav memory save skipped: %s", exc)
+
+
+def _get_nav_context(task: str) -> str:
+    """Retrieve the most relevant past navigation patterns for *task*.
+
+    Returns a formatted string ready to inject as context, or '' when the DB
+    is unavailable or no relevant patterns exist yet.
+    """
+    try:
+        from src.memory import search_nav_patterns
+        patterns = search_nav_patterns(task, limit=3)
+        if patterns:
+            return f"Past navigation patterns for similar tasks:\n{patterns}"
+    except Exception as exc:
+        logger.debug("Nav context retrieval skipped: %s", exc)
+    return ""
+
+
 # ── Wearable frame context store ──────────────────────────────────────────────
 # Single-user system: one frame at a time stored here.
 # Set by wearable_stream before the agent runs; consumed once by navigate_computer.
@@ -751,11 +797,16 @@ async def navigate_computer(
       • Browser/web tasks  → browser-use (MIT) + Gemini Flash free tier
       • Native macOS apps  → Gemini vision loop (free) + pyautogui
 
+    Injects past navigation patterns as context so the agent improves over time.
     _first_person_frame: internal; not in tool schema. Injected by the sync
     shim from the wearable frame store when triggered by Frame glasses.
     """
+    # Enrich context with relevant past navigation patterns
+    nav_ctx = _get_nav_context(task)
+    full_context = "\n\n".join(filter(None, [context, nav_ctx]))
+
     result = await _get_agent().run(
-        task, context,
+        task, full_context,
         hitl_callback=hitl_callback,
         first_person_frame=_first_person_frame,
     )
