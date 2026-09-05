@@ -281,6 +281,9 @@ class NavAgent:
                 record=record,
             )
 
+        from src import computer_stream as _cs
+        run_id = _cs.begin_run(task)
+
         full_task = f"{task}\n\nUser context:\n{context}" if context else task
         llm = ChatGoogleGenerativeAI(
             model=_VISION_MODEL.replace("models/", ""),
@@ -289,9 +292,14 @@ class NavAgent:
         agent = BrowserAgent(task=full_task, llm=llm)
         try:
             result = await agent.run(max_steps=_NAV_MAX_ITER)
-            return NavResult(status="done", result=str(result) or "Browser task completed.")
+            result_str = str(result) or "Browser task completed."
+            _cs.end_run(run_id, result_str, 0)
+            nav_result = NavResult(status="done", result=result_str)
+            _save_nav_memory(task, [], nav_result.result)
+            return nav_result
         except Exception as exc:
             logger.error("browser-use failed: %s", exc)
+            _cs.end_run(run_id, str(exc), 0)
             return NavResult(status="error", result=str(exc))
 
     # ── Desktop vision path (Gemini Flash free tier + pyautogui) ─────────────
@@ -315,13 +323,19 @@ class NavAgent:
           5. OpenCV verification: warn Gemini if screen didn't change
           6. Repeat
         """
+        from src import computer_stream as _cs
+
         steps: list[dict] = []
         demos: list[dict] = []
         history: list[dict] = []
 
         system_prompt = self._build_system_prompt(task, context)
+        run_id = _cs.begin_run(task)
 
         for iteration in range(_NAV_MAX_ITER):
+            if _cs.should_stop():
+                _cs.end_run(run_id, "Stopped by user.", iteration)
+                return NavResult(status="error", result="Stopped by user.", steps=steps)
             # 1. Perceive
             shot_bytes = self._capture_screenshot()
             app_name   = self._get_frontmost_app()
@@ -349,6 +363,7 @@ class NavAgent:
                 action = json.loads(response.text)
             except Exception as exc:
                 logger.error("Gemini vision call failed (iter %d): %s", iteration, exc)
+                _cs.end_run(run_id, str(exc), iteration)
                 return NavResult(status="error", result=str(exc), steps=steps)
 
             action_type = action.get("action", "wait")
@@ -359,11 +374,11 @@ class NavAgent:
             if action_type == _Act.done:
                 if record:
                     self._save_demos(task, demos)
-                return NavResult(
-                    status="done",
-                    result=action.get("result", "Task completed."),
-                    steps=steps,
-                )
+                final_result = action.get("result", "Task completed.")
+                _cs.end_run(run_id, final_result, iteration)
+                nav_result = NavResult(status="done", result=final_result, steps=steps)
+                _save_nav_memory(task, steps, nav_result.result)
+                return nav_result
 
             # 5. HITL gate
             if hitl_callback and self._needs_confirmation(action):
@@ -397,6 +412,7 @@ class NavAgent:
                 "screen_changed": changed,
             }
             steps.append(step)
+            _cs.emit_action(run_id, iteration, action, None)
 
             if record:
                 demos.append({
@@ -416,11 +432,9 @@ class NavAgent:
         if record:
             self._save_demos(task, demos)
 
-        return NavResult(
-            status="max_iter",
-            result=f"Reached {_NAV_MAX_ITER}-step limit without completing the task.",
-            steps=steps,
-        )
+        msg = f"Reached {_NAV_MAX_ITER}-step limit without completing the task."
+        _cs.end_run(run_id, msg, _NAV_MAX_ITER)
+        return NavResult(status="max_iter", result=msg, steps=steps)
 
     # ── Perceive ─────────────────────────────────────────────────────────────
 
@@ -706,6 +720,48 @@ class NavAgent:
         logger.info("NavAgent: saved %d demo steps → %s", len(demos), out_file)
 
 
+# ── Navigation memory helpers ─────────────────────────────────────────────────
+
+def _save_nav_memory(task: str, steps: list[dict], result: str) -> None:
+    """Persist a concise navigation pattern to memory after a successful run.
+
+    Stored with source='nav' — searchable by the nav agent but excluded from
+    the user-facing Memory panel (which shows only source='fact' rows).
+    Runs in the calling thread; errors are swallowed so they never block a task.
+    """
+    try:
+        apps = list({s["app"] for s in steps if s.get("app") and s["app"] != "Unknown"})
+        path = "browser" if not steps else "desktop"
+        memo_parts = [f"Nav: '{task[:100]}'", f"path={path}"]
+        if apps:
+            memo_parts.append(f"apps={','.join(apps[:4])}")
+        memo_parts.append(f"steps={len(steps)}")
+        memo_parts.append(f"result={result[:150]}")
+        memo = " | ".join(memo_parts)
+
+        from src.memory import save_nav_pattern
+        save_nav_pattern(memo)
+        logger.debug("Nav memory saved: %s", memo[:80])
+    except Exception as exc:
+        logger.debug("Nav memory save skipped: %s", exc)
+
+
+def _get_nav_context(task: str) -> str:
+    """Retrieve the most relevant past navigation patterns for *task*.
+
+    Returns a formatted string ready to inject as context, or '' when the DB
+    is unavailable or no relevant patterns exist yet.
+    """
+    try:
+        from src.memory import search_nav_patterns
+        patterns = search_nav_patterns(task, limit=3)
+        if patterns:
+            return f"Past navigation patterns for similar tasks:\n{patterns}"
+    except Exception as exc:
+        logger.debug("Nav context retrieval skipped: %s", exc)
+    return ""
+
+
 # ── Wearable frame context store ──────────────────────────────────────────────
 # Single-user system: one frame at a time stored here.
 # Set by wearable_stream before the agent runs; consumed once by navigate_computer.
@@ -751,11 +807,16 @@ async def navigate_computer(
       • Browser/web tasks  → browser-use (MIT) + Gemini Flash free tier
       • Native macOS apps  → Gemini vision loop (free) + pyautogui
 
+    Injects past navigation patterns as context so the agent improves over time.
     _first_person_frame: internal; not in tool schema. Injected by the sync
     shim from the wearable frame store when triggered by Frame glasses.
     """
+    # Enrich context with relevant past navigation patterns
+    nav_ctx = _get_nav_context(task)
+    full_context = "\n\n".join(filter(None, [context, nav_ctx]))
+
     result = await _get_agent().run(
-        task, context,
+        task, full_context,
         hitl_callback=hitl_callback,
         first_person_frame=_first_person_frame,
     )

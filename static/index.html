@@ -2254,6 +2254,9 @@
             chip.textContent = "↳ " + payload.progress;
             progressDiv.appendChild(chip);
             chat.scrollTop = chat.scrollHeight;
+            if (payload.progress === "navigate computer") {
+              document.dispatchEvent(new CustomEvent("computer-use-started"));
+            }
             continue;
           }
 
@@ -3609,13 +3612,23 @@
           computerLogEntry(`▶ Task: ${msg.task}`, "system");
         } else if (msg.event === "action") {
           const a = msg.action || {};
-          const aDesc = a.action === "type"
-            ? `type "${(a.text || "").slice(0, 40)}"`
-            : a.action === "key"
-            ? `key ${a.text}`
-            : a.action === "done"
-            ? `done`
-            : `${a.action} @ (${(a.coordinate||[]).join(", ")})`;
+          const act = a.action || "";
+          // Support both old computer_use format (coordinate[], type/key)
+          // and nav agent format (x/y fields, type_text/key_press/click/etc.)
+          let aDesc;
+          if (act === "type_text" || act === "type") {
+            aDesc = `type "${(a.text || "").slice(0, 40)}"`;
+          } else if (act === "key_press" || act === "key") {
+            aDesc = `key ${a.text || ""}`;
+          } else if (act === "done") {
+            aDesc = `done — ${(a.result || "").slice(0, 60)}`;
+          } else if (a.x != null && a.y != null) {
+            aDesc = `${act} @ (${a.x}, ${a.y})${a.reason ? " — " + a.reason.slice(0, 50) : ""}`;
+          } else if (a.coordinate) {
+            aDesc = `${act} @ (${a.coordinate.join(", ")})`;
+          } else {
+            aDesc = act;
+          }
           computerLogEntry(`[${msg.iteration + 1}] ${aDesc}`);
           if (msg.screenshot_b64) computerShowScreenshot(msg.screenshot_b64);
           if (msg.verify) computerShowBadge(msg.verify);
