@@ -1262,6 +1262,63 @@
     #robot-scan-btn:hover { background: #2d333b; }
 
     /* ── Morning Briefing panel ──────────────────────────────────────────── */
+    /* ── Tasks panel ─────────────────────────────────────────────────────── */
+    #tasks-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); z-index: 100;
+    }
+    #tasks-overlay.open { display: block; }
+    #tasks-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 520px; background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #tasks-panel > header {
+      padding: 14px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #tasks-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #tasks-body { flex: 1; padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+    .task-card {
+      background: #0d1117; border: 1px solid #21262d; border-radius: 10px;
+      padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .task-card-header { display: flex; align-items: flex-start; gap: 10px; }
+    .task-badge {
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 2px 8px; border-radius: 20px;
+      white-space: nowrap; margin-top: 2px;
+    }
+    .task-badge.pending   { background: #2d333b; color: #8b949e; }
+    .task-badge.planning  { background: #1f3a5f; color: #58a6ff; }
+    .task-badge.running   { background: #1a3a2a; color: #3fb950; }
+    .task-badge.completed { background: #173126; color: #3fb950; }
+    .task-badge.failed    { background: #3d1c1c; color: #f85149; }
+    .task-badge.cancelled { background: #21262d; color: #484f58; }
+    .task-desc { font-size: 0.88rem; color: #c9d1d9; flex: 1; line-height: 1.4; }
+    .task-meta { font-size: 0.72rem; color: #484f58; }
+    .task-steps { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid #21262d; padding-top: 8px; }
+    .task-step {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.78rem; color: #8b949e; padding: 4px 0;
+    }
+    .step-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .step-dot.done    { background: #3fb950; }
+    .step-dot.failed  { background: #f85149; }
+    .step-dot.pending { background: #484f58; }
+    .step-tool { font-weight: 600; color: #c9d1d9; min-width: 130px; }
+    .step-output { color: #8b949e; font-size: 0.73rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+    .task-cancel-btn {
+      align-self: flex-start; margin-top: 4px;
+      padding: 4px 12px; border-radius: 6px; font-size: 0.76rem; font-weight: 600;
+      background: transparent; border: 1px solid #f85149; color: #f85149;
+      cursor: pointer;
+    }
+    .task-cancel-btn:hover { background: #3d1c1c; }
+    .task-cancel-btn:disabled { opacity: 0.4; cursor: default; }
+    #tasks-empty { font-size: 0.85rem; color: #484f58; text-align: center; padding: 40px 0; }
+
     #briefing-overlay {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.5); z-index: 100;
@@ -1343,6 +1400,7 @@
   <button id="computer-btn"  class="header-btn" title="Computer agent live view">💻 Computer</button>
   <button id="robot-btn"      class="header-btn" title="Robot live view">🤖 Robot</button>
   <button id="briefing-btn"   class="header-btn" title="Morning briefing">☀ Briefing</button>
+  <button id="tasks-btn"      class="header-btn" title="Orchestrated tasks">📋 Tasks</button>
 </header>
 
 <div id="chat"></div>
@@ -1649,6 +1707,19 @@
       <div id="graph-detail">
         <div id="graph-detail-empty">Select an entity to see its connections.</div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tasks panel -->
+<div id="tasks-overlay">
+  <div id="tasks-panel">
+    <header>
+      <h2>📋 Orchestrated Tasks</h2>
+      <button id="tasks-close">✕</button>
+    </header>
+    <div id="tasks-body">
+      <div id="tasks-list">Loading…</div>
     </div>
   </div>
 </div>
@@ -3647,6 +3718,101 @@
       robotScan.disabled = false;
       robotScan.textContent = "👁 Describe current scene";
     }
+  });
+
+  // ── Tasks panel ──────────────────────────────────────────────────────────
+  const tasksBtn   = document.getElementById("tasks-btn");
+  const tasksOvl   = document.getElementById("tasks-overlay");
+  const tasksClose = document.getElementById("tasks-close");
+  const tasksList  = document.getElementById("tasks-list");
+
+  function taskBadge(status) {
+    return `<span class="task-badge ${status}">${status}</span>`;
+  }
+
+  function formatTaskDate(isoStr) {
+    if (!isoStr) return "";
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleString(undefined, { month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit" });
+    } catch (_) { return isoStr; }
+  }
+
+  function renderSteps(steps) {
+    if (!steps || !steps.length) return "";
+    return `<div class="task-steps">` +
+      steps.map(s => {
+        const dotClass = s.status === "completed" ? "done"
+                       : s.status === "failed"    ? "failed" : "pending";
+        const out = s.output ? String(s.output).replace(/\n/g, " ").slice(0, 120) : "—";
+        return `<div class="task-step">
+          <span class="step-dot ${dotClass}"></span>
+          <span class="step-tool">${s.tool || "?"}</span>
+          <span class="step-output" title="${s.output || ""}">${out}</span>
+        </div>`;
+      }).join("") +
+    `</div>`;
+  }
+
+  async function loadTasks() {
+    tasksList.innerHTML = "Loading…";
+    try {
+      const tasks = await apiFetch("/tasks?limit=30");
+      if (!tasks.length) {
+        tasksList.innerHTML = `<div id="tasks-empty">No tasks yet. Ask the assistant to plan a multi-step task.</div>`;
+        return;
+      }
+      tasksList.innerHTML = "";
+      for (const t of tasks) {
+        // Fetch steps for each task (batched but sequential to avoid hammering DB)
+        let steps = [];
+        try {
+          const full = await apiFetch(`/tasks/${t.id}`);
+          steps = full.steps || [];
+        } catch (_) {}
+
+        const canCancel = ["pending", "planning", "running"].includes(t.status);
+        const card = document.createElement("div");
+        card.className = "task-card";
+        card.innerHTML = `
+          <div class="task-card-header">
+            ${taskBadge(t.status)}
+            <span class="task-desc">${t.description}</span>
+          </div>
+          <div class="task-meta">#${t.id} · ${formatTaskDate(t.created_at)}</div>
+          ${renderSteps(steps)}
+          ${canCancel ? `<button class="task-cancel-btn" data-id="${t.id}">✕ Cancel</button>` : ""}
+        `;
+        tasksList.appendChild(card);
+      }
+
+      // Wire cancel buttons
+      tasksList.querySelectorAll(".task-cancel-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          btn.textContent = "Cancelling…";
+          try {
+            await apiFetch(`/tasks/${btn.dataset.id}/cancel`, { method: "POST" });
+            await loadTasks();
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = "✕ Cancel";
+          }
+        });
+      });
+    } catch (err) {
+      tasksList.innerHTML = `<div id="tasks-empty">Error loading tasks: ${err.message}</div>`;
+    }
+  }
+
+  tasksBtn.addEventListener("click", () => {
+    tasksOvl.classList.add("open");
+    loadTasks();
+  });
+  tasksClose.addEventListener("click", () => tasksOvl.classList.remove("open"));
+  tasksOvl.addEventListener("click", e => {
+    if (e.target === tasksOvl) tasksOvl.classList.remove("open");
   });
 
   // ── Morning Briefing ─────────────────────────────────────────────────────
