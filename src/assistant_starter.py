@@ -68,13 +68,22 @@ from src.connectors import appliances as _appliances
 from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
 from src.connectors.computer import computer_use
-from src.agents.nav_agent import navigate_computer as _nav_async
+from src.agents.nav_agent import (
+    navigate_computer as _nav_async,
+    get_and_clear_first_person_frame,
+)
 
 
 def _navigate_computer_sync(task: str, context: str = "") -> str:
-    """Sync shim — runs the async NavAgent in a fresh event loop (ThreadPoolExecutor-safe)."""
+    """Sync shim — runs the async NavAgent in a fresh event loop (ThreadPoolExecutor-safe).
+
+    Picks up any wearable frame stored by set_first_person_frame() before this
+    agent turn (e.g. from a Frame glasses WebSocket session) and passes it as
+    first_person_frame so the nav agent can see what the user physically sees.
+    """
     import asyncio
-    return asyncio.run(_nav_async(task, context))
+    frame = get_and_clear_first_person_frame()  # consume once; None for non-wearable tasks
+    return asyncio.run(_nav_async(task, context, _first_person_frame=frame))
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
 from src import orchestrator as _orchestrator
