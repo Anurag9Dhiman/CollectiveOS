@@ -5,8 +5,9 @@ Wraps the VisualOS (Lens OS) REST + A2A API.
 Primary use-cases inside CollectiveOS:
   1. Context enrichment — when VoiceOS passes a scan_session_id in entity_refs,
      fetch the stored ScanContext so the task agent can answer follow-ups.
-  2. Direct image analysis — POST /analyze with a screenshot (used by
-     capture_screen connector; not called from here).
+  2. Direct image analysis — POST /analyze with a screenshot. Called from
+     multi_agent._route_to_visualos(); falls back to inline Gemini Vision
+     when VisualOS is not configured (no LENS_URL).
   3. A2A queries — future: send tasks via the JSON-RPC 2.0 endpoint.
 
 The client never raises; errors are returned as AgentResult with an

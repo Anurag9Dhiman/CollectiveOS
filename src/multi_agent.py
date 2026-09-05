@@ -34,6 +34,9 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
+import subprocess
+import tempfile
 
 from src.agents.base import AgentRegistry, AgentResult
 from src.agents.task_agent import TaskAgentClient
@@ -165,7 +168,11 @@ def run(
             result = _route_to_visualos(visual_agent, text)
             if result is not None:
                 return result
-        # VisualOS unavailable or not registered → fall through to task agent
+        # VisualOS unavailable or not registered → inline Gemini Vision fallback
+        result = _screen_capture_gemini_fallback(text)
+        if result is not None:
+            return result
+        # Gemini Vision also unavailable → fall through to task agent
 
     # ── Route 2: Follow-up on existing scan → enrich + task agent ───────────
     visual_prefix = _enrich_visual_context(text, entity_refs)
@@ -193,41 +200,73 @@ def run(
     )
 
 
-def _route_to_visualos(visual_agent: "VisualOSClient", question: str) -> "AgentResult | None":
-    """Capture the screen and analyse it via VisualOS. Returns None on failure."""
-    import os
-    import platform
-    import subprocess
-    import tempfile
-
+def _take_screenshot() -> bytes | None:
+    """screencapture → resize to 1280px wide → PNG bytes. macOS only."""
     if platform.system() != "Darwin":
-        return None   # screencapture is macOS-only; fall through to task agent
-
+        return None
     tmp = tempfile.mktemp(suffix=".png")
     try:
-        r = subprocess.run(
-            ["screencapture", "-x", tmp],
-            capture_output=True, timeout=15,
-        )
+        r = subprocess.run(["screencapture", "-x", tmp], capture_output=True, timeout=15)
         if r.returncode != 0 or not os.path.exists(tmp):
             return None
         subprocess.run(["sips", "-Z", "1280", tmp], capture_output=True, timeout=10)
         with open(tmp, "rb") as fh:
-            image_bytes = fh.read()
+            return fh.read()
     except Exception as exc:
-        logger.warning("Screen capture failed in orchestrator: %s", exc)
+        logger.warning("Screenshot capture failed: %s", exc)
         return None
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
 
+
+def _screen_capture_gemini_fallback(question: str) -> "AgentResult | None":
+    """Analyze current screen with Gemini Vision when VisualOS is not configured."""
+    image_bytes = _take_screenshot()
+    if not image_bytes:
+        return None
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        return None
+
+    try:
+        from google import genai
+        from google.genai import types as _gt
+
+        vision_model = os.environ.get("VISION_MODEL", "models/gemini-2.0-flash")
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model=vision_model,
+            contents=[
+                _gt.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                _gt.Part.from_text(text=question or "Describe what's on the screen."),
+            ],
+        )
+        text = (resp.text or "").strip() or "I couldn't analyse the screen."
+        return AgentResult(
+            text=text,
+            metadata={"interrupted": False, "destructive": False},
+        )
+    except Exception as exc:
+        logger.warning("Gemini Vision screen fallback failed: %s", exc)
+        return None
+
+
+def _route_to_visualos(visual_agent: "VisualOSClient", question: str) -> "AgentResult | None":
+    """Capture the screen and analyse it via VisualOS. Returns None on failure."""
+    image_bytes = _take_screenshot()
+    if not image_bytes:
+        return None
+
     result = visual_agent.analyze_image(image_bytes, question)
 
     if result.text.startswith("[VisualOS unavailable"):
-        return None   # let task agent fall back to its own Gemini Vision path
+        # VisualOS running but unreachable — try inline Gemini Vision
+        return _screen_capture_gemini_fallback(question)
 
-    # Surface the scan_session_id in metadata so the caller can thread it
-    # back as entity_refs["scan_session_id"] on the next turn.
+    # Surface the scan_session_id so the caller can pass it back as entity_refs
+    # on the next turn, enabling follow-up questions about the same scan.
     if result.session_id:
         result.metadata["scan_session_id"] = result.session_id
 

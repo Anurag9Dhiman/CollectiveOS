@@ -125,11 +125,32 @@ _WRITE_KEYWORDS = frozenset({
     "sign", "order", "checkout", "remove", "unsubscribe",
 })
 
-# Tasks containing these strings are routed to the browser path
+# Tasks containing these strings are routed to the browser path.
+# Covers all web-navigable services that were previously separate connectors.
 _BROWSER_SIGNALS = frozenset({
-    "gmail", "google", "chrome", "safari", "browser", "website", "web",
-    "http", "url", ".com", ".org", "notion.so", "github.com",
-    "slack.com", "calendar", "drive", "docs", "sheets",
+    # Explicit web intent
+    "browser", "website", "web", "http", "url", "search the web",
+    # URL patterns
+    ".com", ".org", ".io", ".net",
+    # Google services
+    "gmail", "google", "google.com", "calendar", "drive", "docs", "sheets",
+    "google calendar", "google drive", "google docs",
+    # Productivity
+    "notion", "notion.so", "todoist", "todoist.com", "trello", "linear",
+    "jira", "confluence", "airtable",
+    # Code
+    "github", "github.com", "gitlab", "bitbucket", "stackoverflow",
+    # Communication
+    "slack", "slack.com", "discord", "discord.com", "telegram", "teams",
+    # Social / media
+    "twitter", "x.com", "linkedin", "reddit", "instagram", "facebook",
+    "youtube", "youtube.com",
+    # Shopping / finance
+    "amazon", "amazon.com", "stripe", "paypal", "venmo", "robinhood",
+    # Maps / travel
+    "maps", "google maps", "airbnb", "booking.com", "uber", "lyft",
+    # Browser apps
+    "chrome", "safari", "firefox",
 })
 
 # App-specific keyboard-shortcut hints (complement AX tree data)
@@ -536,17 +557,20 @@ class NavAgent:
 
     def _build_system_prompt(self, task: str, context: str) -> str:
         prompt = (
-            "You are a macOS desktop automation agent.\n"
+            "You are a macOS desktop automation agent. "
+            "Your job is to complete the given task by controlling the screen exactly as a human would.\n\n"
             "You receive a screenshot (1280×800) and an AX elements list.\n"
             "AX elements format: Role[label]@(cx,cy) — cx,cy are centres in screenshot space.\n\n"
             "Rules:\n"
             "- Return exactly one action per response as JSON matching the schema.\n"
             "- Coordinates (x, y) must be in screenshot space: x∈[0,1280], y∈[0,800].\n"
             "- Prefer AX element centres over visually estimated positions — they are exact.\n"
-            "- If a previous step reports [WARNING: screen unchanged], try a different approach.\n"
-            "- Before any irreversible action (send, submit, delete, purchase, book), "
-            "  set action=wait and explain in 'reason' — the user will confirm.\n"
-            "- When the task is fully complete, set action=done and summarise in 'result'.\n"
+            "- If a previous step reports [WARNING: screen unchanged], try a different approach "
+            "  (different coordinates, scroll to reveal the element, or use a keyboard shortcut).\n"
+            "- Use keyboard shortcuts whenever possible — they are faster and more reliable than clicking.\n"
+            "- When the task is complete, set action=done and summarise what was accomplished in 'result'.\n"
+            "- If the task is impossible (app not installed, page not found, wrong credentials), "
+            "  set action=done and explain why in 'result'.\n"
         )
         if context:
             prompt += f"\nUser context:\n{context}\n"
@@ -610,8 +634,12 @@ class NavAgent:
 
         elif t == _Act.type_text:
             text = action.get("text", "")
-            pyautogui.write(text, interval=0.02)
-            return f"Typed: {text[:60]}{'…' if len(text) > 60 else ''}"
+            # Use clipboard paste for reliable macOS text input.
+            # pyautogui.write() drops special characters, accents, and emoji.
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"),
+                           capture_output=True, check=False)
+            pyautogui.hotkey("cmd", "v")
+            return f"Typed via clipboard: {text[:60]}{'…' if len(text) > 60 else ''}"
 
         elif t == _Act.key_press:
             chord = action.get("text", "")
