@@ -194,7 +194,13 @@ class NavAgent:
                 "browser-use not installed — falling back to desktop vision path. "
                 "Run: pip install browser-use langchain-google-genai && playwright install chromium"
             )
-            return await self._run_desktop(task, context, hitl_callback=hitl_callback, record=record)
+            return await self._run_desktop(
+                task, context,
+                hitl_callback=hitl_callback,
+                first_person_frame=None,
+                robot_camera_frame=None,
+                record=record,
+            )
 
         full_task = task
         if context:
