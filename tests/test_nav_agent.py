@@ -191,6 +191,24 @@ class TestDesktopLoop:
         assert result.status == "max_iter"
 
     @pytest.mark.asyncio
+    async def test_read_clipboard_action_returns_content(self):
+        """read_clipboard action runs pbpaste and returns its stdout."""
+        agent = self._patched_run([
+            {"action": "read_clipboard", "reason": "capture copied text"},
+            {"action": "done", "result": "Got email: user@example.com"},
+        ])
+        fake_pbpaste = MagicMock()
+        fake_pbpaste.stdout = "user@example.com"
+        with patch("pyautogui.click"), \
+             patch("subprocess.run", return_value=fake_pbpaste):
+            result = await agent._run_desktop("get email from screen", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "done"
+        clipboard_step = result.steps[0]
+        assert "user@example.com" in clipboard_step["outcome"]
+
+    @pytest.mark.asyncio
     async def test_gemini_error_returns_error_status(self):
         agent = _nav_agent()
         agent._capture_screenshot = MagicMock(return_value=b"fake-png")

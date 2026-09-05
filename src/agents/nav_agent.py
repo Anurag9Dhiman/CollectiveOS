@@ -162,32 +162,132 @@ _BROWSER_SIGNALS = frozenset({
     "chrome", "safari", "firefox",
 })
 
-# App-specific keyboard-shortcut hints (complement AX tree data)
+# App-specific keyboard-shortcut hints injected into each iteration's state text.
+# Gemini uses these to prefer reliable shortcuts over visual hunting.
 _APP_HINTS: dict[str, str] = {
-    "Mail":          "Apple Mail: ⌘N = new, ⌘R = reply, ⌘⇧D = send.",
-    "Safari":        "Safari: ⌘L = focus address bar, ⌘T = new tab.",
-    "Google Chrome": "Chrome: ⌘L = address bar, ⌘T = new tab.",
-    "Slack":         "Slack: ⌘K = jump to channel/DM, ⌘/ = shortcuts.",
-    "Notion":        "Notion: ⌘P = search, / at line start = block menu.",
-    "Calendar":      "Calendar: ⌘N = new event.",
-    "Terminal":      "Terminal: type command then press Return.",
-    "Finder":        "Finder: ⌘⇧G = Go To Folder, ⌘Space = Spotlight.",
-    "Xcode":         "Xcode: ⌘B = build, ⌘R = run, ⌘⇧F = find in project.",
+    "Safari": (
+        "⌘L: address bar | ⌘T: new tab | ⌘W: close tab | ⌘R: reload | "
+        "⌘F: find on page | ⌘[: back | ⌘]: forward | ⌘⇧T: reopen tab | "
+        "Space: scroll down | ⇧Space: scroll up | ⌘A: select all text in field"
+    ),
+    "Google Chrome": (
+        "⌘L: address bar | ⌘T: new tab | ⌘W: close tab | ⌘R: reload | "
+        "⌘F: find on page | ⌘[: back | ⌘]: forward | ⌘⇧T: reopen tab | "
+        "⌘⇧J: downloads | ⌘⇧N: incognito | Space: scroll down"
+    ),
+    "Firefox": (
+        "⌘L: address bar | ⌘T: new tab | ⌘W: close tab | ⌘R: reload | "
+        "⌘F: find on page | ⌘[: back | ⌘]: forward | Space: scroll down"
+    ),
+    "Mail": (
+        "⌘N: new message | ⌘R: reply | ⌘⇧R: reply all | ⌘⇧F: forward | "
+        "⌘⇧D: send | ⌘⌫: delete | ⌘⇧U: mark as unread | "
+        "⌘1: inbox | ⌘↑/↓: prev/next message | Space: scroll / next unread"
+    ),
+    "Finder": (
+        "⌘⇧G: go to folder | ⌘⇧N: new folder | ⌘⌫: move to trash | "
+        "Return: rename selected | Space: quick look | ⌘I: get info | "
+        "⌘↑: enclosing folder | ⌘↓: open | ⌘1/2/3/4: icon/list/column/gallery | "
+        "⌘F: find | ⌘A: select all"
+    ),
+    "Terminal": (
+        "⌘T: new tab | ⌘N: new window | ⌘W: close tab | ⌘K: clear | "
+        "ctrl+C: interrupt | ctrl+D: EOF | ctrl+L: clear screen | "
+        "ctrl+A: line start | ctrl+E: line end | ↑/↓: command history | "
+        "ctrl+R: search history | ⌘+: increase font"
+    ),
+    "iTerm2": (
+        "⌘T: new tab | ⌘D: split vertically | ⌘⇧D: split horizontally | "
+        "⌘W: close | ⌘K: clear buffer | ctrl+C: interrupt | ctrl+L: clear | "
+        "⌘⇧I: broadcast input to panes | ⌘↑/↓/←/→: navigate panes"
+    ),
+    "Xcode": (
+        "⌘B: build | ⌘R: run | ⌘.: stop | ⌘⇧K: clean | ⌘⇧O: open quickly | "
+        "⌘L: go to line | ctrl+I: re-indent | ⌘/: comment/uncomment | "
+        "⌘⇧F: find in project | ⌘⌃←/→: back/forward navigation"
+    ),
+    "Visual Studio Code": (
+        "⌘P: quick open | ⌘⇧P: command palette | ⌘B: sidebar | "
+        "⌘`: terminal | ⌘/: toggle comment | ⌘D: select next match | "
+        "⌘⇧L: select all matches | ⌥↑/↓: move line | ⌘⇧F: find in files | "
+        "⌘K ⌘S: shortcuts | ⌘⇧X: extensions"
+    ),
+    "Slack": (
+        "⌘K: jump to channel or DM | ⌘⇧K: direct messages | "
+        "⌘[: back | ⌘]: forward | ⌘F: search | ⌘⇧M: activity | "
+        "⌘N: new message | E: edit last message (in message field) | "
+        "↑: edit last message | ⌘⌥K: create channel"
+    ),
+    "Notion": (
+        "⌘P: search / navigate | /: insert block at cursor | "
+        "⌘⇧0-6: heading levels | ⌘⇧8: bulleted list | ⌘⇧9: numbered list | "
+        "⌘⇧C: toggle code block | ⌘B: bold | ⌘I: italic | ⌘⇧L: link | "
+        "⌘D: duplicate block | ⌘⌫: delete block"
+    ),
+    "Calendar": (
+        "⌘N: new event | ⌘T: go to today | ⌘1: day view | ⌘2: week view | "
+        "⌘3: month view | ⌘4: year view | ←/→: prev/next period | "
+        "⌘⌫: delete event | ⌘E: edit event | ⌘F: search"
+    ),
+    "Notes": (
+        "⌘N: new note | ⌘⌫: delete note | ⌘B: bold | ⌘I: italic | "
+        "⌘U: underline | ⌘⇧L: checklist | ⌘⇧H: heading | ⌘F: find | "
+        "⌘L: lock note | ⌘⇧A: add attachment"
+    ),
+    "Reminders": (
+        "⌘N: new reminder | Return: confirm | ⌘⌫: delete | "
+        "⌘I: get info / edit | Space: mark complete | ⌘⇧N: new list"
+    ),
+    "Messages": (
+        "⌘N: new message | Return: send | ⇧Return: newline | "
+        "⌘F: find | ⌘⌫: delete conversation | ⌘I: details"
+    ),
+    "FaceTime": (
+        "⌘N: new call | Space: mute/unmute | ⌘M: mute | ⌘⇧F: full screen"
+    ),
+    "Spotify": (
+        "Space: play/pause | ⌘→: next | ⌘←: previous | ⌘↑/↓: volume | "
+        "⌘L: like song | ⌘F: search | ⌘1/2/3: home/search/library"
+    ),
+    "System Settings": (
+        "⌘F: search settings | ⌘,: preferences (in most apps) | "
+        "⌫: back | Return: select"
+    ),
+    "System Preferences": (
+        "⌘F: search | ⌘L: main view | ←/→: back/forward | Return: open pane"
+    ),
+    "Preview": (
+        "⌘⇧A: select all | ⌘C: copy | ⌘F: find | ⌘+/-: zoom | "
+        "⌘⇧O: open | ⌘P: print | ⌘S: save | Space/⇧Space: scroll"
+    ),
+    "TextEdit": (
+        "⌘B: bold | ⌘I: italic | ⌘U: underline | ⌘A: select all | "
+        "⌘F: find | ⌘⇧T: rich/plain text toggle | ⌘S: save"
+    ),
+    "Photos": (
+        "Return: open | ⌫: delete | ⌘⇧F: full screen | I: info | "
+        "←/→: prev/next | ⌘+/-: zoom | ⌘E: edit | ⌘⇧E: export"
+    ),
+    "Music": (
+        "Space: play/pause | ⌘→: next | ⌘←: previous | ⌘↑/↓: volume | "
+        "⌘L: show in library | ⌘F: search | ⌘I: get info"
+    ),
 }
 
 
 # ── Action schema (returned by Gemini vision as JSON) ─────────────────────────
 
 class _Act(str, Enum):
-    click        = "click"
-    double_click = "double_click"
-    right_click  = "right_click"
-    type_text    = "type_text"
-    key_press    = "key_press"
-    scroll       = "scroll"
-    drag         = "drag"
-    done         = "done"
-    wait         = "wait"
+    click          = "click"
+    double_click   = "double_click"
+    right_click    = "right_click"
+    type_text      = "type_text"
+    key_press      = "key_press"
+    scroll         = "scroll"
+    drag           = "drag"
+    read_clipboard = "read_clipboard"
+    done           = "done"
+    wait           = "wait"
 
 
 _ACTION_SCHEMA = {
@@ -652,6 +752,9 @@ class NavAgent:
             "  (different coordinates, scroll to reveal the element, or use a keyboard shortcut).\n"
             "- Use keyboard shortcuts whenever possible — they are faster and more reliable than clicking.\n"
             "- When the task is complete, set action=done and summarise what was accomplished in 'result'.\n"
+            "- If the task requires extracting specific text (an email address, URL, tracking number, etc.), "
+            "  select and copy it first (⌘C), then use action=read_clipboard to capture the exact text, "
+            "  and include it verbatim in your done result.\n"
             "- If the task is impossible (app not installed, page not found, wrong credentials), "
             "  set action=done and explain why in 'result'.\n"
         )
@@ -765,6 +868,13 @@ class NavAgent:
         elif t == _Act.wait:
             await asyncio.sleep(1.0)
             return "Waited 1 second."
+
+        elif t == _Act.read_clipboard:
+            r = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=3)
+            content = r.stdout.strip()
+            if not content:
+                return "Clipboard is empty."
+            return f"Clipboard content: {content[:500]}{'…' if len(content) > 500 else ''}"
 
         return f"Unknown action '{t}'."
 
