@@ -402,3 +402,97 @@ class TestAXTree:
         click_step = result.steps[0]
         assert "WARNING" in click_step["outcome"]
         assert click_step["screen_changed"] is False
+
+
+# ── Phase 21: Modal dialog detection ─────────────────────────────────────────
+
+class TestDialogDetection:
+    def _make_ax_sheet(self, title: str, button_labels: list[str]) -> tuple:
+        """Helper: return (app_elem, window, sheet, buttons) mocks wired for _detect_modal_dialog."""
+        buttons = []
+        for lbl in button_labels:
+            btn = MagicMock()
+            btn._role = "AXButton"
+            btn._title = lbl
+            btn._children = []
+            buttons.append(btn)
+
+        sheet = MagicMock()
+        sheet._role = "AXSheet"
+        sheet._title = title
+        sheet._children = buttons
+
+        window = MagicMock()
+        window._role = "AXWindow"
+        window._children = [sheet]
+
+        app_elem = MagicMock()
+        app_elem._windows = [window]
+
+        def mock_ax_attr(elem, attr):
+            if elem is app_elem and attr == "AXWindows":
+                return getattr(elem, "_windows", [])
+            if attr == "AXRole":
+                return getattr(elem, "_role", None)
+            if attr == "AXTitle":
+                return getattr(elem, "_title", None)
+            if attr == "AXDescription":
+                return None
+            if attr == "AXChildren":
+                return getattr(elem, "_children", [])
+            return None
+
+        return app_elem, mock_ax_attr
+
+    def test_detects_ax_sheet_with_buttons(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        app_elem, mock_ax_attr = self._make_ax_sheet("Allow Access?", ["Allow", "Deny"])
+        agent._ax_attr = MagicMock(side_effect=mock_ax_attr)
+
+        result = agent._detect_modal_dialog(app_elem)
+
+        assert "MODAL DIALOG" in result
+        assert "Allow Access?" in result
+        assert "Allow" in result
+        assert "Deny" in result
+
+    def test_dialog_warning_prepended_to_ax_context(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        app_elem, mock_ax_attr = self._make_ax_sheet("Delete file?", ["OK", "Cancel"])
+        agent._ax_attr = MagicMock(side_effect=mock_ax_attr)
+
+        warning = agent._detect_modal_dialog(app_elem)
+        assert warning.startswith("MODAL DIALOG")
+        # Simulating what _pyobjc_ax_tree does with the warning
+        context = f"⚠️ {warning} | App: Finder | AX elements: AXButton[Open]@(640,400)"
+        assert context.startswith("⚠️ MODAL DIALOG")
+        assert "OK" in context and "Cancel" in context
+
+    def test_returns_empty_when_no_dialog(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+
+        window = MagicMock()
+        app_elem = MagicMock()
+
+        def mock_ax_attr(elem, attr):
+            if elem is app_elem and attr == "AXWindows":
+                return [window]
+            if elem is window and attr == "AXRole":
+                return "AXWindow"
+            if elem is window and attr == "AXChildren":
+                return []
+            return None
+
+        agent._ax_attr = MagicMock(side_effect=mock_ax_attr)
+        result = agent._detect_modal_dialog(app_elem)
+        assert result == ""
+
+    def test_returns_empty_on_exception(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        agent._ax_attr = MagicMock(side_effect=RuntimeError("AX denied"))
+        result = agent._detect_modal_dialog(MagicMock())
+        assert result == ""
