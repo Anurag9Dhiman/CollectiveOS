@@ -28,6 +28,9 @@ langsmith>=0.11.1
 pyautogui>=0.9.54          # mouse/keyboard control for nav agent
 Pillow>=10.0.0             # screenshot resize for nav agent vision loop
 browser-use>=0.1.0         # MIT; web/browser task navigation (Playwright + any LLM)
+pyobjc-framework-ApplicationServices>=9.0  # AXUIElement accessibility tree (nav agent Phase 2, macOS only)
+pyobjc-framework-AppKit>=9.0               # NSWorkspace.frontmostApplication() (nav agent Phase 2, macOS only)
+opencv-python>=4.8.0       # screen-diff verification after each nav action (nav agent Phase 2)
 langmem>=0.0.20              # structured fact extraction from conversations (LangMem manager)
 
 # Testing
