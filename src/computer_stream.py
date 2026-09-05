@@ -9,12 +9,13 @@ current run are automatically discarded when a new run starts.
 
 Event shapes (JSON-serialisable dicts):
 
-  {"event": "start",  "task": "...", "run_id": "..."}
-  {"event": "action", "run_id": "...", "iteration": N,
-   "action": {...},   "screenshot_b64": "...",
+  {"event": "start",   "task": "...", "run_id": "..."}
+  {"event": "plan",    "run_id": "...", "steps": ["step1", "step2", ...]}
+  {"event": "action",  "run_id": "...", "iteration": N,
+   "action": {...},    "screenshot_b64": "...",
    "verify": "PROCEED|STUCK|ERROR|DONE|None"}
-  {"event": "done",   "run_id": "...", "result": "...", "iterations": N}
-  {"event": "stop"}   — emitted when the run is aborted via /computer/stop
+  {"event": "done",    "run_id": "...", "result": "...", "iterations": N}
+  {"event": "stop"}    — emitted when the run is aborted via /computer/stop
 """
 
 from __future__ import annotations
@@ -52,6 +53,11 @@ def begin_run(task: str) -> str:
                 break
     _put({"event": "start", "task": task, "run_id": run_id})
     return run_id
+
+
+def emit_plan(run_id: str, steps: list[str]) -> None:
+    """Emit the pre-run task plan so the panel can show it before execution."""
+    _put({"event": "plan", "run_id": run_id, "steps": steps})
 
 
 def emit_action(run_id: str, iteration: int,

@@ -232,8 +232,15 @@ class NavAgent:
     Phase 2 adds: pyobjc AX tree, OpenCV verification, coordinate scaling.
     """
 
-    def __init__(self) -> None:
-        self._gemini = genai.Client(api_key=_GEMINI_KEY)
+    def __init__(self, genai_client: object | None = None) -> None:
+        # Accept an injected client so tests can substitute a fake before the
+        # real genai.Client is constructed. Created lazily when None.
+        self._gemini = genai_client
+
+    def _get_gemini_client(self) -> genai.Client:
+        if self._gemini is None:
+            self._gemini = genai.Client(api_key=_GEMINI_KEY)
+        return self._gemini
 
     # ── Public entry point ────────────────────────────────────────────────────
 
@@ -339,8 +346,16 @@ class NavAgent:
         history: list[dict] = []
         stuck_count = 0
 
-        system_prompt = self._build_system_prompt(task, context)
         run_id = _cs.begin_run(task)
+
+        # Pre-run planning: one text-only Gemini call to produce an ordered step list.
+        # Emitted to the stream so the Computer panel can show the plan before execution.
+        plan = self._plan_task(task, context)
+        if plan:
+            _cs.emit_plan(run_id, plan)
+            logger.debug("NavAgent plan for %r: %s", task[:60], plan)
+
+        system_prompt = self._build_system_prompt(task, context, plan=plan)
 
         for iteration in range(_NAV_MAX_ITER):
             if _cs.should_stop():
@@ -361,7 +376,7 @@ class NavAgent:
 
             # 3. Ask Gemini
             try:
-                response = self._gemini.models.generate_content(
+                response = self._get_gemini_client().models.generate_content(
                     model=_VISION_MODEL,
                     contents=[gtypes.Content(role="user", parts=parts)],
                     config=gtypes.GenerateContentConfig(
@@ -373,7 +388,7 @@ class NavAgent:
                 )
                 action = json.loads(response.text)
             except Exception as exc:
-                logger.error("Gemini vision call failed (iter %d): %s", iteration, exc)
+                logger.exception("Gemini vision call failed (iter %d)", iteration)
                 _cs.end_run(run_id, str(exc), iteration)
                 return NavResult(status="error", result=str(exc), steps=steps)
 
@@ -589,7 +604,41 @@ class NavAgent:
 
     # ── Prompt builders ───────────────────────────────────────────────────────
 
-    def _build_system_prompt(self, task: str, context: str) -> str:
+    def _plan_task(self, task: str, context: str) -> list[str]:
+        """One-shot Gemini text call that breaks the task into 3–7 ordered steps.
+
+        Returns a list of step strings (e.g. ["Open Safari", "Navigate to gmail.com", ...]).
+        Falls back to an empty list on any error so the loop degrades gracefully.
+        """
+        planning_prompt = (
+            "You are a macOS desktop automation planner.\n"
+            "Given a task and optional context, output a JSON array of 3–7 short, ordered steps "
+            "that a human would follow to complete the task using a keyboard and mouse.\n"
+            "Each step must be a single imperative sentence (≤ 15 words).\n"
+            "Return ONLY a JSON array of strings — no markdown, no explanation.\n\n"
+            f"Task: {task}\n"
+        )
+        if context:
+            planning_prompt += f"Context: {context}\n"
+
+        try:
+            resp = self._get_gemini_client().models.generate_content(
+                model=_VISION_MODEL,
+                contents=planning_prompt,
+                config=gtypes.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0,
+                    max_output_tokens=400,
+                ),
+            )
+            steps = json.loads(resp.text)
+            if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
+                return steps[:7]
+        except Exception as exc:
+            logger.debug("Task planning skipped: %s", exc)
+        return []
+
+    def _build_system_prompt(self, task: str, context: str, plan: list[str] | None = None) -> str:
         prompt = (
             "You are a macOS desktop automation agent. "
             "Your job is to complete the given task by controlling the screen exactly as a human would.\n\n"
@@ -606,6 +655,9 @@ class NavAgent:
             "- If the task is impossible (app not installed, page not found, wrong credentials), "
             "  set action=done and explain why in 'result'.\n"
         )
+        if plan:
+            plan_lines = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan))
+            prompt += f"\nExecution plan (follow this order):\n{plan_lines}\n"
         if context:
             prompt += f"\nUser context:\n{context}\n"
         prompt += f"\nTask: {task}"

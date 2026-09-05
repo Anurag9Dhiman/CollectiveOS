@@ -825,6 +825,13 @@
     .computer-log-entry.system { color: #3fb950; }
     .computer-log-entry.result { background: #0d2136; color: #79c0ff; }
     .computer-log-entry.stop   { color: #f85149; }
+    .computer-plan {
+      background: #1c2333; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 14px; margin-bottom: 4px;
+    }
+    .computer-plan-title { font-size: 0.7rem; color: #8b949e; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 6px; }
+    .computer-plan ol { margin: 0; padding-left: 18px; }
+    .computer-plan li { font-size: 0.8rem; color: #c9d1d9; line-height: 1.6; font-family: monospace; }
 
     /* ── Wearable stream panel ──────────────────────────────────────────── */
     #stream-overlay {
@@ -3577,6 +3584,25 @@
     computerBtn.classList.toggle("active", state === "running");
   }
 
+  function computerShowPlan(steps) {
+    if (!steps || !steps.length) return;
+    const wrap = document.createElement("div");
+    wrap.className = "computer-plan";
+    const title = document.createElement("div");
+    title.className = "computer-plan-title";
+    title.textContent = "Execution plan";
+    const ol = document.createElement("ol");
+    steps.forEach(s => {
+      const li = document.createElement("li");
+      li.textContent = s;
+      ol.appendChild(li);
+    });
+    wrap.appendChild(title);
+    wrap.appendChild(ol);
+    computerLog.appendChild(wrap);
+    computerLog.scrollTop = computerLog.scrollHeight;
+  }
+
   function computerShowScreenshot(b64) {
     if (!b64) return;
     computerImg.src = "data:image/png;base64," + b64;
@@ -3610,6 +3636,8 @@
         const msg = JSON.parse(ev.data);
         if (msg.event === "start") {
           computerLogEntry(`▶ Task: ${msg.task}`, "system");
+        } else if (msg.event === "plan") {
+          computerShowPlan(msg.steps);
         } else if (msg.event === "action") {
           const a = msg.action || {};
           const act = a.action || "";
