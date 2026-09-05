@@ -232,8 +232,15 @@ class NavAgent:
     Phase 2 adds: pyobjc AX tree, OpenCV verification, coordinate scaling.
     """
 
-    def __init__(self) -> None:
-        self._gemini = genai.Client(api_key=_GEMINI_KEY)
+    def __init__(self, genai_client: object | None = None) -> None:
+        # Accept an injected client so tests can substitute a fake before the
+        # real genai.Client is constructed. Created lazily when None.
+        self._gemini = genai_client
+
+    def _get_gemini_client(self) -> genai.Client:
+        if self._gemini is None:
+            self._gemini = genai.Client(api_key=_GEMINI_KEY)
+        return self._gemini
 
     # ── Public entry point ────────────────────────────────────────────────────
 
@@ -369,7 +376,7 @@ class NavAgent:
 
             # 3. Ask Gemini
             try:
-                response = self._gemini.models.generate_content(
+                response = self._get_gemini_client().models.generate_content(
                     model=_VISION_MODEL,
                     contents=[gtypes.Content(role="user", parts=parts)],
                     config=gtypes.GenerateContentConfig(
@@ -381,7 +388,7 @@ class NavAgent:
                 )
                 action = json.loads(response.text)
             except Exception as exc:
-                logger.error("Gemini vision call failed (iter %d): %s", iteration, exc)
+                logger.exception("Gemini vision call failed (iter %d)", iteration)
                 _cs.end_run(run_id, str(exc), iteration)
                 return NavResult(status="error", result=str(exc), steps=steps)
 
@@ -615,7 +622,7 @@ class NavAgent:
             planning_prompt += f"Context: {context}\n"
 
         try:
-            resp = self._gemini.models.generate_content(
+            resp = self._get_gemini_client().models.generate_content(
                 model=_VISION_MODEL,
                 contents=planning_prompt,
                 config=gtypes.GenerateContentConfig(

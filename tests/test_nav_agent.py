@@ -43,7 +43,11 @@ def _nav_agent():
         if key.startswith("src.agents.nav_agent"):
             del sys.modules[key]
     from src.agents.nav_agent import NavAgent
-    return NavAgent()
+    agent = NavAgent()
+    # Trigger lazy client creation so agent._gemini is a MagicMock (from conftest
+    # mock of genai.Client) and tests can do agent._gemini.models.generate_content = ...
+    agent._get_gemini_client()
+    return agent
 
 
 # ── Routing ───────────────────────────────────────────────────────────────────
@@ -105,7 +109,11 @@ class TestDesktopLoop:
         agent._get_frontmost_app  = MagicMock(return_value="Finder")
         agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: AXButton[OK]@(640,400)")
 
-        # Mock Gemini response sequence
+        # Skip the pre-run planning call — it would otherwise consume one response
+        # from the side_effect list and leave the loop without enough responses.
+        agent._plan_task = MagicMock(return_value=[])
+
+        # Mock Gemini response sequence for the vision loop only
         responses = [_make_gemini_response(r) for r in gemini_responses]
         agent._gemini.models.generate_content = MagicMock(side_effect=responses)
 
@@ -363,6 +371,7 @@ class TestAXTree:
         agent._get_frontmost_app  = MagicMock(return_value="Finder")
         agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: none")
         agent._verify_screen_change = MagicMock(return_value=False)  # no change
+        agent._plan_task = MagicMock(return_value=[])  # don't consume loop responses
         agent._gemini.models.generate_content = MagicMock(side_effect=[
             _make_gemini_response({"action": "click", "x": 100, "y": 100, "reason": "click item"}),
             _make_gemini_response({"action": "done", "result": "Done."}),
