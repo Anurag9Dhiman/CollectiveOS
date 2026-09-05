@@ -44,6 +44,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "orchestrator": ["task_plan", "task_status", "task_list", "task_cancel"],
     "wearable":     ["wearable_get_events", "wearable_list_devices"],
     "robot":        ["robot_status", "robot_move", "robot_cancel"],
+    "computer":     ["navigate_computer"],
 }
 
 _CATEGORIES_STR = ", ".join(_CATEGORY_TOOLS)
@@ -153,10 +154,19 @@ _EXAMPLES = (
     "  what tasks have you run recently → [\"orchestrator\"]\n"
     "  cancel that task → [\"orchestrator\"]\n"
     "  what's the status of task 5 → [\"orchestrator\"]\n"
-    "  click the submit button for me → [\"system\"]\n"
-    "  automate filling out this form → [\"system\"]\n"
-    "  control my desktop to open that file → [\"system\"]\n"
-    "  use the computer to complete this task → [\"system\"]\n"
+    "  click the submit button for me → [\"computer\"]\n"
+    "  automate filling out this form → [\"computer\"]\n"
+    "  control my desktop to open that file → [\"computer\"]\n"
+    "  use the computer to complete this task → [\"computer\"]\n"
+    "  open Gmail and send an email to John → [\"computer\"]\n"
+    "  go to github.com and check my latest PR → [\"computer\"]\n"
+    "  open Notion and update my weekly plan page → [\"computer\"]\n"
+    "  navigate to Slack and post a message in #general → [\"computer\"]\n"
+    "  open Terminal and run git status → [\"computer\"]\n"
+    "  open Finder and move the file to Downloads → [\"computer\"]\n"
+    "  book that restaurant on OpenTable → [\"computer\"]\n"
+    "  fill in the form at that website → [\"computer\"]\n"
+    "  use the computer to reply to that Notion comment → [\"computer\"]\n"
     "  what did my wearable detect → [\"wearable\"]\n"
     "  show me my Garmin events → [\"wearable\"]\n"
     "  what devices have sent data → [\"wearable\"]\n"

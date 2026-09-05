@@ -68,6 +68,13 @@ from src.connectors import appliances as _appliances
 from src.connectors.ios_push import push_notification as _push_notification
 from src.connectors import ai_models as _ai
 from src.connectors.computer import computer_use
+from src.agents.nav_agent import navigate_computer as _nav_async
+
+
+def _navigate_computer_sync(task: str, context: str = "") -> str:
+    """Sync shim — runs the async NavAgent in a fresh event loop (ThreadPoolExecutor-safe)."""
+    import asyncio
+    return asyncio.run(_nav_async(task, context))
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
 from src import orchestrator as _orchestrator
@@ -264,6 +271,7 @@ TOOL_FUNCTIONS = {
     "task_status":           task_status,
     "task_list":             task_list,
     "task_cancel":           task_cancel,
+    "navigate_computer":     _navigate_computer_sync,
     "computer_use":          computer_use,
     "wearable_get_events":   _wearable.wearable_get_events,
     "wearable_list_devices": _wearable.wearable_list_devices,
@@ -1933,13 +1941,52 @@ TOOLS = [
     # Computer use (desktop agent)
     # -----------------------------------------------------------------------
     {
+        "name": "navigate_computer",
+        "description": (
+            "Navigate the macOS GUI to complete any task — no separate API key needed. "
+            "Automatically picks the best path:\n"
+            "  • Web / browser tasks (Gmail, GitHub, Notion, Slack, Google Calendar, "
+            "    any website): uses Playwright browser automation + Gemini Vision — "
+            "    follows links, fills forms, clicks buttons.\n"
+            "  • Native desktop app tasks (Finder, Terminal, Xcode, Mail, any native app): "
+            "    uses Gemini Vision loop + pyautogui — sees the screen, decides the next "
+            "    action, executes, repeats.\n\n"
+            "Use this for ANY task that involves interacting with an app on screen: "
+            "read and send emails, manage GitHub PRs, edit Notion pages, browse websites, "
+            "run Terminal commands, or use any macOS app. "
+            "Built-in safety gate: pauses and asks the user before irreversible sub-actions "
+            "(send, delete, purchase, submit, book …). "
+            "PREFERRED over computer_use for all new tasks. "
+            "IMPORTANT: confirm with the user before calling this tool."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "Precise description of what to do. Name the app or website, "
+                        "the target element, and the desired outcome. "
+                        "Example: 'Open Gmail, find the latest email from Alice, "
+                        "reply with: On my way!'"
+                    ),
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Optional user context to help the agent make decisions, "
+                        "e.g. account email, username, or relevant preferences."
+                    ),
+                },
+            },
+            "required": ["task"],
+        },
+    },
+    {
         "name": "computer_use",
         "description": (
-            "Control this Mac's desktop to complete a multi-step task: take screenshots, "
-            "move the mouse, click, type, scroll, and navigate apps. "
-            "Use for tasks that require interacting with an app's UI directly — "
-            "e.g. 'fill in this web form', 'click through this wizard', 'resize this window'. "
-            "Gemini Vision analyzes each screenshot and decides what to do next. "
+            "Legacy screen-automation tool — prefer navigate_computer for new tasks. "
+            "Control this Mac's desktop: take screenshots, move the mouse, click, type, scroll. "
             "IMPORTANT: this is a write-tier action — always confirm with the user before calling it."
         ),
         "input_schema": {
