@@ -321,6 +321,7 @@ class NavResult:
     result: str
     steps: list[dict] = field(default_factory=list)
     pending_action: Optional[dict] = None
+    verified: bool = True    # False only when verification explicitly failed all retries
 
 
 # ── Nav Agent ─────────────────────────────────────────────────────────────────
@@ -445,6 +446,7 @@ class NavAgent:
         demos: list[dict] = []
         history: list[dict] = []
         stuck_count = 0
+        verify_retries = 0   # how many times we've sent the agent back after a failed verify
 
         run_id = _cs.begin_run(task)
 
@@ -496,13 +498,33 @@ class NavAgent:
             reason      = action.get("reason", "")
             logger.debug("NavAgent iter %d — %s (%s)", iteration, action_type, reason)
 
-            # 4. Done?
+            # 4. Done? Verify before committing.
             if action_type == _Act.done:
+                claimed = action.get("result", "Task completed.")
+                final_shot = self._capture_screenshot()
+                verified, note = self._verify_completion(task, claimed, final_shot)
+
+                if not verified and verify_retries < 2:
+                    verify_retries += 1
+                    logger.debug("NavAgent verification failed (retry %d): %s", verify_retries, note)
+                    _cs.emit_action(run_id, iteration,
+                                    {"action": "verify_failed", "reason": note}, None)
+                    history.append({
+                        "action": "verify_failed",
+                        "outcome": (
+                            f"VERIFICATION FAILED: {note} "
+                            f"— task is not complete yet. Continue and try again."
+                        ),
+                        "app": app_name,
+                        "screen_changed": False,
+                    })
+                    continue   # loop back — agent will see the failure note
+
                 if record:
                     self._save_demos(task, demos)
-                final_result = action.get("result", "Task completed.")
-                _cs.end_run(run_id, final_result, iteration)
-                nav_result = NavResult(status="done", result=final_result, steps=steps)
+                _cs.end_run(run_id, claimed, iteration)
+                nav_result = NavResult(status="done", result=claimed,
+                                       steps=steps, verified=verified)
                 _save_nav_memory(task, steps, nav_result.result)
                 return nav_result
 
@@ -817,6 +839,48 @@ class NavAgent:
         except Exception as exc:
             logger.debug("Task planning skipped: %s", exc)
         return []
+
+    def _verify_completion(
+        self, task: str, claimed_result: str, shot_bytes: bytes
+    ) -> tuple[bool, str]:
+        """Post-completion sanity check: did the task actually succeed?
+
+        Sends the final screenshot + task description to Gemini Vision.
+        Returns (verified, note). Fails open — returns (True, "") on any error
+        so a transient API failure never blocks a successfully completed task.
+
+        Conservative bias: Gemini is instructed to return verified=True when
+        uncertain; only flag False when the screenshot clearly shows failure
+        (error message, unchanged state, wrong content).
+        """
+        prompt = (
+            f"Task: {task}\n"
+            f"Claimed result: {claimed_result}\n\n"
+            "Look at this screenshot. Does the evidence clearly show the task succeeded?\n"
+            "Return JSON: {\"verified\": bool, \"note\": \"one sentence\"}\n"
+            "Rules:\n"
+            "- verified=true when uncertain — only false when the screenshot CLEARLY shows "
+            "failure (error message, wrong page, task state unchanged).\n"
+            "- Keep note under 20 words."
+        )
+        try:
+            resp = self._get_gemini_client().models.generate_content(
+                model=_VISION_MODEL,
+                contents=[
+                    gtypes.Part.from_bytes(data=shot_bytes, mime_type="image/png"),
+                    gtypes.Part.from_text(text=prompt),
+                ],
+                config=gtypes.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0,
+                    max_output_tokens=120,
+                ),
+            )
+            data = json.loads(resp.text)
+            return bool(data.get("verified", True)), str(data.get("note", ""))
+        except Exception as exc:
+            logger.debug("Completion verification skipped: %s", exc)
+            return True, ""   # fail open
 
     def _build_system_prompt(self, task: str, context: str, plan: list[str] | None = None) -> str:
         prompt = (

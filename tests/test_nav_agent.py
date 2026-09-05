@@ -109,9 +109,10 @@ class TestDesktopLoop:
         agent._get_frontmost_app  = MagicMock(return_value="Finder")
         agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: AXButton[OK]@(640,400)")
 
-        # Skip the pre-run planning call — it would otherwise consume one response
-        # from the side_effect list and leave the loop without enough responses.
+        # Skip planning and verification calls — they would otherwise consume
+        # responses from the side_effect list and break loop iteration counts.
         agent._plan_task = MagicMock(return_value=[])
+        agent._verify_completion = MagicMock(return_value=(True, ""))
 
         # Mock Gemini response sequence for the vision loop only
         responses = [_make_gemini_response(r) for r in gemini_responses]
@@ -389,7 +390,8 @@ class TestAXTree:
         agent._get_frontmost_app  = MagicMock(return_value="Finder")
         agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: none")
         agent._verify_screen_change = MagicMock(return_value=False)  # no change
-        agent._plan_task = MagicMock(return_value=[])  # don't consume loop responses
+        agent._plan_task = MagicMock(return_value=[])              # don't consume loop responses
+        agent._verify_completion = MagicMock(return_value=(True, ""))  # don't consume loop responses
         agent._gemini.models.generate_content = MagicMock(side_effect=[
             _make_gemini_response({"action": "click", "x": 100, "y": 100, "reason": "click item"}),
             _make_gemini_response({"action": "done", "result": "Done."}),
@@ -496,3 +498,87 @@ class TestDialogDetection:
         agent._ax_attr = MagicMock(side_effect=RuntimeError("AX denied"))
         result = agent._detect_modal_dialog(MagicMock())
         assert result == ""
+
+
+# ── Phase 22: Post-task verification ─────────────────────────────────────────
+
+class TestVerification:
+    def test_verify_completion_returns_true_on_success(self):
+        """When Gemini says verified=true, _verify_completion returns (True, note)."""
+        agent = _nav_agent()
+        resp = MagicMock()
+        resp.text = '{"verified": true, "note": "Email was sent successfully."}'
+        agent._gemini.models.generate_content = MagicMock(return_value=resp)
+
+        ok, note = agent._verify_completion("send email", "Email sent.", b"fake-png")
+        assert ok is True
+        assert "sent" in note
+
+    def test_verify_completion_returns_false_on_failure(self):
+        """When Gemini says verified=false, _verify_completion returns (False, note)."""
+        agent = _nav_agent()
+        resp = MagicMock()
+        resp.text = '{"verified": false, "note": "Error dialog visible, email not sent."}'
+        agent._gemini.models.generate_content = MagicMock(return_value=resp)
+
+        ok, note = agent._verify_completion("send email", "Email sent.", b"fake-png")
+        assert ok is False
+        assert "Error" in note
+
+    def test_verify_completion_fails_open_on_api_error(self):
+        """If the Gemini call raises, verification returns (True, '') — never blocks."""
+        agent = _nav_agent()
+        agent._gemini.models.generate_content = MagicMock(
+            side_effect=RuntimeError("API down")
+        )
+        ok, note = agent._verify_completion("task", "done", b"fake-png")
+        assert ok is True
+        assert note == ""
+
+    @pytest.mark.asyncio
+    async def test_failed_verification_retries_loop(self):
+        """When verification fails, the agent is sent back into the loop (max 2 retries)."""
+        agent = self._setup_agent([
+            # iter 0: agent says done
+            {"action": "done", "result": "File deleted."},
+            # iter 1: agent sent back — tries again and says done again
+            {"action": "done", "result": "File deleted."},
+            # iter 2: third done attempt — after 2 retries we accept regardless
+            {"action": "done", "result": "File deleted."},
+        ])
+        # Verification always fails
+        agent._verify_completion = MagicMock(return_value=(False, "File still visible."))
+
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("delete file", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+
+        # After 2 retries verification gives up and returns done with verified=False
+        assert result.status == "done"
+        assert result.verified is False
+
+    @pytest.mark.asyncio
+    async def test_verified_result_sets_verified_true(self):
+        """Successful verification sets NavResult.verified=True."""
+        agent = self._setup_agent([{"action": "done", "result": "Done."}])
+        agent._verify_completion = MagicMock(return_value=(True, "Looks good."))
+
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("open Finder", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+
+        assert result.status == "done"
+        assert result.verified is True
+
+    def _setup_agent(self, gemini_responses: list[dict]):
+        """Like _patched_run but does NOT mock _verify_completion (tests control it)."""
+        agent = _nav_agent()
+        agent._capture_screenshot = MagicMock(return_value=b"fake-png")
+        agent._get_frontmost_app  = MagicMock(return_value="Finder")
+        agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: none")
+        agent._plan_task          = MagicMock(return_value=[])
+        responses = [_make_gemini_response(r) for r in gemini_responses]
+        agent._gemini.models.generate_content = MagicMock(side_effect=responses)
+        return agent
