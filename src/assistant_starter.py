@@ -114,11 +114,6 @@ def usage_summary(days: int = 1) -> str:
     return _obs.usage_summary(days)
 
 
-def set_light(room: str, state: str) -> str:
-    """Placeholder — replace body with a real Home Assistant call later."""
-    return f"OK, the {room} light is now {state} (pretend action)."
-
-
 def notify_user(message: str, channel: str = "notification") -> str:
     """Deliver a proactive message to the user via the specified channel."""
     if channel not in _output_bus.VALID_CHANNELS:
@@ -182,7 +177,6 @@ TOOL_FUNCTIONS = {
     "get_devices":         get_devices,
     "get_device_state":    get_device_state,
     "control_device":      control_device,
-    "set_light":           set_light,
     "spotify_now_playing":  _spotify.get_now_playing,
     "spotify_get_devices":  _spotify.get_devices,
     "spotify_control":      _spotify.control_playback,
@@ -191,7 +185,6 @@ TOOL_FUNCTIONS = {
     "get_system_info":      _mac.get_system_info,
     "get_wifi_info":        _mac.get_wifi_info,
     "show_notification":    _mac.show_notification,
-    "open_application":     _mac.open_application,
     "set_system_volume":    _mac.set_system_volume,
     "list_directory":        _fs.list_directory,
     "read_local_file":       _fs.read_local_file,
@@ -368,22 +361,6 @@ TOOLS = [
         },
     },
     {
-        "name": "set_light",
-        "description": "Turn a light on or off in a specific room.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "room":  {"type": "string", "description": "e.g. 'kitchen'."},
-                "state": {
-                    "type": "string",
-                    "enum": ["on", "off"],
-                    "description": "Whether to turn the light on or off.",
-                },
-            },
-            "required": ["room", "state"],
-        },
-    },
-    {
         "name": "spotify_now_playing",
         "description": "Get the currently playing track on Spotify, including artist, album, position, and active device.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -488,23 +465,6 @@ TOOLS = [
                 },
             },
             "required": ["title", "body"],
-        },
-    },
-    {
-        "name": "open_application",
-        "description": (
-            "Open a macOS application by name, e.g. 'Safari', 'Spotify', 'VS Code', 'Calendar'. "
-            "Always confirm with the user before opening apps."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Application name as it appears in /Applications.",
-                },
-            },
-            "required": ["name"],
         },
     },
     {
@@ -755,6 +715,115 @@ TOOLS = [
         },
     },
     # -----------------------------------------------------------------------
+    # Wearable devices
+    # -----------------------------------------------------------------------
+    {
+        "name": "wearable_get_events",
+        "description": (
+            "Retrieve recent events from wearable devices (Garmin, Frame glasses, "
+            "Apple Watch via Shortcuts, or any custom device that POSTs to /wearable/ingest). "
+            "Use when the user asks what their wearable detected, or to check gestures, "
+            "sensor readings, or button presses from a device."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return (default 20, max 100).",
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "Filter to a specific device ID (e.g. 'garmin-forerunner-265').",
+                },
+                "event_type": {
+                    "type": "string",
+                    "description": "Filter by event type: gesture, sensor, location, button, voice, heartrate.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wearable_list_devices",
+        "description": "List all wearable devices that have sent data, with their last-seen time and event count.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    # -----------------------------------------------------------------------
+    # Robot (ROS2 MCP)
+    # -----------------------------------------------------------------------
+    {
+        "name": "robot_status",
+        "description": (
+            "Get the current status, position, and battery of the connected robot. "
+            "Works with any ROS2-based robot via the ROS2_MCP_URL endpoint. "
+            "Returns stub data when ROS2_MCP_URL is not configured."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "robot_move",
+        "description": (
+            "Command the robot to move in a direction. "
+            "Requires HITL approval before execution. "
+            "direction: forward | backward | left | right | stop"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "direction": {
+                    "type": "string",
+                    "description": "Movement direction: forward, backward, left, right, or stop.",
+                    "enum": ["forward", "backward", "left", "right", "stop"],
+                },
+                "distance_m": {
+                    "type": "number",
+                    "description": "Distance to travel in metres (default 1.0, ignored for stop).",
+                },
+                "speed_ms": {
+                    "type": "number",
+                    "description": "Speed in metres per second (default 0.3, capped at 0.5).",
+                },
+            },
+            "required": ["direction"],
+        },
+    },
+    {
+        "name": "robot_cancel",
+        "description": "Send an emergency stop to the robot — halts all motion immediately.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "robot_navigate",
+        "description": (
+            "Navigate the robot to a named room or location by planning the shortest "
+            "path through the home and executing it. "
+            "destination must be one of: bedroom, hallway, living_room, office, kitchen. "
+            "Requires HITL approval before execution — physical motion."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "destination": {
+                    "type": "string",
+                    "description": "Target room name. One of: bedroom, hallway, living_room, office, kitchen.",
+                    "enum": ["bedroom", "hallway", "living_room", "office", "kitchen"],
+                },
+            },
+            "required": ["destination"],
+        },
+    },
+    {
+        "name": "robot_describe_scene",
+        "description": (
+            "Ask the robot to describe its current environment — visible objects, "
+            "exits, and notable features in the room it is currently in. "
+            "Read-only: does not move the robot. "
+            "Use before navigating or when the user asks 'what can you see?'."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    # -----------------------------------------------------------------------
     # Output bus
     # -----------------------------------------------------------------------
     {
@@ -905,115 +974,6 @@ TOOLS = [
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
-    # -----------------------------------------------------------------------
-    # Wearable devices
-    # -----------------------------------------------------------------------
-    {
-        "name": "wearable_get_events",
-        "description": (
-            "Retrieve recent events from wearable devices (Garmin, Frame glasses, "
-            "Apple Watch via Shortcuts, or any custom device that POSTs to /wearable/ingest). "
-            "Use when the user asks what their wearable detected, or to check gestures, "
-            "sensor readings, or button presses from a device."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of events to return (default 20, max 100).",
-                },
-                "device_id": {
-                    "type": "string",
-                    "description": "Filter to a specific device ID (e.g. 'garmin-forerunner-265').",
-                },
-                "event_type": {
-                    "type": "string",
-                    "description": "Filter by event type: gesture, sensor, location, button, voice, heartrate.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "wearable_list_devices",
-        "description": "List all wearable devices that have sent data, with their last-seen time and event count.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    # -----------------------------------------------------------------------
-    # Robot (ROS2 MCP)
-    # -----------------------------------------------------------------------
-    {
-        "name": "robot_status",
-        "description": (
-            "Get the current status, position, and battery of the connected robot. "
-            "Works with any ROS2-based robot via the ROS2_MCP_URL endpoint. "
-            "Returns stub data when ROS2_MCP_URL is not configured."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "robot_move",
-        "description": (
-            "Command the robot to move in a direction. "
-            "Requires HITL approval before execution. "
-            "direction: forward | backward | left | right | stop"
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "direction": {
-                    "type": "string",
-                    "description": "Movement direction: forward, backward, left, right, or stop.",
-                    "enum": ["forward", "backward", "left", "right", "stop"],
-                },
-                "distance_m": {
-                    "type": "number",
-                    "description": "Distance to travel in metres (default 1.0, ignored for stop).",
-                },
-                "speed_ms": {
-                    "type": "number",
-                    "description": "Speed in metres per second (default 0.3, capped at 0.5).",
-                },
-            },
-            "required": ["direction"],
-        },
-    },
-    {
-        "name": "robot_cancel",
-        "description": "Send an emergency stop to the robot — halts all motion immediately.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "robot_navigate",
-        "description": (
-            "Navigate the robot to a named room or location by planning the shortest "
-            "path through the home and executing it. "
-            "destination must be one of: bedroom, hallway, living_room, office, kitchen. "
-            "Requires HITL approval before execution — physical motion."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "destination": {
-                    "type": "string",
-                    "description": "Target room name. One of: bedroom, hallway, living_room, office, kitchen.",
-                    "enum": ["bedroom", "hallway", "living_room", "office", "kitchen"],
-                },
-            },
-            "required": ["destination"],
-        },
-    },
-    {
-        "name": "robot_describe_scene",
-        "description": (
-            "Ask the robot to describe its current environment — visible objects, "
-            "exits, and notable features in the room it is currently in. "
-            "Read-only: does not move the robot. "
-            "Use before navigating or when the user asks 'what can you see?'."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
 ]
 
 # Merge MCP-discovered tool schemas (populated once mcp.load() ran above)
@@ -1111,6 +1071,8 @@ CACHE_TTL: dict[str, int] = {
     "get_device_state":               15,
     "appliances_list":                60,
     "appliances_get_status":          30,
+    "get_system_info":                30,
+    "get_wifi_info":                  60,
 }
 
 

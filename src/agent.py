@@ -220,6 +220,23 @@ def _trim_history(history: list[dict]) -> list[dict]:
 # Graph nodes
 # ---------------------------------------------------------------------------
 
+def _strip_thought_parts(history: list[Any]) -> list[Any]:
+    """Remove thought parts from history to avoid thought_signature errors on resume."""
+    cleaned = []
+    for entry in history:
+        if not isinstance(entry, dict) or "parts" not in entry:
+            cleaned.append(entry)
+            continue
+        clean_parts = [
+            p for p in entry["parts"]
+            if not (isinstance(p, dict) and p.get("thought"))
+        ]
+        if not clean_parts:
+            continue
+        cleaned.append({**entry, "parts": clean_parts})
+    return cleaned
+
+
 @traceable(name="gemini_call")
 def _call_gemini(
     history: list[Any],
@@ -232,7 +249,7 @@ def _call_gemini(
     gemini_tools = _to_gemini_tools(active_tools)
     return _get_client().models.generate_content(
         model=model,
-        contents=history,
+        contents=_strip_thought_parts(history),
         config=_gtypes.GenerateContentConfig(
             tools=gemini_tools or None,
             system_instruction=system_prompt or None,
