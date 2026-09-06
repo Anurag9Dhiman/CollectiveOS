@@ -43,7 +43,7 @@ from contextlib import asynccontextmanager
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -202,7 +202,14 @@ class ConnectorConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 @app.get("/", include_in_schema=False)
-def index():
+def index(request: Request):
+    is_local = request.client and request.client.host in ("127.0.0.1", "::1", "localhost")
+    if is_local:
+        html = open(os.path.join(_STATIC, "index.html"), encoding="utf-8").read()
+        token = os.environ.get("API_TOKEN", "")
+        inject = f'<script>window._API_TOKEN="{token}";localStorage.setItem("collectiveos_token","{token}");</script>'
+        html = html.replace("</head>", inject + "\n</head>", 1)
+        return HTMLResponse(html)
     return FileResponse(os.path.join(_STATIC, "index.html"))
 
 

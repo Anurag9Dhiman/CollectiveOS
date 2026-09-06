@@ -132,6 +132,8 @@ _WRITE_KEYWORDS = frozenset({
     "send", "submit", "delete", "purchase", "pay", "transfer",
     "post", "publish", "confirm", "book", "schedule", "cancel",
     "sign", "order", "checkout", "remove", "unsubscribe",
+    # OS-level destructive power actions always require approval
+    "shutdown", "restart",
 })
 
 # Tasks containing these strings are routed to the browser path.
@@ -278,16 +280,22 @@ _APP_HINTS: dict[str, str] = {
 # ── Action schema (returned by Gemini vision as JSON) ─────────────────────────
 
 class _Act(str, Enum):
-    click          = "click"
-    double_click   = "double_click"
-    right_click    = "right_click"
-    type_text      = "type_text"
-    key_press      = "key_press"
-    scroll         = "scroll"
-    drag           = "drag"
-    read_clipboard = "read_clipboard"
-    done           = "done"
-    wait           = "wait"
+    click            = "click"
+    double_click     = "double_click"
+    right_click      = "right_click"
+    type_text        = "type_text"
+    key_press        = "key_press"
+    scroll           = "scroll"
+    drag             = "drag"
+    read_clipboard   = "read_clipboard"
+    # OS-level actions
+    switch_desktop   = "switch_desktop"   # jump to Mission Control Space n
+    mission_control  = "mission_control"  # expose all windows / spaces
+    show_desktop     = "show_desktop"     # hide all windows, show desktop
+    spotlight        = "spotlight"        # open Spotlight and type a query
+    system_power     = "system_power"     # shutdown | restart | sleep | lock
+    done             = "done"
+    wait             = "wait"
 
 
 _ACTION_SCHEMA = {
@@ -298,10 +306,10 @@ _ACTION_SCHEMA = {
                       "description": "The action to execute."},
         "x":         {"type": "integer", "description": "X pixel coordinate in screenshot space (0–1280)."},
         "y":         {"type": "integer", "description": "Y pixel coordinate in screenshot space (0–800)."},
-        "text":      {"type": "string",  "description": "Text to type or key combo (e.g. 'cmd+r')."},
+        "text":      {"type": "string",  "description": "Text to type, key combo (e.g. 'cmd+r'), Spotlight query, or system_power command."},
         "direction": {"type": "string",  "enum": ["up", "down"],
                       "description": "Scroll direction."},
-        "amount":    {"type": "integer", "description": "Scroll clicks (1-10)."},
+        "amount":    {"type": "integer", "description": "Scroll clicks (1-10) or desktop space number (1-9) for switch_desktop."},
         "start_x":   {"type": "integer", "description": "Drag start X (screenshot space)."},
         "start_y":   {"type": "integer", "description": "Drag start Y (screenshot space)."},
         "end_x":     {"type": "integer", "description": "Drag end X (screenshot space)."},
@@ -930,7 +938,14 @@ class NavAgent:
             "  select and copy it first (⌘C), then use action=read_clipboard to capture the exact text, "
             "  and include it verbatim in your done result.\n"
             "- If the task is impossible (app not installed, page not found, wrong credentials), "
-            "  set action=done and explain why in 'result'.\n"
+            "  set action=done and explain why in 'result'.\n\n"
+            "OS-level actions (prefer these over clicking UI buttons where possible):\n"
+            "- action=spotlight, text=<query>  → opens Spotlight and types the query. Use this to launch any app or find any file.\n"
+            "- action=mission_control           → shows all open windows and Spaces (Ctrl+Up equivalent).\n"
+            "- action=switch_desktop, amount=N  → jumps to Space/Desktop N (1–9). Use for 'go to desktop 2', 'slide to next space'.\n"
+            "- action=show_desktop              → hides all windows to reveal the desktop (Fn+F11).\n"
+            "- action=system_power, text=<cmd>  → executes a power command. cmd must be one of: shutdown, restart, sleep, lock.\n"
+            "  NOTE: shutdown and restart always pause for user approval.\n"
         )
         if plan:
             plan_lines = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan))
@@ -975,7 +990,7 @@ class NavAgent:
             state_text += (
                 f"\n⚠️ STUCK: screen unchanged for {stuck_count} consecutive steps. "
                 "Switch to a completely different strategy:\n"
-                "1. Spotlight search (key_press cmd+space) then type what you need.\n"
+                "1. action=spotlight with the app or file name (fastest recovery).\n"
                 "2. Tab key to cycle focus to the target element.\n"
                 "3. Right-click instead of click.\n"
                 "4. Scroll to reveal a hidden element.\n"
@@ -1049,6 +1064,48 @@ class NavAgent:
             if not content:
                 return "Clipboard is empty."
             return f"Clipboard content: {content[:500]}{'…' if len(content) > 500 else ''}"
+
+        elif t == _Act.mission_control:
+            pyautogui.hotkey("ctrl", "up")
+            await asyncio.sleep(0.6)
+            return "Mission Control opened."
+
+        elif t == _Act.show_desktop:
+            pyautogui.hotkey("fn", "f11")
+            await asyncio.sleep(0.4)
+            return "Show Desktop triggered."
+
+        elif t == _Act.switch_desktop:
+            n = int(action.get("amount", 1))
+            n = max(1, min(n, 9))
+            pyautogui.hotkey("ctrl", str(n))
+            await asyncio.sleep(0.5)
+            return f"Switched to Desktop {n}."
+
+        elif t == _Act.spotlight:
+            query = action.get("text", "").strip()
+            pyautogui.hotkey("cmd", "space")
+            await asyncio.sleep(0.4)
+            if query:
+                subprocess.run(["pbcopy"], input=query.encode("utf-8"),
+                               capture_output=True, check=False)
+                pyautogui.hotkey("cmd", "v")
+                await asyncio.sleep(0.3)
+            return f"Spotlight opened{f' with query: {query}' if query else ''}."
+
+        elif t == _Act.system_power:
+            cmd = action.get("text", "").strip().lower()
+            _POWER_SCRIPTS = {
+                "shutdown":  'tell application "System Events" to shut down',
+                "restart":   'tell application "System Events" to restart',
+                "sleep":     'tell application "System Events" to sleep',
+                "lock":      'tell application "System Events" to keystroke "q" using {control down, command down}',
+            }
+            script = _POWER_SCRIPTS.get(cmd)
+            if not script:
+                return f"[ERROR: unknown system_power command '{cmd}'. Use: shutdown, restart, sleep, lock]"
+            subprocess.Popen(["osascript", "-e", script])
+            return f"System power command '{cmd}' sent."
 
         return f"Unknown action '{t}'."
 

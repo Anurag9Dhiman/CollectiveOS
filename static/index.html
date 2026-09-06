@@ -629,8 +629,6 @@
 
     /* Metrics panel */
     #metrics-overlay {
-    /* Memory panel */
-    #memory-overlay {
       display: none;
       position: fixed;
       inset: 0;
@@ -643,7 +641,30 @@
       position: absolute;
       top: 0; right: 0; bottom: 0;
       width: 420px;
+      background: #161b22;
+      border-left: 1px solid #21262d;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #metrics-panel > header {
+      padding: 16px 18px;
+      border-bottom: 1px solid #21262d;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Memory panel */
+    #memory-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+    }
     #memory-overlay.open { display: block; }
+
     #memory-panel {
       position: absolute;
       top: 0; right: 0; bottom: 0;
@@ -654,7 +675,6 @@
       flex-direction: column;
       overflow: hidden;
     }
-    #metrics-panel > header {
     #memory-panel > header {
       padding: 16px 18px;
       border-bottom: 1px solid #21262d;
@@ -2170,14 +2190,9 @@
   form.addEventListener("submit", async e => {
     e.preventDefault();
     if (pendingApproval) return;
-  let pendingApproval = false;  // true while waiting for HITL approve/reject
-
-  form.addEventListener("submit", async e => {
-    e.preventDefault();
-    if (pendingApproval) return;   // block new messages during HITL wait
 
     const text  = input.value.trim();
-    const token = tokenInput.value.trim();
+    const token = tokenInput.value.trim() || window._API_TOKEN || "";
 
     if (!text)  return;
     if (!token) { showError("Enter your API token above first."); return; }
@@ -2231,70 +2246,73 @@
       chat.appendChild(wrap);
       chat.scrollTop = chat.scrollHeight;
 
-      const reader  = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let   buffer  = "";
-      let   rawText = "";
-      let   hitl    = false;
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.includes("text/event-stream")) {
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let   buffer  = "";
+        let   rawText = "";
 
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        outer: while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const payload = JSON.parse(line.slice(6));
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const payload = JSON.parse(line.slice(6));
 
-          if (payload.meta) {
-            conversationId = payload.meta.conversation_id;
-            localStorage.setItem(STORAGE_CONV, String(conversationId));
-            continue;
-          }
-
-          if (payload.progress) {
-            const chip = document.createElement("span");
-            chip.className = "tool-read";
-            chip.textContent = "↳ " + payload.progress;
-            progressDiv.appendChild(chip);
-            chat.scrollTop = chat.scrollHeight;
-            if (payload.progress === "navigate computer") {
-              document.dispatchEvent(new CustomEvent("computer-use-started"));
+            if (payload.meta) {
+              conversationId = payload.meta.conversation_id;
+              localStorage.setItem(STORAGE_CONV, String(conversationId));
+              continue;
             }
-            continue;
-          }
 
-          if (payload.chunk) {
-            rawText += payload.chunk;
-            bubble.innerHTML = marked.parse(injectToolMarkers(rawText));
-            chat.scrollTop = chat.scrollHeight;
-            continue;
-          }
-
-          if (payload.done) {
-            hitl = !!payload.interrupted;
-            if (hitl) {
-              _convertToHitlCard(wrap, label, bubble, rawText, conversationId, token);
-            } else {
-              speak(rawText);
+            if (payload.progress) {
+              const chip = document.createElement("span");
+              chip.className = "tool-read";
+              chip.textContent = "↳ " + payload.progress;
+              progressDiv.appendChild(chip);
+              chat.scrollTop = chat.scrollHeight;
+              if (payload.progress === "navigate computer") {
+                document.dispatchEvent(new CustomEvent("computer-use-started"));
+              }
+              continue;
             }
-            break outer;
+
+            if (payload.chunk) {
+              rawText += payload.chunk;
+              bubble.innerHTML = marked.parse(injectToolMarkers(rawText));
+              chat.scrollTop = chat.scrollHeight;
+              continue;
+            }
+
+            if (payload.done) {
+              if (payload.interrupted) {
+                _convertToHitlCard(wrap, label, bubble, rawText, conversationId, token);
+              } else {
+                speak(rawText);
+              }
+              break outer;
+            }
           }
         }
-      const data = await resp.json();
-      conversationId = data.conversation_id;
-      localStorage.setItem(STORAGE_CONV, String(conversationId));
+      } else {
+        const data = await resp.json();
+        conversationId = data.conversation_id;
+        localStorage.setItem(STORAGE_CONV, String(conversationId));
 
-      if (data.interrupted) {
-        _showInterruptedMessage(data.reply, data.conversation_id, token);
-        return;   // keep input disabled until HITL resolves
+        if (data.interrupted) {
+          _convertToHitlCard(wrap, label, bubble, data.reply, data.conversation_id, token);
+        } else {
+          bubble.innerHTML = marked.parse(injectToolMarkers(data.reply || ""));
+          chat.scrollTop = chat.scrollHeight;
+          speak(data.reply);
+        }
       }
-
-      addMessage("assistant", data.reply);
-      speak(data.reply);
     } catch (err) {
       removeTyping();
       showError("Network error — is the server running?");
@@ -2316,20 +2334,6 @@
 
     wrap.className = "msg assistant interrupted";
     label.innerHTML = 'Assistant <span class="hitl-badge">Awaiting approval</span>';
-
-  function _showInterruptedMessage(replyText, convId, token) {
-    pendingApproval = true;
-
-    const wrap    = document.createElement("div");
-    wrap.className = "msg assistant interrupted";
-    wrap.id = "hitl-card";
-
-    const label   = document.createElement("div");
-    label.className = "label";
-    label.innerHTML = 'Assistant <span class="hitl-badge">Awaiting approval</span>';
-
-    const bubble  = document.createElement("div");
-    bubble.className = "bubble";
     bubble.innerHTML = marked.parse(replyText);
 
     const actions = document.createElement("div");
@@ -2340,7 +2344,6 @@
     approveBtn.textContent = "Approve";
 
     const rejectBtn = document.createElement("button");
-    const rejectBtn  = document.createElement("button");
     rejectBtn.className = "hitl-btn reject";
     rejectBtn.textContent = "Reject";
 
@@ -2350,26 +2353,14 @@
     actions.appendChild(approveBtn);
     actions.appendChild(rejectBtn);
     wrap.appendChild(actions);
-    chat.scrollTop = chat.scrollHeight;
-
     submitBtn.disabled = true;
     micBtn.disabled    = true;
-    wrap.appendChild(label);
-    wrap.appendChild(bubble);
-    wrap.appendChild(actions);
-    chat.appendChild(wrap);
-    chat.scrollTop = chat.scrollHeight;
+    input.disabled     = true;
+    input.placeholder  = "Click Approve or Reject above…";
   }
 
   async function _sendApproval(convId, token, approved, hitlEl) {
     hitlEl.querySelectorAll(".hitl-btn").forEach(b => b.disabled = true);
-    try {
-      const resp = await fetch("/chat/approve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ conversation_id: convId, approved }),
-      });
-
     try {
       const resp = await fetch("/chat/approve", {
         method: "POST",
@@ -2396,9 +2387,11 @@
       hitlEl.querySelectorAll(".hitl-btn").forEach(b => b.disabled = false);
       return;
     } finally {
-      pendingApproval = false;
+      pendingApproval    = false;
       submitBtn.disabled = false;
       micBtn.disabled    = false;
+      input.disabled     = false;
+      input.placeholder  = "Ask anything…";
       input.focus();
     }
   }
