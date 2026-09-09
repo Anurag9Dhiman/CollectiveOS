@@ -139,6 +139,34 @@
     .hitl-btn.reject  { background: #161b22; color: #f85149; border: 1px solid #f85149; }
     .hitl-btn.reject:hover:not(:disabled)  { background: #220d0d; }
 
+    /* Background nav task bubble */
+    .bubble.nav-bg {
+      border-color: #e3a000 !important;
+      background: #1c1a10 !important;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .nav-bg-spinner {
+      flex-shrink: 0;
+      width: 16px; height: 16px;
+      border: 2px solid #4d3800;
+      border-top-color: #e3a000;
+      border-radius: 50%;
+      animation: nav-spin 0.8s linear infinite;
+      margin-top: 3px;
+    }
+    @keyframes nav-spin { to { transform: rotate(360deg); } }
+    .nav-bg-text { flex: 1; }
+    .nav-bg-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #e3a000;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
     #token-bar {
       padding: 8px 20px;
       background: #0d1117;
@@ -2098,7 +2126,18 @@
 
   function renderBubble(bubble, role, text) {
     if (role === "assistant") {
-      bubble.innerHTML = marked.parse(injectToolMarkers(text));
+      if (text.startsWith("[running in background]")) {
+        bubble.classList.add("nav-bg");
+        const body = text.replace(/^\[running in background\]\s*/, "");
+        bubble.innerHTML = `
+          <div class="nav-bg-spinner"></div>
+          <div class="nav-bg-text">
+            <div class="nav-bg-label">Running in background</div>
+            ${marked.parse(injectToolMarkers(body))}
+          </div>`;
+      } else {
+        bubble.innerHTML = marked.parse(injectToolMarkers(text));
+      }
     } else {
       bubble.textContent = text;
     }

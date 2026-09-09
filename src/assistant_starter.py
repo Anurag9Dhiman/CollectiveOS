@@ -57,16 +57,70 @@ from src.agents.nav_agent import (
 )
 
 
-def _navigate_computer_sync(task: str, context: str = "") -> str:
-    """Sync shim — runs the async NavAgent in a fresh event loop (ThreadPoolExecutor-safe).
+# Tasks that finish within this window are returned synchronously.
+# Tasks still running after this hand off to a background daemon thread.
+_NAV_SYNC_TIMEOUT = 30  # seconds
 
-    Picks up any wearable frame stored by set_first_person_frame() before this
-    agent turn (e.g. from a Frame glasses WebSocket session) and passes it as
-    first_person_frame so the nav agent can see what the user physically sees.
+
+def _navigate_computer_sync(task: str, context: str = "") -> str:
+    """Sync shim with background fallback.
+
+    Short tasks (≤ 30 s): blocks and returns the result directly so the
+    agent can include it in its reply.
+
+    Long tasks (> 30 s): hands off to a background daemon thread and returns
+    a [running in background] status immediately so the chat is unblocked.
+    When the task finishes, the result is delivered via Slack.
     """
     import asyncio
-    frame = get_and_clear_first_person_frame()  # consume once; None for non-wearable tasks
-    return asyncio.run(_nav_async(task, context, _first_person_frame=frame))
+    import queue as _queue
+    import threading
+
+    frame = get_and_clear_first_person_frame()
+    result_q: _queue.Queue = _queue.Queue()
+
+    def _run_in_thread() -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                _nav_async(task, context, _first_person_frame=frame)
+            )
+            result_q.put(("ok", result))
+        except Exception as exc:
+            result_q.put(("error", f"[nav error] {exc}"))
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run_in_thread, daemon=True, name="nav-bg")
+    thread.start()
+
+    try:
+        _status, result = result_q.get(timeout=_NAV_SYNC_TIMEOUT)
+        return result
+    except _queue.Empty:
+        # Task still running — tail it in a notify thread and unblock the chat.
+        def _notify_on_finish() -> None:
+            try:
+                _status, result = result_q.get(timeout=600)  # 10-min hard cap
+            except _queue.Empty:
+                result = (
+                    f"[nav timeout] Task '{task[:60]}' exceeded 10 minutes "
+                    "and was abandoned."
+                )
+            _output_bus.deliver(
+                title=f"Task done: {task[:50]}",
+                body=result,
+                channel="slack",
+            )
+
+        threading.Thread(
+            target=_notify_on_finish, daemon=True, name="nav-notify"
+        ).start()
+        return (
+            f"[running in background] Navigation task started: '{task[:80]}'. "
+            "The computer is working on it — you'll get a Slack message when done."
+        )
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
 from src import orchestrator as _orchestrator
