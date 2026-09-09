@@ -114,7 +114,7 @@ def usage_summary(days: int = 1) -> str:
     return _obs.usage_summary(days)
 
 
-def notify_user(message: str, channel: str = "notification") -> str:
+def notify_user(message: str, channel: str = "slack") -> str:
     """Deliver a proactive message to the user via the specified channel."""
     if channel not in _output_bus.VALID_CHANNELS:
         return f"[ERROR: unknown channel '{channel}'. Use: notification, telegram, push, both]"
@@ -830,11 +830,11 @@ TOOLS = [
         "name": "notify_user",
         "description": (
             "Proactively deliver a message to the user via a chosen channel. "
-            "Use when the user says 'let me know on Telegram', 'send me a notification', "
+            "Use when the user says 'let me know on Slack', 'send me a notification', "
             "'ping me on my phone', or when you need to alert the user after completing "
             "background work. "
-            "Channels: notification (Mac banner), telegram (Telegram message), "
-            "push (iOS APNs), both (Mac + Telegram)."
+            "Channels: slack (primary — Slack message), notification (Mac banner), "
+            "both (Mac + Slack), push (iOS APNs), telegram (legacy)."
         ),
         "input_schema": {
             "type": "object",
@@ -845,8 +845,8 @@ TOOLS = [
                 },
                 "channel": {
                     "type": "string",
-                    "description": "Delivery channel: notification | telegram | push | both. Default: notification.",
-                    "enum": ["notification", "telegram", "push", "both"],
+                    "description": "Delivery channel: slack | notification | both | push | telegram. Default: slack.",
+                    "enum": ["slack", "notification", "both", "push", "telegram"],
                 },
             },
             "required": ["message"],

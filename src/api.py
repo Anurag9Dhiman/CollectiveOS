@@ -177,16 +177,18 @@ _NOTIFY_VIA_OPTIONS = {"notification", "slack", "telegram", "push", "both", "non
 
 class RoutineCreate(BaseModel):
     name: str
-    prompt: str
-    schedule: str          # cron expression, e.g. "0 8 * * *"
-    notify_via: str = "notification"
+    prompt: str = ""           # agent chat prompt (optional if nav_task is set)
+    schedule: str              # cron expression, e.g. "0 8 * * *"
+    notify_via: str = "slack"  # Slack is primary delivery channel
+    nav_task: Optional[str] = None  # computer-control task for navigate_computer
 
 class RoutineUpdate(BaseModel):
-    name: Optional[str]    = None
-    prompt: Optional[str]  = None
-    schedule: Optional[str]= None
-    enabled: Optional[bool]= None
+    name: Optional[str]     = None
+    prompt: Optional[str]   = None
+    schedule: Optional[str] = None
+    enabled: Optional[bool] = None
     notify_via: Optional[str] = None
+    nav_task: Optional[str] = None
 
 class HealthIngest(BaseModel):
     date: str                    # YYYY-MM-DD
@@ -407,7 +409,8 @@ def create_routine(body: RoutineCreate, _token: str = Depends(_verify_token)):
     if body.notify_via not in _NOTIFY_VIA_OPTIONS:
         raise HTTPException(status_code=400,
                             detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
-    row = _routines.create(body.name, body.prompt, body.schedule, body.notify_via)
+    row = _routines.create(body.name, body.prompt, body.schedule,
+                           body.notify_via, body.nav_task)
     _scheduler.reload_routine(row["id"])
     return row
 
@@ -452,7 +455,8 @@ def run_routine_now(routine_id: int, _token: str = Depends(_verify_token)):
     threading.Thread(
         target=_scheduler._run_routine,
         kwargs={"routine_id": r["id"], "name": r["name"],
-                "prompt": r["prompt"], "notify_via": r["notify_via"]},
+                "prompt": r["prompt"] or "", "notify_via": r["notify_via"],
+                "nav_task": r.get("nav_task")},
         daemon=True,
     ).start()
     return {"message": f"Routine '{r['name']}' triggered."}
