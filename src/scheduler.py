@@ -32,79 +32,60 @@ _scheduler = BackgroundScheduler(timezone="UTC")
 # Internal job function
 # ---------------------------------------------------------------------------
 
-def _run_routine(routine_id: int, name: str, prompt: str, notify_via: str) -> None:
-    """Executed by APScheduler in a background thread."""
-    log.info("Routine %d (%s) firing", routine_id, name)
+def _run_routine(routine_id: int, name: str, prompt: str,
+                 notify_via: str, nav_task: str | None = None) -> None:
+    """Executed by APScheduler in a background thread.
 
-    # Import here to avoid circular imports at module load
-    from src.assistant_starter import run
+    Execution modes (in priority order):
+      1. nav_task set → navigate_computer() controls the Mac autonomously.
+      2. prompt set   → full agent loop answers the prompt.
+      3. both set     → nav_task runs first; result is appended to prompt for
+                        the agent loop so the AI can summarise / act on it.
+    """
+    log.info("Routine %d (%s) firing — mode=%s", routine_id, name,
+             "nav" if nav_task else "chat")
+
     from src.api import _system_prompt
     from src import memory
 
-    try:
-        past = memory.search(prompt)
-        result = run(prompt, system=_system_prompt(past))
-    except Exception as exc:
-        log.error("Routine %d failed: %s", routine_id, exc)
-        result = f"Error: {exc}"
+    result = ""
+
+    # ── Nav task (computer automation) ───────────────────────────────────────
+    if nav_task:
+        try:
+            import asyncio
+            from src.agents.nav_agent import navigate_computer as _nav
+            result = asyncio.run(_nav(nav_task.strip()))
+        except Exception as exc:
+            log.error("Routine %d nav_task failed: %s", routine_id, exc)
+            result = f"[nav error] {exc}"
+
+    # ── Chat prompt (agent loop) ──────────────────────────────────────────────
+    if prompt:
+        try:
+            from src.assistant_starter import run
+            combined = prompt
+            if result:
+                combined = f"{prompt}\n\n[Computer task result: {result}]"
+            past = memory.search(combined)
+            result = run(combined, system=_system_prompt(past))
+        except Exception as exc:
+            log.error("Routine %d prompt failed: %s", routine_id, exc)
+            result = result or f"Error: {exc}"
+
+    if not result:
+        result = "Routine fired but produced no output."
 
     _db.record_run(routine_id, result)
+    # output_bus handles all channel dispatch (notification / slack / push / etc.)
     output_bus.deliver(name, result, channel=notify_via)
-
-    if notify_via in ("notification", "both"):
-        _send_notification(name, result)
-    if notify_via in ("telegram", "both"):
-        _send_telegram(name, result)
 
     try:
         from src.activity import log_event
-        status = "error" if result.startswith("Error:") else "ok"
+        status = "error" if result.startswith(("Error:", "[nav error]")) else "ok"
         log_event("routine", name, f"[{status}] {result[:300]}")
     except Exception:
         pass
-
-
-def _send_notification(title: str, body: str) -> None:
-    import platform
-    import subprocess
-
-    if platform.system() != "Darwin":
-        return
-
-    safe_title = title.replace('"', "'")
-    # Trim body for the notification banner (250 chars is a practical limit)
-    safe_body = body[:250].replace("\\", "\\\\").replace('"', '\\"')
-    script = f'display notification "{safe_body}" with title "{safe_title}"'
-    try:
-        subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True, timeout=10,
-        )
-    except Exception as exc:
-        log.warning("Notification failed: %s", exc)
-
-
-def _send_telegram(title: str, body: str) -> None:
-    """Send routine result to the configured Telegram chat."""
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
-        log.warning("Telegram notify skipped — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
-        return
-
-    import requests
-
-    # Telegram messages: 4096 char limit; trim body so title + separator fits
-    max_body = 4000 - len(title) - 10
-    text = f"*{title}*\n\n{body[:max_body]}"
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            timeout=15,
-        )
-    except Exception as exc:
-        log.warning("Telegram send failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +121,14 @@ def _schedule(r: dict) -> None:
         kwargs={
             "routine_id": r["id"],
             "name":       r["name"],
-            "prompt":     r["prompt"],
+            "prompt":     r["prompt"] or "",
             "notify_via": r["notify_via"],
+            "nav_task":   r.get("nav_task"),
         },
     )
-    log.info("Scheduled routine %d (%s) → %s", r["id"], r["name"], r["schedule"])
+    mode = "nav+chat" if r.get("nav_task") and r.get("prompt") else \
+           "nav" if r.get("nav_task") else "chat"
+    log.info("Scheduled routine %d (%s) → %s [%s]", r["id"], r["name"], r["schedule"], mode)
 
 
 def reload_routine(routine_id: int) -> None:

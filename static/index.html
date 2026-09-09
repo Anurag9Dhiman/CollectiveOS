@@ -1517,7 +1517,11 @@
           <input id="r-name" type="text" placeholder="Morning briefing" />
         </div>
         <div class="form-row">
-          <label>Prompt — what the assistant will do</label>
+          <label>Computer task (nav) — leave empty for chat-only</label>
+          <textarea id="r-nav-task" placeholder="Open Mail, read unread emails, summarise them." style="min-height:48px;"></textarea>
+        </div>
+        <div class="form-row">
+          <label>Chat prompt — what the assistant will say/do (optional if nav task set)</label>
           <textarea id="r-prompt" placeholder="Give me a morning briefing: check my calendar for today, any unread emails, and my open tasks."></textarea>
         </div>
         <div class="form-row">
@@ -1530,11 +1534,11 @@
         <div class="form-row">
           <label>Deliver result via</label>
           <select id="r-notify">
+            <option value="slack" selected>Slack</option>
             <option value="notification">Mac notification</option>
-            <option value="slack">Slack</option>
-            <option value="telegram">Telegram</option>
             <option value="both">Mac + Slack</option>
             <option value="push">iOS push</option>
+            <option value="telegram">Telegram</option>
             <option value="none">Silent (store only)</option>
           </select>
         </div>
@@ -2585,9 +2589,18 @@
         ? new Date(r.last_run_at).toLocaleString()
         : "Never run";
       const notifyLabel = { notification: "Mac notification", slack: "Slack", telegram: "Telegram", none: "Silent", both: "Mac + Slack", push: "iOS push" }[r.notify_via] || r.notify_via;
+      const navBadge = r.nav_task
+        ? `<span style="font-size:0.68rem;background:#1f6feb22;color:#58a6ff;border:1px solid #1f6feb44;border-radius:3px;padding:1px 5px;margin-left:4px;">🖥 nav</span>`
+        : "";
+      const navLine = r.nav_task
+        ? `<div class="routine-prompt" style="color:#58a6ff;opacity:0.85;">🖥 ${r.nav_task}</div>`
+        : "";
+      const promptLine = r.prompt
+        ? `<div class="routine-prompt">${r.prompt}</div>`
+        : "";
       row.innerHTML = `
         <div class="routine-header">
-          <span class="routine-name">${r.name}</span>
+          <span class="routine-name">${r.name}${navBadge}</span>
           <span class="routine-schedule">${r.schedule}</span>
           <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
             <input type="checkbox" data-id="${r.id}" ${r.enabled ? "checked" : ""}>
@@ -2595,7 +2608,7 @@
             <div class="toggle-thumb"></div>
           </label>
         </div>
-        <div class="routine-prompt">${r.prompt}</div>
+        ${navLine}${promptLine}
         <div class="routine-last">Last run: ${lastRun} · Delivers via: ${notifyLabel}</div>
         <div class="routine-actions">
           <button class="routine-btn run-now" data-id="${r.id}">▶ Run now</button>
@@ -2644,14 +2657,19 @@
     const token    = localStorage.getItem(STORAGE_TOKEN) || "";
     const name     = document.getElementById("r-name").value.trim();
     const prompt   = document.getElementById("r-prompt").value.trim();
+    const navTask  = document.getElementById("r-nav-task").value.trim();
     const schedule = document.getElementById("r-schedule").value.trim();
     const notify   = document.getElementById("r-notify").value;
-    if (!name || !prompt || !schedule) { showError("Fill in name, prompt, and schedule."); return; }
+    if (!name || (!prompt && !navTask) || !schedule) {
+      showError("Fill in name, schedule, and at least one of: computer task or chat prompt.");
+      return;
+    }
     try {
       const resp = await fetch("/routines", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ name, prompt, schedule, notify_via: notify }),
+        body: JSON.stringify({ name, prompt, schedule, notify_via: notify,
+                               nav_task: navTask || null }),
       });
       if (!resp.ok) {
         const err = await resp.json();
@@ -2660,6 +2678,7 @@
       }
       document.getElementById("r-name").value = "";
       document.getElementById("r-prompt").value = "";
+      document.getElementById("r-nav-task").value = "";
       document.getElementById("r-schedule").value = "";
       loadRoutines();
     } catch (e) {

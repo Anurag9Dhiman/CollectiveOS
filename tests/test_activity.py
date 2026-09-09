@@ -110,8 +110,6 @@ class TestSchedulerWiring:
              patch("src.memory.search", return_value=""), \
              patch("src.routines.record_run"), \
              patch("src.output_bus.deliver"), \
-             patch("src.scheduler._send_notification"), \
-             patch("src.scheduler._send_telegram"), \
              patch("src.activity.log_event", side_effect=lambda *a: logged.append(a)):
 
             from src.scheduler import _run_routine
@@ -128,8 +126,6 @@ class TestSchedulerWiring:
              patch("src.memory.search", return_value=""), \
              patch("src.routines.record_run"), \
              patch("src.output_bus.deliver"), \
-             patch("src.scheduler._send_notification"), \
-             patch("src.scheduler._send_telegram"), \
              patch("src.activity.log_event", side_effect=lambda *a: logged.append(a)):
 
             from src.scheduler import _run_routine
