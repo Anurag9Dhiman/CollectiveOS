@@ -994,6 +994,24 @@ def computer_stop(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Nav queue — background task tracking
+# ---------------------------------------------------------------------------
+
+@app.get("/nav-queue")
+def nav_queue_list(limit: int = 50, _token: str = Depends(_verify_token)):
+    """Return background nav tasks ordered newest first."""
+    from src import nav_queue as _nq
+    return _nq.list_all(limit=limit)
+
+
+@app.delete("/nav-queue/{task_id}", status_code=204)
+def nav_queue_cancel(task_id: str, _token: str = Depends(_verify_token)):
+    """Cancel a pending or running nav task."""
+    from src import nav_queue as _nq
+    _nq.cancel(task_id)
+
+
+# ---------------------------------------------------------------------------
 # Task orchestrator — REST endpoints for the Tasks UI panel
 # ---------------------------------------------------------------------------
 

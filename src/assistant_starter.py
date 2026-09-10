@@ -68,13 +68,14 @@ def _navigate_computer_sync(task: str, context: str = "") -> str:
     Short tasks (≤ 30 s): blocks and returns the result directly so the
     agent can include it in its reply.
 
-    Long tasks (> 30 s): hands off to a background daemon thread and returns
-    a [running in background] status immediately so the chat is unblocked.
-    When the task finishes, the result is delivered via Slack.
+    Long tasks (> 30 s): registers in nav_queue, hands off to a background
+    daemon thread, and returns a status message immediately.  When the task
+    finishes, the result is delivered via Slack and the queue entry is updated.
     """
     import asyncio
     import queue as _queue
     import threading
+    from src import nav_queue as _nq
 
     frame = get_and_clear_first_person_frame()
     result_q: _queue.Queue = _queue.Queue()
@@ -96,18 +97,23 @@ def _navigate_computer_sync(task: str, context: str = "") -> str:
     thread.start()
 
     try:
-        _status, result = result_q.get(timeout=_NAV_SYNC_TIMEOUT)
+        status, result = result_q.get(timeout=_NAV_SYNC_TIMEOUT)
         return result
     except _queue.Empty:
-        # Task still running — tail it in a notify thread and unblock the chat.
+        # Task still running — register it in the queue and tail it.
+        tid = _nq.submit(task)
+        _nq.mark_running(tid)
+
         def _notify_on_finish() -> None:
             try:
-                _status, result = result_q.get(timeout=600)  # 10-min hard cap
+                status, result = result_q.get(timeout=600)  # 10-min hard cap
+                _nq.mark_done(tid, result, error=(status == "error"))
             except _queue.Empty:
                 result = (
                     f"[nav timeout] Task '{task[:60]}' exceeded 10 minutes "
                     "and was abandoned."
                 )
+                _nq.mark_done(tid, result, error=True)
             _output_bus.deliver(
                 title=f"Task done: {task[:50]}",
                 body=result,
@@ -119,7 +125,8 @@ def _navigate_computer_sync(task: str, context: str = "") -> str:
         ).start()
         return (
             f"[running in background] Navigation task started: '{task[:80]}'. "
-            "The computer is working on it — you'll get a Slack message when done."
+            f"Track it in the Computer panel (task id: {tid}). "
+            "You'll get a Slack message when done."
         )
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
