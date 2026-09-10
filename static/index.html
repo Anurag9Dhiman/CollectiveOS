@@ -649,6 +649,30 @@
     #add-routine-form textarea:focus { border-color: #1f6feb; }
     #add-routine-form textarea { resize: vertical; min-height: 60px; font-family: inherit; }
     #add-routine-form .cron-hint { font-size: 0.67rem; color: #484f58; }
+    #workflow-recorder-form {
+      padding: 0 18px 18px;
+      border-top: 1px solid #21262d;
+      margin-top: 14px;
+    }
+    #workflow-recorder-form .form-row { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+    #workflow-recorder-form label { font-size: 0.72rem; color: #8b949e; }
+    #workflow-recorder-form textarea {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.84rem; padding: 7px 10px; resize: vertical;
+      font-family: inherit;
+    }
+    #record-workflow-btn {
+      background: #6e40c9; color: #fff; border: none;
+      border-radius: 6px; padding: 7px 16px;
+      font-size: 0.85rem; cursor: pointer; font-weight: 500;
+    }
+    #record-workflow-btn:hover { background: #8957e5; }
+    #record-workflow-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #wf-result {
+      font-size: 0.8rem; padding: 8px 10px; border-radius: 6px;
+      background: #0d2136; color: #79c0ff;
+      border-left: 3px solid #1f6feb; margin-bottom: 10px;
+    }
     #save-routine-btn {
       background: #1f6feb; color: #fff; border: none; border-radius: 6px;
       padding: 7px 14px; font-size: 0.82rem; cursor: pointer; align-self: flex-end;
@@ -1616,6 +1640,17 @@
           </select>
         </div>
         <button id="save-routine-btn">+ Add routine</button>
+      </div>
+
+      <!-- Workflow recorder -->
+      <div id="workflow-recorder-form">
+        <div class="settings-section-title" style="margin:14px 0 8px;">✨ Record from description</div>
+        <div class="form-row">
+          <label>Describe your workflow in plain English</label>
+          <textarea id="wf-description" placeholder="Every weekday morning, open Mail, archive newsletters, and reply to anything flagged urgent." style="min-height:64px;"></textarea>
+        </div>
+        <div id="wf-result" hidden></div>
+        <button id="record-workflow-btn">🪄 Create workflow</button>
       </div>
     </div>
   </div>
@@ -2781,6 +2816,35 @@
   routinesBtn.addEventListener("click", () => { routinesOvl.classList.add("open"); loadRoutines(); });
   routinesClose.addEventListener("click", () => routinesOvl.classList.remove("open"));
   routinesOvl.addEventListener("click", e => { if (e.target === routinesOvl) routinesOvl.classList.remove("open"); });
+
+  // Workflow recorder
+  const recordWfBtn  = document.getElementById("record-workflow-btn");
+  const wfDesc       = document.getElementById("wf-description");
+  const wfResult     = document.getElementById("wf-result");
+
+  recordWfBtn.addEventListener("click", async () => {
+    const description = wfDesc.value.trim();
+    if (!description) { showError("Describe the workflow first."); return; }
+    recordWfBtn.disabled = true;
+    recordWfBtn.textContent = "Creating…";
+    wfResult.hidden = true;
+    try {
+      const data = await apiFetch("/workflows/record", {
+        method: "POST",
+        body: JSON.stringify({ description }),
+      });
+      wfResult.hidden = false;
+      wfResult.textContent =
+        `✓ Saved as "${data.name}" (routine #${data.id}) — ${data.schedule_human}`;
+      wfDesc.value = "";
+      loadRoutines();
+    } catch (e) {
+      showError("Workflow creation failed.");
+    } finally {
+      recordWfBtn.disabled = false;
+      recordWfBtn.textContent = "🪄 Create workflow";
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // Metrics panel

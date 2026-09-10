@@ -163,6 +163,14 @@ def start() -> None:
             _briefing.register_job(_scheduler)
         except Exception as exc:
             log.warning("Could not register briefing job: %s", exc)
+
+        # Proactive screen awareness (opt-in via SCREEN_WATCHER_ENABLED=1)
+        try:
+            from src import screen_watcher as _sw
+            _sw.register_job(_scheduler)
+        except Exception as exc:
+            log.warning("Could not register screen watcher: %s", exc)
+
         log.info("APScheduler started")
 
 
