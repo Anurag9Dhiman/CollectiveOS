@@ -1259,6 +1259,12 @@ def _exec_tool_fn(name: str, args: dict) -> str:
             _obs.log_tool_call(name, int((time.monotonic() - t0) * 1000), success=True)
             if ttl > 0:
                 _cache.set(cache_key, result, ttl=ttl)
+            # Record for personalization (fire-and-forget; never blocks)
+            try:
+                from src import personalization as _pers
+                _pers.record_interaction(name)
+            except Exception:
+                pass
             return result
         except Exception as exc:
             exc_type = type(exc).__name__

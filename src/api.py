@@ -220,6 +220,80 @@ def health():
     return {"status": "ok", "redis": "ok" if _cache.ping() else "unavailable"}
 
 
+@app.get("/dashboard")
+def dashboard_stats(_token: str = Depends(_verify_token)):
+    """Aggregate system status for the dashboard home panel."""
+    import datetime as _dt
+    from src import nav_queue as _nq, activity as _act, screen_watcher as _sw
+
+    # Nav queue
+    nq_tasks = _nq.list_all(limit=200)
+    nq_active = sum(1 for t in nq_tasks if t["status"] in ("pending", "running"))
+
+    # Routines
+    try:
+        from src import routines as _r
+        all_routines = _r.list_all(enabled_only=False)
+        enabled_routines = [r for r in all_routines if r.get("enabled")]
+        next_routine = None
+        try:
+            from src.scheduler import _scheduler
+            jobs = [j for j in _scheduler.get_jobs() if j.id.startswith("routine_")]
+            if jobs:
+                jobs.sort(key=lambda j: j.next_run_time or _dt.datetime.max.replace(tzinfo=_dt.timezone.utc))
+                nxt = jobs[0]
+                next_routine = {
+                    "name": nxt.kwargs.get("name", ""),
+                    "next_run": nxt.next_run_time.isoformat() if nxt.next_run_time else None,
+                }
+        except Exception:
+            pass
+    except Exception:
+        all_routines, enabled_routines, next_routine = [], [], None
+
+    # Recent activity
+    try:
+        recent_events = _act.list_events(limit=5, days=7)
+    except Exception:
+        recent_events = []
+
+    # Memory facts
+    try:
+        from src import memory as _mem
+        facts = _mem.list_facts()
+        facts_count = len(facts)
+    except Exception:
+        facts_count = 0
+
+    # Tool count
+    try:
+        from src.assistant_starter import TOOLS
+        tool_count = len(TOOLS)
+    except Exception:
+        tool_count = 0
+
+    # Personalization
+    try:
+        from src import personalization as _pers
+        profile = _pers.get_summary()
+    except Exception:
+        profile = {}
+
+    return {
+        "nav_queue": {"active": nq_active, "total": len(nq_tasks)},
+        "routines":  {
+            "total": len(all_routines),
+            "enabled": len(enabled_routines),
+            "next": next_routine,
+        },
+        "activity":       {"recent": recent_events[:5]},
+        "screen_watcher": _sw.status(),
+        "memory":         {"facts_count": facts_count},
+        "tools":          {"total": tool_count},
+        "profile":        profile,
+    }
+
+
 @app.get("/metrics")
 def metrics(days: int = Query(1, ge=1, le=90), _token: str = Depends(_verify_token)):
     """Return token usage and tool latency metrics for the last N days."""
@@ -1152,6 +1226,24 @@ def get_demonstration(demo_id: str, _token: str = Depends(_verify_token)):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Demo '{demo_id}' not found.")
     return data
+
+
+# ---------------------------------------------------------------------------
+# Personalization
+# ---------------------------------------------------------------------------
+
+@app.get("/profile")
+def user_profile(_token: str = Depends(_verify_token)):
+    """Return the user's usage profile summary."""
+    from src import personalization as _pers
+    return _pers.get_summary()
+
+
+@app.get("/profile/suggestions")
+def routine_suggestions(_token: str = Depends(_verify_token)):
+    """Return proactive routine suggestions based on usage patterns."""
+    from src import personalization as _pers
+    return _pers.suggest_routines()
 
 
 # ---------------------------------------------------------------------------
