@@ -994,6 +994,51 @@ def computer_stop(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Workflow recorder — natural language → scheduled nav routine
+# ---------------------------------------------------------------------------
+
+class WorkflowRecordRequest(BaseModel):
+    description: str
+    name: Optional[str] = None
+    schedule: Optional[str] = None
+    notify_via: str = "slack"
+
+
+@app.post("/workflows/record", status_code=201)
+def record_workflow(body: WorkflowRecordRequest, _token: str = Depends(_verify_token)):
+    """Convert a plain-English workflow description into a scheduled nav routine."""
+    from src import workflow_recorder as _wr
+    try:
+        return _wr.record(
+            description=body.description,
+            name=body.name,
+            schedule=body.schedule,
+            notify_via=body.notify_via,
+        )
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Nav queue — background task tracking
+# ---------------------------------------------------------------------------
+
+@app.get("/nav-queue")
+def nav_queue_list(limit: int = 50, _token: str = Depends(_verify_token)):
+    """Return background nav tasks ordered newest first."""
+    from src import nav_queue as _nq
+    return _nq.list_all(limit=limit)
+
+
+@app.delete("/nav-queue/{task_id}", status_code=204)
+def nav_queue_cancel(task_id: str, _token: str = Depends(_verify_token)):
+    """Cancel a pending or running nav task."""
+    from src import nav_queue as _nq
+    _nq.cancel(task_id)
+
+
+# ---------------------------------------------------------------------------
 # Task orchestrator — REST endpoints for the Tasks UI panel
 # ---------------------------------------------------------------------------
 
@@ -1107,6 +1152,43 @@ def get_demonstration(demo_id: str, _token: str = Depends(_verify_token)):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Demo '{demo_id}' not found.")
     return data
+
+
+# ---------------------------------------------------------------------------
+# Proactive screen watcher
+# ---------------------------------------------------------------------------
+
+@app.get("/screen-watcher/status")
+def screen_watcher_status(_token: str = Depends(_verify_token)):
+    """Return screen watcher configuration and enabled state."""
+    from src import screen_watcher as _sw
+    return _sw.status()
+
+
+@app.post("/screen-watcher/check")
+def screen_watcher_check_now(_token: str = Depends(_verify_token)):
+    """Run one screen-awareness poll immediately (ignores enabled flag)."""
+    import threading
+    from src import screen_watcher as _sw
+
+    def _run():
+        _sw._check_screen.__wrapped__ = True  # bypass enabled guard below
+        png = _sw._capture_screenshot()
+        if not png:
+            return
+        result = _sw._ask_llm(png)
+        if result and result.get("alert"):
+            from src import output_bus
+            urgency = result.get("urgency", "medium")
+            prefix = {"high": "🔴", "medium": "🟡", "low": "🔵"}.get(urgency, "")
+            output_bus.deliver(
+                title="Screen alert (manual check)",
+                body=f"{prefix} {result.get('summary', '')}",
+                channel="slack",
+            )
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"message": "Screen check triggered — result will arrive on Slack if anything is found."}
 
 
 # ---------------------------------------------------------------------------

@@ -51,6 +51,8 @@ from src.connectors import health as _health
 from src.connectors import car as _car
 from src.connectors import appliances as _appliances
 from src.connectors.ios_push import push_notification as _push_notification
+from src.connectors.web_search import web_search as _web_search
+from src import workflow_recorder as _workflow_recorder
 from src.agents.nav_agent import (
     navigate_computer as _nav_async,
     get_and_clear_first_person_frame,
@@ -68,13 +70,14 @@ def _navigate_computer_sync(task: str, context: str = "") -> str:
     Short tasks (≤ 30 s): blocks and returns the result directly so the
     agent can include it in its reply.
 
-    Long tasks (> 30 s): hands off to a background daemon thread and returns
-    a [running in background] status immediately so the chat is unblocked.
-    When the task finishes, the result is delivered via Slack.
+    Long tasks (> 30 s): registers in nav_queue, hands off to a background
+    daemon thread, and returns a status message immediately.  When the task
+    finishes, the result is delivered via Slack and the queue entry is updated.
     """
     import asyncio
     import queue as _queue
     import threading
+    from src import nav_queue as _nq
 
     frame = get_and_clear_first_person_frame()
     result_q: _queue.Queue = _queue.Queue()
@@ -96,18 +99,23 @@ def _navigate_computer_sync(task: str, context: str = "") -> str:
     thread.start()
 
     try:
-        _status, result = result_q.get(timeout=_NAV_SYNC_TIMEOUT)
+        status, result = result_q.get(timeout=_NAV_SYNC_TIMEOUT)
         return result
     except _queue.Empty:
-        # Task still running — tail it in a notify thread and unblock the chat.
+        # Task still running — register it in the queue and tail it.
+        tid = _nq.submit(task)
+        _nq.mark_running(tid)
+
         def _notify_on_finish() -> None:
             try:
-                _status, result = result_q.get(timeout=600)  # 10-min hard cap
+                status, result = result_q.get(timeout=600)  # 10-min hard cap
+                _nq.mark_done(tid, result, error=(status == "error"))
             except _queue.Empty:
                 result = (
                     f"[nav timeout] Task '{task[:60]}' exceeded 10 minutes "
                     "and was abandoned."
                 )
+                _nq.mark_done(tid, result, error=True)
             _output_bus.deliver(
                 title=f"Task done: {task[:50]}",
                 body=result,
@@ -119,7 +127,8 @@ def _navigate_computer_sync(task: str, context: str = "") -> str:
         ).start()
         return (
             f"[running in background] Navigation task started: '{task[:80]}'. "
-            "The computer is working on it — you'll get a Slack message when done."
+            f"Track it in the Computer panel (task id: {tid}). "
+            "You'll get a Slack message when done."
         )
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
@@ -166,6 +175,24 @@ def memory_graph_query(entity: str) -> str:
 def usage_summary(days: int = 1) -> str:
     """Return API cost and tool latency report for the last N days."""
     return _obs.usage_summary(days)
+
+
+def _record_workflow(description: str, name: str = "", schedule: str = "") -> str:
+    """Convert a workflow description into a saved scheduled nav routine."""
+    try:
+        result = _workflow_recorder.record(
+            description=description,
+            name=name or None,
+            schedule=schedule or None,
+        )
+        sched_human = result.get("schedule_human", result.get("schedule", ""))
+        return (
+            f"Workflow saved as routine #{result['id']} — \"{result['name']}\". "
+            f"Schedule: {sched_human}. "
+            f"Nav task: {result['nav_task']}"
+        )
+    except Exception as exc:
+        return f"[workflow error] {exc}"
 
 
 def notify_user(message: str, channel: str = "slack") -> str:
@@ -258,6 +285,8 @@ TOOL_FUNCTIONS = {
     "task_status":           task_status,
     "task_list":             task_list,
     "task_cancel":           task_cancel,
+    "web_search":            _web_search,
+    "record_workflow":       _record_workflow,
     "navigate_computer":     _navigate_computer_sync,
     "wearable_get_events":   _wearable.wearable_get_events,
     "wearable_list_devices": _wearable.wearable_list_devices,
@@ -969,6 +998,70 @@ TOOLS = [
                 },
             },
             "required": ["task_id"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Web search
+    # -----------------------------------------------------------------------
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web and return a summary of the top results. "
+            "Use for current events, facts that may have changed since your training, "
+            "documentation lookups, research, or any question that benefits from "
+            "live internet data. "
+            "Primary backend: Brave Search API (BRAVE_API_KEY). "
+            "Fallback: DuckDuckGo Instant Answers (no key required, limited results)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query. Be specific for better results.",
+                },
+                "num_results": {
+                    "type": "integer",
+                    "description": "Number of results to return (1–10, default 5).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Workflow recorder
+    # -----------------------------------------------------------------------
+    {
+        "name": "record_workflow",
+        "description": (
+            "Convert a plain-English workflow description into a saved, scheduled "
+            "nav routine that runs automatically on the computer. "
+            "Use when the user says 'automate this for me', 'do this every morning', "
+            "'save this as a routine', or describes a repeating computer task. "
+            "The LLM infers the schedule and exact nav steps from the description. "
+            "The routine is saved immediately and starts running on the inferred schedule."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Full description of the workflow, including what to do and when. "
+                        "Example: 'Every weekday morning open Mail, archive newsletters, "
+                        "and reply to anything flagged urgent.'"
+                    ),
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Optional short name for the routine (3–6 words). LLM suggests one if omitted.",
+                },
+                "schedule": {
+                    "type": "string",
+                    "description": "Optional cron override (5-field). LLM infers from description if omitted.",
+                },
+            },
+            "required": ["description"],
         },
     },
     # -----------------------------------------------------------------------
