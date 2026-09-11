@@ -1068,6 +1068,47 @@ def computer_stop(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Automation template library
+# ---------------------------------------------------------------------------
+
+class TemplateInstallRequest(BaseModel):
+    schedule: Optional[str] = None
+    notify_via: Optional[str] = None
+
+
+@app.get("/templates")
+def list_templates(category: Optional[str] = None, _token: str = Depends(_verify_token)):
+    """List all pre-built automation templates, optionally filtered by category."""
+    from src import templates as _tmpl
+    return {
+        "categories": _tmpl.categories(),
+        "templates":  _tmpl.list_templates(category=category),
+    }
+
+
+@app.post("/templates/{template_id}/install", status_code=201)
+def install_template(
+    template_id: str,
+    body: TemplateInstallRequest = TemplateInstallRequest(),
+    _token: str = Depends(_verify_token),
+):
+    """Install a template as a saved routine."""
+    from src import templates as _tmpl
+    try:
+        return _tmpl.install(
+            template_id,
+            schedule_override=body.schedule,
+            notify_override=body.notify_via,
+        )
+    except KeyError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Workflow recorder — natural language → scheduled nav routine
 # ---------------------------------------------------------------------------
 
