@@ -20,12 +20,39 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("collectiveos.voice_gateway")
+
+# ---------------------------------------------------------------------------
+# Voice → Nav fast path
+# ---------------------------------------------------------------------------
+
+# Phrases that strongly indicate a direct computer-control command.
+_NAV_PATTERN = re.compile(
+    r"\b("
+    r"open|launch|close|quit|switch (to|app|tab|window|desktop)|"
+    r"go to|navigate (to|in)|click|type|scroll|drag|"
+    r"find (in )?finder|search (in )?finder|create folder|move file|rename|"
+    r"run (in )?terminal|execute|terminal command|"
+    r"spotlight|mission control|show desktop|"
+    r"screenshot|take a screenshot|"
+    r"copy|paste|select all|undo|redo|"
+    r"maximise|minimize|fullscreen|resize window|"
+    r"play|pause|next track|previous track|volume (up|down)|"
+    r"shut ?down|restart|sleep|lock( screen)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_nav_intent(text: str) -> bool:
+    """Return True when the utterance looks like a direct computer-control command."""
+    return bool(_NAV_PATTERN.search(text))
 
 
 async def handle_voice_ws(ws: WebSocket) -> None:
@@ -136,6 +163,27 @@ async def handle_voice_ws(ws: WebSocket) -> None:
             pass
 
 
+async def _run_nav_task(ws: WebSocket, task_id: str, text: str) -> None:
+    """Fast path: voice utterance → navigate_computer, no agent loop."""
+    await _send(ws, {
+        "type": "progress",
+        "task_id": task_id,
+        "text": f"Running on computer: {text[:60]}",
+        "ts": _now(),
+    })
+    try:
+        loop = asyncio.get_event_loop()
+        from src.assistant_starter import _navigate_computer_sync
+        result = await loop.run_in_executor(None, _navigate_computer_sync, text)
+    except Exception as exc:
+        result = f"Nav error: {exc}"
+
+    await _send(ws, {"type": "speak", "task_id": task_id,
+                     "text": result, "priority": "high", "ts": _now()})
+    await _send(ws, {"type": "done", "task_id": task_id,
+                     "summary_speak": "Done.", "ts": _now()})
+
+
 async def _run_task(
     ws: WebSocket,
     task_id: str,
@@ -144,6 +192,12 @@ async def _run_task(
     user_id: str,
     pending_hitl: dict[str, str],
 ) -> None:
+    # Fast path: direct computer-control commands skip the full agent loop.
+    if _is_nav_intent(text):
+        logger.info("Voice nav fast-path: %r", text[:80])
+        await _run_nav_task(ws, task_id, text)
+        return
+
     from src import memory, multi_agent
     from src.api import _system_prompt
 

@@ -679,6 +679,77 @@
     }
     #save-routine-btn:hover { background: #388bfd; }
 
+    /* Dashboard panel */
+    #dashboard-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55); z-index: 100;
+    }
+    #dashboard-overlay.open { display: block; }
+    #dashboard-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 520px; background: #0d1117;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #dashboard-panel > header {
+      padding: 16px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #dashboard-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #dashboard-refresh-label { font-size: 0.7rem; color: #484f58; }
+    #dashboard-body { flex: 1; overflow-y: auto; padding: 18px; }
+    .dash-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px; margin-bottom: 20px;
+    }
+    .dash-card {
+      background: #161b22; border: 1px solid #21262d;
+      border-radius: 10px; padding: 14px 14px 12px;
+    }
+    .dash-card-title {
+      font-size: 0.68rem; color: #8b949e;
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;
+    }
+    .dash-stat {
+      font-size: 2rem; font-weight: 700; color: #e1e4e8;
+      font-variant-numeric: tabular-nums; line-height: 1;
+    }
+    .dash-stat-sm { font-size: 1.1rem; font-weight: 600; }
+    .dash-card-sub { font-size: 0.72rem; color: #484f58; margin-top: 4px; }
+    .dash-next { font-size: 0.7rem; color: #3fb950; margin-top: 6px; }
+    .dash-section-title {
+      font-size: 0.7rem; color: #8b949e;
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px;
+    }
+    .dash-event {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 7px 10px; border-radius: 6px;
+      background: #161b22; margin-bottom: 5px; font-size: 0.8rem;
+    }
+    .dash-event-icon { flex-shrink: 0; }
+    .dash-event-title { color: #c9d1d9; }
+    .dash-event-body  { color: #8b949e; font-size: 0.75rem; margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dash-event-time  { margin-left: auto; color: #484f58; font-size: 0.7rem; flex-shrink: 0; }
+    #dash-activity-empty { font-size: 0.8rem; color: #484f58; }
+    .dash-suggestion {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 8px;
+      background: #161b22; border: 1px solid #21262d;
+      margin-bottom: 6px;
+    }
+    .dash-suggestion-text { flex: 1; }
+    .dash-suggestion-title { font-size: 0.82rem; color: #c9d1d9; font-weight: 500; }
+    .dash-suggestion-desc  { font-size: 0.74rem; color: #8b949e; margin-top: 2px; }
+    .dash-suggestion-sched { font-size: 0.7rem; color: #3fb950; }
+    .dash-create-btn {
+      flex-shrink: 0; border: none; border-radius: 6px;
+      background: #1f6feb; color: #fff; font-size: 0.75rem;
+      padding: 4px 10px; cursor: pointer;
+    }
+    .dash-create-btn:hover { background: #388bfd; }
+    .dash-create-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
     /* Metrics panel */
     #metrics-overlay {
       display: none;
@@ -1558,6 +1629,7 @@
 <header>
   <div class="dot"></div>
   <h1>CollectiveOS</h1>
+  <button id="dashboard-btn" class="header-btn" title="System dashboard">🏠 Home</button>
   <button id="tts-btn" class="header-btn" title="Toggle read-aloud">🔊 Read aloud</button>
   <button id="new-chat-btn" class="header-btn" title="Start a new conversation">+ New chat</button>
   <button id="settings-btn"  class="header-btn" title="Connector permissions">⚙ Settings</button>
@@ -1652,6 +1724,56 @@
         <div id="wf-result" hidden></div>
         <button id="record-workflow-btn">🪄 Create workflow</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard panel -->
+<div id="dashboard-overlay">
+  <div id="dashboard-panel">
+    <header>
+      <h2>🏠 CollectiveOS</h2>
+      <span id="dashboard-refresh-label"></span>
+      <button id="dashboard-close">✕</button>
+    </header>
+    <div id="dashboard-body">
+      <div class="dash-grid" id="dash-grid">
+        <div class="dash-card" id="dash-nav">
+          <div class="dash-card-title">Nav Queue</div>
+          <div class="dash-stat" id="dash-nav-active">—</div>
+          <div class="dash-card-sub" id="dash-nav-sub">active tasks</div>
+        </div>
+        <div class="dash-card" id="dash-routines">
+          <div class="dash-card-title">Routines</div>
+          <div class="dash-stat" id="dash-routines-count">—</div>
+          <div class="dash-card-sub" id="dash-routines-sub">enabled</div>
+          <div class="dash-next" id="dash-routines-next"></div>
+        </div>
+        <div class="dash-card" id="dash-watcher">
+          <div class="dash-card-title">Screen Watcher</div>
+          <div class="dash-stat" id="dash-watcher-stat">—</div>
+          <div class="dash-card-sub" id="dash-watcher-sub"></div>
+        </div>
+        <div class="dash-card" id="dash-memory">
+          <div class="dash-card-title">Memory</div>
+          <div class="dash-stat" id="dash-memory-stat">—</div>
+          <div class="dash-card-sub">saved facts</div>
+        </div>
+        <div class="dash-card" id="dash-tools">
+          <div class="dash-card-title">Tools</div>
+          <div class="dash-stat" id="dash-tools-stat">—</div>
+          <div class="dash-card-sub">registered</div>
+        </div>
+        <div class="dash-card" id="dash-profile">
+          <div class="dash-card-title">Top Tool</div>
+          <div class="dash-stat dash-stat-sm" id="dash-profile-tool">—</div>
+          <div class="dash-card-sub" id="dash-profile-sub"></div>
+        </div>
+      </div>
+      <div class="dash-section-title">Recent Activity</div>
+      <div id="dash-activity"></div>
+      <div class="dash-section-title" style="margin-top:18px;" id="dash-suggest-title" hidden>Suggested Routines</div>
+      <div id="dash-suggestions"></div>
     </div>
   </div>
 </div>
@@ -2849,6 +2971,145 @@
   // ---------------------------------------------------------------------------
   // Metrics panel
   // ---------------------------------------------------------------------------
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+  const dashboardBtn   = document.getElementById("dashboard-btn");
+  const dashboardOvl   = document.getElementById("dashboard-overlay");
+  const dashboardClose = document.getElementById("dashboard-close");
+  const dashRefreshLbl = document.getElementById("dashboard-refresh-label");
+  let _dashTimer = null;
+
+  function _relTime(iso) {
+    if (!iso) return "";
+    const diff = Math.round((new Date(iso) - Date.now()) / 1000);
+    if (diff > 0) {
+      if (diff < 60) return `in ${diff}s`;
+      if (diff < 3600) return `in ${Math.round(diff/60)}m`;
+      return `in ${Math.round(diff/3600)}h`;
+    }
+    const abs = Math.abs(diff);
+    if (abs < 60) return `${abs}s ago`;
+    if (abs < 3600) return `${Math.round(abs/60)}m ago`;
+    return `${Math.round(abs/3600)}h ago`;
+  }
+
+  async function loadDashboard() {
+    try {
+      const d = await apiFetch("/dashboard");
+
+      // Nav queue
+      const navActive = d.nav_queue?.active ?? 0;
+      document.getElementById("dash-nav-active").textContent = navActive;
+      document.getElementById("dash-nav-sub").textContent =
+        navActive === 1 ? "active task" : "active tasks";
+      document.getElementById("dash-nav").style.borderColor =
+        navActive > 0 ? "#e3a000" : "#21262d";
+
+      // Routines
+      document.getElementById("dash-routines-count").textContent =
+        d.routines?.enabled ?? 0;
+      const nxt = d.routines?.next;
+      document.getElementById("dash-routines-next").textContent =
+        nxt ? `Next: ${nxt.name} ${_relTime(nxt.next_run)}` : "";
+
+      // Screen watcher
+      const swEnabled = d.screen_watcher?.enabled;
+      document.getElementById("dash-watcher-stat").textContent =
+        swEnabled ? "ON" : "OFF";
+      document.getElementById("dash-watcher-stat").style.color =
+        swEnabled ? "#3fb950" : "#484f58";
+      document.getElementById("dash-watcher-sub").textContent =
+        swEnabled ? `every ${Math.round((d.screen_watcher?.interval_seconds||300)/60)}m` : "disabled";
+
+      // Memory + tools
+      document.getElementById("dash-memory-stat").textContent =
+        d.memory?.facts_count ?? 0;
+      document.getElementById("dash-tools-stat").textContent =
+        d.tools?.total ?? 0;
+
+      // Profile — top tool
+      const topTool = d.profile?.top_tool;
+      document.getElementById("dash-profile-tool").textContent =
+        topTool ? topTool.replace(/_/g, " ") : "—";
+      document.getElementById("dash-profile-sub").textContent =
+        topTool ? `${d.profile?.top_tool_count ?? ""} calls` : "no usage yet";
+
+      // Recent activity
+      const actEl = document.getElementById("dash-activity");
+      actEl.innerHTML = "";
+      const events = d.activity?.recent || [];
+      if (!events.length) {
+        actEl.innerHTML = '<div id="dash-activity-empty">No recent activity.</div>';
+      } else {
+        events.forEach(ev => {
+          const row = document.createElement("div");
+          row.className = "dash-event";
+          row.innerHTML = `
+            <span class="dash-event-icon">${ev.icon || "·"}</span>
+            <div style="flex:1;min-width:0">
+              <div class="dash-event-title">${ev.title || ""}</div>
+              <div class="dash-event-body">${(ev.body||"").slice(0,80)}</div>
+            </div>
+            <span class="dash-event-time">${_relTime(ev.created_at)}</span>`;
+          actEl.appendChild(row);
+        });
+      }
+
+      dashRefreshLbl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+
+      // Routine suggestions
+      try {
+        const suggestions = await apiFetch("/profile/suggestions");
+        const suggestEl   = document.getElementById("dash-suggestions");
+        const suggestTitle= document.getElementById("dash-suggest-title");
+        suggestEl.innerHTML = "";
+        if (suggestions.length) {
+          suggestTitle.hidden = false;
+          suggestions.forEach(s => {
+            const row = document.createElement("div");
+            row.className = "dash-suggestion";
+            row.innerHTML = `
+              <div class="dash-suggestion-text">
+                <div class="dash-suggestion-title">${s.title}</div>
+                <div class="dash-suggestion-desc">${s.description}</div>
+                <div class="dash-suggestion-sched">${s.suggested_schedule}</div>
+              </div>
+              <button class="dash-create-btn">Add</button>`;
+            const btn = row.querySelector(".dash-create-btn");
+            btn.onclick = async () => {
+              btn.disabled = true; btn.textContent = "…";
+              try {
+                await apiFetch("/workflows/record", {
+                  method: "POST",
+                  body: JSON.stringify({ description: s.description, schedule: s.suggested_schedule }),
+                });
+                btn.textContent = "✓";
+              } catch (_) { btn.disabled = false; btn.textContent = "Add"; }
+            };
+            suggestEl.appendChild(row);
+          });
+        } else {
+          suggestTitle.hidden = true;
+        }
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  dashboardBtn.addEventListener("click", () => {
+    dashboardOvl.classList.add("open");
+    loadDashboard();
+    if (!_dashTimer) _dashTimer = setInterval(loadDashboard, 10000);
+  });
+  dashboardClose.addEventListener("click", () => {
+    dashboardOvl.classList.remove("open");
+    clearInterval(_dashTimer); _dashTimer = null;
+  });
+  dashboardOvl.addEventListener("click", e => {
+    if (e.target === dashboardOvl) {
+      dashboardOvl.classList.remove("open");
+      clearInterval(_dashTimer); _dashTimer = null;
+    }
+  });
+
   const metricsBtn     = document.getElementById("metrics-btn");
   const metricsOvl     = document.getElementById("metrics-overlay");
   const metricsClose   = document.getElementById("metrics-close");
