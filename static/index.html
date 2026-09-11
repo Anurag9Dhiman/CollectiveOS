@@ -732,6 +732,61 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dash-event-time  { margin-left: auto; color: #484f58; font-size: 0.7rem; flex-shrink: 0; }
     #dash-activity-empty { font-size: 0.8rem; color: #484f58; }
+
+    /* Templates panel */
+    #templates-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55); z-index: 100;
+    }
+    #templates-overlay.open { display: block; }
+    #templates-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 540px; background: #0d1117;
+      border-left: 1px solid #21262d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #templates-panel > header {
+      padding: 16px 18px; border-bottom: 1px solid #21262d;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #templates-panel > header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    #templates-filter {
+      padding: 10px 18px; border-bottom: 1px solid #21262d;
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .tmpl-cat-btn {
+      border: 1px solid #30363d; background: none; color: #8b949e;
+      border-radius: 12px; padding: 3px 12px; font-size: 0.75rem; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tmpl-cat-btn:hover    { border-color: #58a6ff; color: #58a6ff; }
+    .tmpl-cat-btn.active   { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+    #templates-body        { flex: 1; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+    .tmpl-card {
+      background: #161b22; border: 1px solid #21262d;
+      border-radius: 10px; padding: 14px 16px;
+      display: flex; gap: 12px; align-items: flex-start;
+    }
+    .tmpl-icon   { font-size: 1.6rem; flex-shrink: 0; line-height: 1; }
+    .tmpl-body   { flex: 1; min-width: 0; }
+    .tmpl-name   { font-size: 0.9rem; font-weight: 600; color: #e1e4e8; margin-bottom: 3px; }
+    .tmpl-desc   { font-size: 0.78rem; color: #8b949e; line-height: 1.5; }
+    .tmpl-meta   { display: flex; gap: 8px; margin-top: 7px; flex-wrap: wrap; }
+    .tmpl-sched  { font-size: 0.7rem; color: #484f58; font-family: monospace; }
+    .tmpl-tag    {
+      font-size: 0.66rem; background: #21262d; color: #8b949e;
+      border-radius: 8px; padding: 1px 7px;
+    }
+    .tmpl-install {
+      flex-shrink: 0; border: none; border-radius: 6px;
+      background: #238636; color: #fff; font-size: 0.8rem;
+      padding: 6px 14px; cursor: pointer; font-weight: 500;
+      transition: background 0.15s; align-self: center;
+    }
+    .tmpl-install:hover    { background: #2ea043; }
+    .tmpl-install:disabled { opacity: 0.45; cursor: not-allowed; }
+    .tmpl-install.installed { background: #1c2333; color: #3fb950; border: 1px solid #3fb950; }
+
     .dash-suggestion {
       display: flex; align-items: center; gap: 10px;
       padding: 9px 12px; border-radius: 8px;
@@ -1630,6 +1685,7 @@
   <div class="dot"></div>
   <h1>CollectiveOS</h1>
   <button id="dashboard-btn" class="header-btn" title="System dashboard">🏠 Home</button>
+  <button id="templates-btn" class="header-btn" title="Automation templates">⚡ Templates</button>
   <button id="tts-btn" class="header-btn" title="Toggle read-aloud">🔊 Read aloud</button>
   <button id="new-chat-btn" class="header-btn" title="Start a new conversation">+ New chat</button>
   <button id="settings-btn"  class="header-btn" title="Connector permissions">⚙ Settings</button>
@@ -1725,6 +1781,20 @@
         <button id="record-workflow-btn">🪄 Create workflow</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Templates panel -->
+<div id="templates-overlay">
+  <div id="templates-panel">
+    <header>
+      <h2>⚡ Automation Templates</h2>
+      <button id="templates-close">✕</button>
+    </header>
+    <div id="templates-filter">
+      <button class="tmpl-cat-btn active" data-cat="">All</button>
+    </div>
+    <div id="templates-body">Loading…</div>
   </div>
 </div>
 
@@ -2971,6 +3041,105 @@
   // ---------------------------------------------------------------------------
   // Metrics panel
   // ---------------------------------------------------------------------------
+  // ── Templates ─────────────────────────────────────────────────────────────
+  const templatesBtn   = document.getElementById("templates-btn");
+  const templatesOvl   = document.getElementById("templates-overlay");
+  const templatesClose = document.getElementById("templates-close");
+  const templatesBody  = document.getElementById("templates-body");
+  const templatesFilter= document.getElementById("templates-filter");
+  let _allTemplates    = [];
+  let _activeCat       = "";
+  const _installed     = new Set();
+
+  async function loadTemplates() {
+    try {
+      const data = await apiFetch("/templates");
+      _allTemplates = data.templates || [];
+
+      // Build category filter buttons
+      const existing = [...templatesFilter.querySelectorAll("[data-cat]")].map(b => b.dataset.cat);
+      (data.categories || []).forEach(cat => {
+        if (!existing.includes(cat)) {
+          const btn = document.createElement("button");
+          btn.className = "tmpl-cat-btn";
+          btn.dataset.cat = cat;
+          btn.textContent = cat;
+          btn.onclick = () => selectCat(cat);
+          templatesFilter.appendChild(btn);
+        }
+      });
+
+      renderTemplates();
+    } catch (_) {
+      templatesBody.textContent = "Failed to load templates.";
+    }
+  }
+
+  function selectCat(cat) {
+    _activeCat = cat;
+    templatesFilter.querySelectorAll(".tmpl-cat-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.cat === cat);
+    });
+    renderTemplates();
+  }
+
+  function renderTemplates() {
+    const list = _activeCat
+      ? _allTemplates.filter(t => t.category === _activeCat)
+      : _allTemplates;
+
+    templatesBody.innerHTML = "";
+    list.forEach(t => {
+      const card = document.createElement("div");
+      card.className = "tmpl-card";
+
+      const installed = _installed.has(t.id);
+      card.innerHTML = `
+        <div class="tmpl-icon">${t.icon}</div>
+        <div class="tmpl-body">
+          <div class="tmpl-name">${t.name}</div>
+          <div class="tmpl-desc">${t.description}</div>
+          <div class="tmpl-meta">
+            <span class="tmpl-sched">${t.schedule}</span>
+            ${(t.tags||[]).map(tag => `<span class="tmpl-tag">${tag}</span>`).join("")}
+          </div>
+        </div>
+        <button class="tmpl-install${installed ? " installed" : ""}"
+                data-id="${t.id}" ${installed ? "disabled" : ""}>
+          ${installed ? "✓ Added" : "+ Install"}
+        </button>`;
+
+      card.querySelector(".tmpl-install").onclick = async function() {
+        this.disabled = true;
+        this.textContent = "…";
+        try {
+          await apiFetch(`/templates/${t.id}/install`, { method: "POST", body: "{}" });
+          _installed.add(t.id);
+          this.textContent = "✓ Added";
+          this.classList.add("installed");
+        } catch (_) {
+          this.disabled = false;
+          this.textContent = "+ Install";
+          showError("Failed to install template.");
+        }
+      };
+
+      templatesBody.appendChild(card);
+    });
+  }
+
+  // Wire up "All" button
+  templatesFilter.querySelector("[data-cat='']").onclick = () => selectCat("");
+
+  templatesBtn.addEventListener("click", () => {
+    templatesOvl.classList.add("open");
+    loadTemplates();
+  });
+  templatesClose.addEventListener("click", () => templatesOvl.classList.remove("open"));
+  templatesOvl.addEventListener("click", e => {
+    if (e.target === templatesOvl) templatesOvl.classList.remove("open");
+  });
+
   // ── Dashboard ─────────────────────────────────────────────────────────────
   const dashboardBtn   = document.getElementById("dashboard-btn");
   const dashboardOvl   = document.getElementById("dashboard-overlay");
