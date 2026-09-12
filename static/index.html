@@ -959,6 +959,42 @@
     }
     #save-fact-btn:hover { background: #388bfd; }
 
+    /* ── Memory search ────────────────────────────────────────────────────── */
+    #mem-search-bar {
+      display: flex; gap: 8px; padding: 10px 18px 0;
+    }
+    #mem-search-input {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      color: #e1e4e8; font-size: 0.84rem; padding: 7px 10px; outline: none;
+    }
+    #mem-search-input:focus { border-color: #1f6feb; }
+    #mem-search-btn {
+      background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+      color: #8b949e; font-size: 0.84rem; padding: 7px 12px; cursor: pointer;
+    }
+    #mem-search-btn:hover { background: #30363d; color: #e1e4e8; }
+    #mem-search-results {
+      margin: 8px 18px 4px; border: 1px solid #21262d; border-radius: 8px;
+      background: #0d1117; max-height: 260px; overflow-y: auto;
+    }
+    .mem-result-item {
+      padding: 10px 14px; border-bottom: 1px solid #21262d;
+    }
+    .mem-result-item:last-child { border-bottom: none; }
+    .mem-result-date {
+      font-size: 0.72rem; color: #58a6ff; font-family: monospace; margin-bottom: 3px;
+    }
+    .mem-result-excerpt {
+      font-size: 0.82rem; color: #c9d1d9; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .mem-result-empty {
+      padding: 16px 14px; font-size: 0.82rem; color: #484f58; text-align: center;
+    }
+    #mem-search-spinner {
+      padding: 12px; text-align: center; font-size: 0.82rem; color: #8b949e;
+    }
+
     /* ── Computer live view panel ───────────────────────────────────────── */
     #computer-overlay {
       display: none; position: fixed; inset: 0;
@@ -1876,6 +1912,14 @@
       <h2>🧠 Memory</h2>
       <button id="memory-close">✕</button>
     </header>
+
+    <!-- Search bar -->
+    <div id="mem-search-bar">
+      <input id="mem-search-input" type="text" placeholder="Search past conversations…" autocomplete="off" />
+      <button id="mem-search-btn">🔍</button>
+    </div>
+    <div id="mem-search-results" hidden></div>
+
     <div id="memory-body">
       <p class="settings-section-title">Facts the assistant always remembers</p>
       <div id="facts-list"><div id="memory-empty">No facts saved yet.</div></div>
@@ -2228,11 +2272,14 @@
   const imageClear    = document.getElementById("image-clear");
   const ttsBtn        = document.getElementById("tts-btn");
   const memoryBtn     = document.getElementById("memory-btn");
-  const memoryOvl     = document.getElementById("memory-overlay");
-  const memoryClose   = document.getElementById("memory-close");
-  const factsList     = document.getElementById("facts-list");
-  const factInput     = document.getElementById("fact-input");
-  const saveFactBtn   = document.getElementById("save-fact-btn");
+  const memoryOvl       = document.getElementById("memory-overlay");
+  const memoryClose     = document.getElementById("memory-close");
+  const factsList       = document.getElementById("facts-list");
+  const factInput       = document.getElementById("fact-input");
+  const saveFactBtn     = document.getElementById("save-fact-btn");
+  const memSearchInput  = document.getElementById("mem-search-input");
+  const memSearchBtn    = document.getElementById("mem-search-btn");
+  const memSearchResults = document.getElementById("mem-search-results");
 
   const STORAGE_TOKEN = "collectiveos_token";
   const STORAGE_CONV  = "collectiveos_conv_id";
@@ -3459,8 +3506,61 @@
   });
 
   memoryBtn.addEventListener("click", () => { memoryOvl.classList.add("open"); loadFacts(); });
-  memoryClose.addEventListener("click", () => memoryOvl.classList.remove("open"));
+  memoryClose.addEventListener("click", () => {
+    memoryOvl.classList.remove("open");
+    memSearchInput.value = "";
+    memSearchResults.hidden = true;
+  });
   memoryOvl.addEventListener("click", e => { if (e.target === memoryOvl) memoryOvl.classList.remove("open"); });
+
+  // ── Memory search ─────────────────────────────────────────────────────────
+  let _memSearchTimer = null;
+
+  async function runMemSearch(query) {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) return;
+    query = query.trim();
+    if (!query) { memSearchResults.hidden = true; return; }
+
+    memSearchResults.hidden = false;
+    memSearchResults.innerHTML = '<div id="mem-search-spinner">Searching…</div>';
+
+    try {
+      const resp = await fetch(`/memory/search?q=${encodeURIComponent(query)}&limit=8`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!resp.ok) { memSearchResults.innerHTML = '<div class="mem-result-empty">Search failed.</div>'; return; }
+      const data = await resp.json();
+
+      if (!data.results || data.results.length === 0) {
+        memSearchResults.innerHTML = '<div class="mem-result-empty">No matching memories found.</div>';
+        return;
+      }
+
+      memSearchResults.innerHTML = data.results.map(r => `
+        <div class="mem-result-item">
+          ${r.date ? `<div class="mem-result-date">${r.date}</div>` : ""}
+          <div class="mem-result-excerpt">${r.excerpt.replace(/</g, "&lt;")}</div>
+        </div>
+      `).join("");
+    } catch (e) {
+      memSearchResults.innerHTML = '<div class="mem-result-empty">Network error.</div>';
+    }
+  }
+
+  memSearchInput.addEventListener("input", () => {
+    clearTimeout(_memSearchTimer);
+    const q = memSearchInput.value.trim();
+    if (!q) { memSearchResults.hidden = true; return; }
+    _memSearchTimer = setTimeout(() => runMemSearch(q), 400);
+  });
+
+  memSearchInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); clearTimeout(_memSearchTimer); runMemSearch(memSearchInput.value); }
+    if (e.key === "Escape") { memSearchInput.value = ""; memSearchResults.hidden = true; }
+  });
+
+  memSearchBtn.addEventListener("click", () => runMemSearch(memSearchInput.value));
 
   // ── Condition Watchers panel ──────────────────────────────────────────────
   const watchersBtn   = document.getElementById("watchers-btn");
