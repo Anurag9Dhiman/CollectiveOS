@@ -1323,6 +1323,24 @@ def routine_suggestions(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Proactive push queue
+# ---------------------------------------------------------------------------
+
+@app.get("/proactive")
+def get_proactive_messages(_token: str = Depends(_verify_token)):
+    """
+    Return and clear all pending proactive messages.
+
+    The UI polls this endpoint every 30 s. Any messages enqueued by the
+    scheduler (time-of-day triggers), screen watcher, or personalization
+    engine are returned and immediately removed from the queue so they
+    appear only once.
+    """
+    from src import proactive as _proactive
+    return {"messages": _proactive.pop_all()}
+
+
+# ---------------------------------------------------------------------------
 # Proactive screen watcher
 # ---------------------------------------------------------------------------
 

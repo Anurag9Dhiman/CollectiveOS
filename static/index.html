@@ -167,6 +167,34 @@
       margin-bottom: 4px;
     }
 
+    /* ── Proactive bubble ─────────────────────────────────────────────────── */
+    .bubble.proactive {
+      border-color: #388bfd !important;
+      background: #0c1929 !important;
+    }
+    .proactive-header {
+      display: flex; align-items: center; gap: 7px; margin-bottom: 6px;
+    }
+    .proactive-icon { font-size: 1rem; line-height: 1; }
+    .proactive-label {
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; color: #58a6ff;
+    }
+    .proactive-text { font-size: 0.88rem; color: #c9d1d9; line-height: 1.5; }
+    .proactive-actions {
+      display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;
+    }
+    .proactive-do-btn {
+      background: #1f6feb; color: #fff; border: none; border-radius: 6px;
+      padding: 5px 12px; font-size: 0.78rem; cursor: pointer; font-weight: 500;
+    }
+    .proactive-do-btn:hover { background: #388bfd; }
+    .proactive-dismiss-btn {
+      background: none; border: 1px solid #30363d; border-radius: 6px;
+      color: #8b949e; padding: 5px 10px; font-size: 0.78rem; cursor: pointer;
+    }
+    .proactive-dismiss-btn:hover { border-color: #8b949e; color: #c9d1d9; }
+
     #token-bar {
       padding: 8px 20px;
       background: #0d1117;
@@ -4875,6 +4903,89 @@
       briefingSaveBtn.disabled = false;
     }
   });
+
+  // ── Proactive push polling ────────────────────────────────────────────────
+  // Poll GET /proactive every 30 s. Any pending messages are rendered as
+  // distinctive assistant-initiated bubbles in the chat with Dismiss / Do it.
+
+  function _renderProactiveBubble(msg) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg assistant";
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble proactive";
+
+    const header = document.createElement("div");
+    header.className = "proactive-header";
+    header.innerHTML = `<span class="proactive-icon">${msg.icon || "🤖"}</span><span class="proactive-label">Assistant</span>`;
+
+    const text = document.createElement("div");
+    text.className = "proactive-text";
+    text.textContent = msg.message;
+
+    const actions = document.createElement("div");
+    actions.className = "proactive-actions";
+
+    if (msg.action_prompt) {
+      const doBtn = document.createElement("button");
+      doBtn.className = "proactive-do-btn";
+      doBtn.textContent = "Do it";
+      doBtn.addEventListener("click", () => {
+        userInput.value = msg.action_prompt;
+        wrap.remove();
+        userInput.focus();
+        sendBtn.click();
+      });
+      actions.appendChild(doBtn);
+    }
+
+    const dismissBtn = document.createElement("button");
+    dismissBtn.className = "proactive-dismiss-btn";
+    dismissBtn.textContent = "Dismiss";
+    dismissBtn.addEventListener("click", () => wrap.remove());
+    actions.appendChild(dismissBtn);
+
+    bubble.appendChild(header);
+    bubble.appendChild(text);
+    bubble.appendChild(actions);
+    wrap.appendChild(bubble);
+    chatLog.appendChild(wrap);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  async function _pollProactive() {
+    const token = localStorage.getItem(STORAGE_TOKEN) || "";
+    if (!token) return;
+    try {
+      const data = await apiFetch("/proactive");
+      if (data.messages && data.messages.length > 0) {
+        data.messages.forEach(_renderProactiveBubble);
+      }
+    } catch (_) {
+      // silently ignore — polling runs every 30 s anyway
+    }
+  }
+
+  // Start polling as soon as there's a token (checked every 5 s until set, then every 30 s)
+  let _proactiveInterval = null;
+  function _startProactivePoll() {
+    if (_proactiveInterval) return;
+    _proactiveInterval = setInterval(_pollProactive, 30000);
+    _pollProactive(); // immediate first check
+  }
+
+  // Kick off once a token is visible
+  if (localStorage.getItem(STORAGE_TOKEN)) {
+    _startProactivePoll();
+  }
+  // Also start after the user saves a token
+  const _tokenBarInput = document.getElementById("token-input");
+  if (_tokenBarInput) {
+    _tokenBarInput.addEventListener("change", () => {
+      if (localStorage.getItem(STORAGE_TOKEN)) _startProactivePoll();
+    });
+  }
+
 </script>
 
 </body>
