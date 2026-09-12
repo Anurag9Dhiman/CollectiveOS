@@ -61,6 +61,14 @@ def save(user_message: str, assistant_reply: str, source: str = "conversation") 
             conn.close()
 
         _gm.trigger_async(chunk_id, content)
+
+        # Auto-extract durable facts in a background thread (fire-and-forget)
+        if user_message and assistant_reply:
+            try:
+                from src import memory_extractor as _me
+                _me.trigger(user_message, assistant_reply)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -139,22 +147,35 @@ def save_fact(fact: str) -> None:
         pass
 
 
-def list_facts() -> list[dict]:
-    """Return all explicitly saved facts, newest first."""
+def list_facts(include_auto: bool = True) -> list[dict]:
+    """Return saved facts newest first.
+
+    include_auto=True (default) returns both manually saved facts
+    (source='fact') and auto-extracted ones (source='auto_fact').
+    Each dict includes a 'source' key so callers can distinguish them.
+    """
     conn = connect()
     try:
         user_id = default_user_id(conn)
+        sources = ("fact", "auto_fact") if include_auto else ("fact",)
+        placeholders = ",".join(["%s"] * len(sources))
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, content, created_at FROM memory_chunks "
-                "WHERE user_id = %s AND source = 'fact' ORDER BY created_at DESC",
-                (user_id,),
+                f"SELECT id, content, created_at, source FROM memory_chunks "
+                f"WHERE user_id = %s AND source IN ({placeholders}) "
+                f"ORDER BY created_at DESC",
+                (user_id, *sources),
             )
             rows = cur.fetchall()
     finally:
         conn.close()
     return [
-        {"id": r[0], "content": r[1], "date": r[2].strftime("%Y-%m-%d") if r[2] else ""}
+        {
+            "id":      r[0],
+            "content": r[1],
+            "date":    r[2].strftime("%Y-%m-%d") if r[2] else "",
+            "source":  r[3],   # 'fact' = manual, 'auto_fact' = extracted
+        }
         for r in rows
     ]
 
@@ -193,7 +214,8 @@ def delete_fact_by_id(fact_id: int) -> bool:
         user_id = default_user_id(conn)
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM memory_chunks WHERE id = %s AND user_id = %s AND source = 'fact' RETURNING id",
+                "DELETE FROM memory_chunks WHERE id = %s AND user_id = %s "
+                "AND source IN ('fact', 'auto_fact') RETURNING id",
                 (fact_id, user_id),
             )
             deleted = cur.fetchone() is not None

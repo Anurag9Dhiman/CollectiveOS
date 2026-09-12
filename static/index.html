@@ -938,6 +938,12 @@
     }
     .fact-delete:hover { color: #f85149; background: #1f0c0c; }
     #memory-empty { font-size: 0.82rem; color: #484f58; text-align: center; padding: 24px 0; }
+    .fact-auto-badge {
+      font-size: 0.62rem; font-weight: 600; letter-spacing: .04em;
+      background: #0d2136; color: #58a6ff;
+      border: 1px solid #1f6feb44; border-radius: 8px;
+      padding: 1px 6px; flex-shrink: 0;
+    }
     #add-fact-form {
       border-top: 1px solid #21262d; padding: 12px 18px;
       display: flex; gap: 8px;
@@ -3381,32 +3387,52 @@
     }
   }
 
+  function _makeFactRow(f, onDelete) {
+    const row = document.createElement("div");
+    row.className = "fact-row";
+    const isAuto = f.source === "auto_fact";
+    row.innerHTML = `
+      <div class="fact-content">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span>${f.content}</span>
+          ${isAuto ? '<span class="fact-auto-badge">auto</span>' : ''}
+        </div>
+        <div class="fact-date">${f.date || ""}</div>
+      </div>
+      <button class="fact-delete" title="Forget this">✕</button>`;
+    row.querySelector(".fact-delete").addEventListener("click", async () => {
+      const t = localStorage.getItem(STORAGE_TOKEN) || "";
+      await fetch(`/memory/facts/${f.id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${t}` },
+      });
+      onDelete();
+    });
+    return row;
+  }
+
   function renderFacts(facts) {
+    factsList.innerHTML = "";
     if (!facts.length) {
-      factsList.innerHTML = "<div id='memory-empty'>No facts saved yet.</div>";
+      factsList.innerHTML = "<div id='memory-empty'>No facts saved yet. Chat with the assistant and facts will be learned automatically.</div>";
       return;
     }
-    factsList.innerHTML = "";
-    for (const f of facts) {
-      const row = document.createElement("div");
-      row.className = "fact-row";
-      row.innerHTML = `
-        <div class="fact-content">
-          <div>${f.content}</div>
-          <div class="fact-date">${f.date || ""}</div>
-        </div>
-        <button class="fact-delete" data-id="${f.id}" title="Forget this">✕</button>
-      `;
-      row.querySelector(".fact-delete").addEventListener("click", async () => {
-        const t = localStorage.getItem(STORAGE_TOKEN) || "";
-        await fetch(`/memory/facts/${f.id}`, {
-          method: "DELETE",
-          headers: { "Authorization": `Bearer ${t}` },
-        });
-        loadFacts();
-      });
-      factsList.appendChild(row);
+
+    const manual = facts.filter(f => f.source === "fact");
+    const auto   = facts.filter(f => f.source === "auto_fact");
+
+    function section(title, icon, items) {
+      if (!items.length) return;
+      const hdr = document.createElement("div");
+      hdr.className = "settings-section-title";
+      hdr.style.cssText = "margin:10px 0 6px;display:flex;align-items:center;gap:6px;";
+      hdr.innerHTML = `${icon} ${title} <span style="background:#21262d;color:#8b949e;border-radius:10px;padding:1px 7px;font-size:0.68rem;">${items.length}</span>`;
+      factsList.appendChild(hdr);
+      items.forEach(f => factsList.appendChild(_makeFactRow(f, loadFacts)));
     }
+
+    section("Learned automatically", "🤖", auto);
+    section("Saved manually", "📌", manual);
   }
 
   saveFactBtn.addEventListener("click", async () => {
