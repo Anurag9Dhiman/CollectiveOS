@@ -813,6 +813,41 @@ def delete_memory_fact(fact_id: int, _token: str = Depends(_verify_token)):
         raise HTTPException(status_code=404, detail="Fact not found.")
 
 
+@app.get("/memory/search")
+def search_memory(
+    q: str = Query(..., min_length=1, description="Natural-language search query"),
+    limit: int = Query(8, ge=1, le=30),
+    _token: str = Depends(_verify_token),
+):
+    """
+    Semantic + keyword hybrid search over all memory chunks.
+
+    Uses hybrid RRF (vector cosine + ILIKE) via search_with_graph() which
+    also enriches results with knowledge-graph context for named entities.
+    Returns a list of {date, content, excerpt} objects ranked by relevance.
+    """
+    raw = memory.search_with_graph(q, limit=limit)
+    if not raw:
+        return {"query": q, "results": []}
+
+    results = []
+    for block in raw.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        # Each block is "[YYYY-MM-DD]\nContent…" or a graph section
+        lines = block.split("\n", 1)
+        date = ""
+        content = block
+        if lines[0].startswith("[") and lines[0].endswith("]"):
+            date = lines[0][1:-1]
+            content = lines[1].strip() if len(lines) > 1 else ""
+        excerpt = content[:300] + ("…" if len(content) > 300 else "")
+        results.append({"date": date, "content": content, "excerpt": excerpt})
+
+    return {"query": q, "results": results[:limit]}
+
+
 @app.get("/export")
 def export_data(
     sections: Optional[str] = Query(None, description="Comma-separated sections: conversations,facts,entities,routines,watchers"),
