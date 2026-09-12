@@ -171,6 +171,13 @@ def start() -> None:
         except Exception as exc:
             log.warning("Could not register screen watcher: %s", exc)
 
+        # Proactive time-of-day push prompts
+        try:
+            from src import proactive as _proactive
+            _proactive.register_jobs(_scheduler)
+        except Exception as exc:
+            log.warning("Could not register proactive jobs: %s", exc)
+
         log.info("APScheduler started")
 
 

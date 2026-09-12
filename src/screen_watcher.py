@@ -159,6 +159,18 @@ def _check_screen() -> None:
     except Exception as exc:
         log.warning("screen_watcher: delivery failed: %s", exc)
 
+    # Also surface alert as a proactive chat bubble
+    try:
+        from src import proactive as _proactive
+        _proactive.push(
+            f"{urgency_prefix} Screen alert: {summary}",
+            trigger="screen",
+            icon=urgency_prefix or "👁️",
+            action_prompt=f"I noticed: {summary}. What should I do about this?",
+        )
+    except Exception:
+        pass
+
 
 def register_job(scheduler) -> None:
     """Register the screen-watcher poll with an APScheduler instance."""

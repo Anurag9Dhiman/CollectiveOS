@@ -98,7 +98,24 @@ def record_interaction(tool_name: str, query_text: str = "") -> None:
                 data["queries"] = data["queries"][-100:]  # keep last 100
 
             data["last_updated"] = now.isoformat()
+            total = sum(data["tool_counts"].values())
             _save(data)
+
+        # Every 10 interactions push a proactive routine suggestion
+        if total > 0 and total % 10 == 0:
+            try:
+                suggestions = suggest_routines()
+                if suggestions:
+                    s = suggestions[0]
+                    from src import proactive as _proactive
+                    _proactive.push(
+                        f"💡 Suggestion: {s['title']} — {s['description']}",
+                        trigger="personalization",
+                        icon="💡",
+                        action_prompt=f"Set up a routine for me: {s['title']}. Schedule it at {s['suggested_schedule']}.",
+                    )
+            except Exception:
+                pass
     except Exception as exc:
         log.debug("personalization.record_interaction: %s", exc)
 
