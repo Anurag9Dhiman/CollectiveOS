@@ -355,8 +355,21 @@ def agent_node(state: AgentState) -> dict:
     read_calls  = [c for c in fn_calls if c["name"] not in WRITE_TOOLS]
 
     # Execute read tools immediately inline; defer write tools for HITL
+    nav_shot_b64: str | None = None
     if read_calls:
         new_history = _execute_calls(read_calls, new_history)
+
+        # If navigate_computer just ran, it stored a final screenshot.
+        # Retrieve it so the next Gemini call can see the screen and describe it.
+        if any(c["name"] == "navigate_computer" for c in read_calls):
+            try:
+                import base64 as _b64
+                from src.agents.nav_agent import get_and_clear_first_person_frame as _gnf
+                _shot = _gnf()
+                if _shot:
+                    nav_shot_b64 = _b64.b64encode(_shot).decode()
+            except Exception:
+                pass
 
     if write_calls:
         destructive = any(is_destructive(c["name"]) for c in write_calls)
@@ -368,12 +381,18 @@ def agent_node(state: AgentState) -> dict:
         }
 
     # Only read tools — agent loops back automatically
-    return {
+    result: dict = {
         "history": new_history,
         "pending_write": [],
         "has_destructive": False,
         "iteration": iteration,
     }
+    # Pass the nav screenshot into the next agent_node call so Gemini sees
+    # the current screen state when generating its final reply.
+    if nav_shot_b64:
+        result["image_b64"] = nav_shot_b64
+        result["image_mime"] = "image/jpeg"
+    return result
 
 
 def _execute_calls(calls: list[dict], history: list[dict]) -> list[dict]:

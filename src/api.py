@@ -118,7 +118,11 @@ def _system_prompt(past: str = "") -> str:
         f"- Write/action tools ({_WRITE_TOOLS}): you MUST describe exactly what you "
         f"are about to do and only call the tool after the user gives an explicit "
         f"go-ahead such as 'yes', 'ok', 'do it', 'send it', 'confirm', or 'proceed'. "
-        f"Never call a write/action tool without explicit user approval in this turn."
+        f"Never call a write/action tool without explicit user approval in this turn.\n\n"
+        f"NAVIGATION RESULTS — when navigate_computer finishes, you will receive a "
+        f"screenshot of the current screen alongside the tool result. Always describe "
+        f"what you can see on the screen so the user knows exactly where and how the "
+        f"task was completed (e.g. which app is open, what is visible)."
     )
     facts = memory.get_all_facts_str()
     if facts:
