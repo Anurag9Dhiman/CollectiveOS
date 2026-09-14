@@ -1029,12 +1029,6 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
                 yield f"data: {json.dumps({'progress': label})}\n\n"
             else:
                 _, reply, interrupted = item
-            chunk = await queue.get()
-            if chunk is None:
-                full_reply = "".join(collected)
-                conversations.save_message(conv_id, "assistant", full_reply)
-                memory.save_smart(user_message, full_reply)
-                yield f"data: {json.dumps({'done': True})}\n\n"
                 break
 
         # Stream reply word-by-word so the client renders it progressively.
