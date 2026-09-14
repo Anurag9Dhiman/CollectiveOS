@@ -470,6 +470,7 @@ class NavAgent:
 
         for iteration in range(_NAV_MAX_ITER):
             if _cs.should_stop():
+                self._release_all_keys()
                 _cs.end_run(run_id, "Stopped by user.", iteration)
                 return NavResult(status="error", result="Stopped by user.", steps=steps)
             # 1. Perceive
@@ -500,6 +501,7 @@ class NavAgent:
                 action = json.loads(response.text)
             except Exception as exc:
                 logger.exception("Gemini vision call failed (iter %d)", iteration)
+                self._release_all_keys()
                 _cs.end_run(run_id, str(exc), iteration)
                 return NavResult(status="error", result=str(exc), steps=steps)
 
@@ -542,6 +544,7 @@ class NavAgent:
             if hitl_callback and self._needs_confirmation(action):
                 description = self._action_description(action)
                 if not await hitl_callback(description):
+                    self._release_all_keys()
                     return NavResult(
                         status="hitl_paused",
                         result=f"Cancelled: {description}",
@@ -599,8 +602,29 @@ class NavAgent:
             self._save_demos(task, demos)
 
         msg = f"Reached {_NAV_MAX_ITER}-step limit without completing the task."
+        self._release_all_keys()
         _cs.end_run(run_id, msg, _NAV_MAX_ITER)
         return NavResult(status="max_iter", result=msg, steps=steps)
+
+    # ── Keyboard safety ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _release_all_keys() -> None:
+        """Release every modifier and common key that could be left held.
+
+        Called at every exit path (max_iter, error, hitl-stop) so a stuck
+        keyDown can't keep firing input after the agent terminates.
+        """
+        try:
+            import pyautogui as _pag
+            for key in ("command", "ctrl", "shift", "alt", "fn",
+                        "v", "c", "x", "z", "a", "space", "return"):
+                try:
+                    _pag.keyUp(key)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     # ── Perceive ─────────────────────────────────────────────────────────────
 
