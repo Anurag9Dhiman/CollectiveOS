@@ -21,7 +21,7 @@ _CATEGORY_TOOLS: dict[str, list[str]] = {
     "memory":      ["memory_remember", "memory_list", "memory_forget", "memory_graph_query", "usage_summary"],
     "home":        ["get_devices", "get_device_state", "control_device", "set_light"],
     "music":       ["spotify_now_playing", "spotify_get_devices", "spotify_control", "spotify_set_volume", "spotify_search_play"],
-    "system":      ["get_system_info", "get_wifi_info", "show_notification", "notify_user", "open_application", "set_system_volume"],
+    "system":      ["get_system_info", "get_wifi_info", "show_notification", "notify_user", "open_application", "open_file", "set_system_volume"],
     "files":       ["list_directory", "read_local_file", "write_local_file"],
     "health":      ["health_get_sleep", "health_get_activity", "health_get_readiness"],
     "car":         ["car_get_status", "car_lock", "car_climate"],

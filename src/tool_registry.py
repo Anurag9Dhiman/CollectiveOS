@@ -53,6 +53,7 @@ TOOL_TIERS: dict[str, str] = {
     "get_wifi_info":             READ,
     "show_notification":         WRITE,
     "open_application":          WRITE,
+    "open_file":                 READ,   # opens path in default app — read-only side-effect
     "set_system_volume":         WRITE,
 
     # ── Local filesystem ─────────────────────────────────────────────────────
