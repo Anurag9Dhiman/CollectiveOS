@@ -83,7 +83,7 @@ _READ_TOOLS = (
     "get_calendar_events, get_recent_emails, search_emails, list_drive_files, "
     "read_drive_file, get_tasks, get_projects, get_devices, get_device_state, "
     "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info, "
-    "web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
+    "open_file, web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
     "browser_get_active_tab, browser_list_tabs, contacts_search, reminders_list, "
     "notes_list, notes_read, clipboard_read, telegram_get_messages"
     "notes_list, notes_read, clipboard_read, notion_search, notion_read_page, "

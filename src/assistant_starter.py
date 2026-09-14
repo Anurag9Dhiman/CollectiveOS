@@ -266,6 +266,7 @@ TOOL_FUNCTIONS = {
     "get_system_info":      _mac.get_system_info,
     "get_wifi_info":        _mac.get_wifi_info,
     "show_notification":    _mac.show_notification,
+    "open_file":            _mac.open_file,
     "set_system_volume":    _mac.set_system_volume,
     "list_directory":        _fs.list_directory,
     "read_local_file":       _fs.read_local_file,
@@ -548,6 +549,30 @@ TOOLS = [
                 },
             },
             "required": ["title", "body"],
+        },
+    },
+    {
+        "name": "open_file",
+        "description": (
+            "Open a file or folder on this Mac using its default application. "
+            "Works for PDFs (opens in Preview), images, documents, spreadsheets, "
+            "folders (opens in Finder), and any file the OS knows how to handle. "
+            "Use this instead of navigate_computer when the task is just 'open X'. "
+            "Supports ~ paths and absolute paths."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "File or folder path to open. "
+                        "Examples: '~/Downloads/ML_CV.pdf', "
+                        "'~/Documents/report.docx', '~/Downloads'."
+                    ),
+                },
+            },
+            "required": ["path"],
         },
     },
     {

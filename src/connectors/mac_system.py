@@ -8,6 +8,7 @@ Only works on macOS. Functions return an error string on other platforms
 so the agent can tell the user rather than crashing.
 """
 
+import os
 import platform
 import subprocess
 import shlex
@@ -161,6 +162,26 @@ def open_application(name: str) -> str:
     if result.returncode != 0:
         return f"Could not open '{name}': {result.stderr.strip()}"
     return f"Opened {name}."
+
+
+def open_file(path: str) -> str:
+    """
+    Open a file with its default macOS application using `open`.
+    Works for PDFs, images, documents, folders, and any file with a handler.
+    Supports ~ and relative paths.
+    """
+    err = _require_macos()
+    if err:
+        return err
+
+    expanded = os.path.expanduser(path)
+    result = subprocess.run(
+        ["open", expanded],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return f"Could not open '{path}': {result.stderr.strip()}"
+    return f"Opened '{path}' in its default application."
 
 
 def set_system_volume(level: int) -> str:
