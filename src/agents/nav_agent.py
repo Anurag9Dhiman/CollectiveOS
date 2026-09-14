@@ -330,6 +330,7 @@ class NavResult:
     steps: list[dict] = field(default_factory=list)
     pending_action: Optional[dict] = None
     verified: bool = True    # False only when verification explicitly failed all retries
+    final_screenshot: Optional[bytes] = None  # JPEG bytes of screen after completion
 
 
 # ── Nav Agent ─────────────────────────────────────────────────────────────────
@@ -532,7 +533,8 @@ class NavAgent:
                     self._save_demos(task, demos)
                 _cs.end_run(run_id, claimed, iteration)
                 nav_result = NavResult(status="done", result=claimed,
-                                       steps=steps, verified=verified)
+                                       steps=steps, verified=verified,
+                                       final_screenshot=final_shot)
                 _save_nav_memory(task, steps, nav_result.result)
                 return nav_result
 
@@ -1245,4 +1247,7 @@ async def navigate_computer(
         hitl_callback=hitl_callback,
         first_person_frame=_first_person_frame,
     )
+    # Store the final screenshot so the calling agent can show it to the user.
+    if result.status == "done" and result.final_screenshot:
+        set_first_person_frame(result.final_screenshot)
     return f"[{result.status}] {result.result} ({len(result.steps)} steps)"
