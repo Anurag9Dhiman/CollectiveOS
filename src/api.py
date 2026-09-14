@@ -396,18 +396,29 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     # Route through the multi-agent orchestrator.
     # The orchestrator enriches with VisualOS context (if scan_session_id present),
     # then delegates to the task agent (LangGraph loop) with PostgresSaver checkpointing.
-    result = _orchestrator.run(
-        user_message,
-        entity_refs=body.entity_refs or {},
-        image_b64=body.image_b64 or None,
-        image_mime=body.image_mime or "image/jpeg",
-        system_prompt=system_prompt,
-        thread_id=thread_id,
-    )
-    reply = result.text
-    interrupted = result.metadata.get("interrupted", False)
-    destructive = result.metadata.get("destructive", False)
-    scan_session_id = result.metadata.get("scan_session_id") or None
+    try:
+        result = _orchestrator.run(
+            user_message,
+            entity_refs=body.entity_refs or {},
+            image_b64=body.image_b64 or None,
+            image_mime=body.image_mime or "image/jpeg",
+            system_prompt=system_prompt,
+            thread_id=thread_id,
+        )
+        reply = result.text
+        interrupted = result.metadata.get("interrupted", False)
+        destructive = result.metadata.get("destructive", False)
+        scan_session_id = result.metadata.get("scan_session_id") or None
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).exception("Orchestrator error for conv %s", conv_id)
+        reply = (
+            f"I ran into an error while processing your request: {exc}\n\n"
+            "You can try rephrasing, or check the server logs for details."
+        )
+        interrupted = False
+        destructive = False
+        scan_session_id = None
 
     conversations.save_message(conv_id, "assistant", reply)
     if not interrupted:
@@ -970,8 +981,18 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
             }
         })
 
+    # Load prior conversation history from the LangGraph checkpoint so the
+    # model can refer to earlier turns in this conversation.
+    try:
+        from src.agent import get_graph as _get_graph
+        _g = _get_graph()
+        _prev = _g.get_state({"configurable": {"thread_id": thread_id}})
+        prior_history: list[dict] = (_prev.values or {}).get("history", []) if _prev else []
+    except Exception:
+        prior_history = []
+
     initial_state = {
-        "history": [{"role": "user", "parts": user_parts}],
+        "history": prior_history + [{"role": "user", "parts": user_parts}],
         "system_prompt": system_prompt,
         "active_tools": active_tools,
         "reply": "",
