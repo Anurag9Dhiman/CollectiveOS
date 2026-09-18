@@ -1295,6 +1295,36 @@ async def robot_websocket(ws: WebSocket, token: str = "") -> None:
 # Demonstrations — imitation learning data
 # ---------------------------------------------------------------------------
 
+@app.get("/nav/runs")
+def list_nav_runs(limit: int = 50, _token: str = Depends(_verify_token)):
+    """List the most recent nav agent audit runs (no steps, summary only)."""
+    import json as _json
+    from pathlib import Path as _Path
+    runs_dir = _Path("data/nav_runs")
+    if not runs_dir.exists():
+        return []
+    results = []
+    for f in sorted(runs_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
+        try:
+            data = _json.loads(f.read_text())
+            results.append({k: v for k, v in data.items() if k != "steps"})
+        except Exception:
+            pass
+    return results
+
+
+@app.get("/nav/runs/{run_id}")
+def get_nav_run(run_id: str, _token: str = Depends(_verify_token)):
+    """Return full audit record (including steps) for one nav run."""
+    import json as _json
+    from pathlib import Path as _Path
+    from fastapi import HTTPException as _HTTPException
+    f = _Path(f"data/nav_runs/{run_id}.json")
+    if not f.exists():
+        raise _HTTPException(status_code=404, detail="Run not found")
+    return _json.loads(f.read_text())
+
+
 @app.get("/demonstrations")
 def list_demonstrations(limit: int = 50, _token: str = Depends(_verify_token)):
     """List the most recent demonstration files written by the nav agent."""
