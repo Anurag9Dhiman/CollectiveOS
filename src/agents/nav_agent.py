@@ -516,7 +516,12 @@ class NavAgent:
 
         # Pre-run planning: one text-only Gemini call to produce an ordered step list.
         # Emitted to the stream so the Computer panel can show the plan before execution.
-        plan = await self._plan_task(task, context)
+        # Cap at 30s so rate-limit retries inside _plan_task can't eat the whole task budget.
+        try:
+            plan = await asyncio.wait_for(self._plan_task(task, context), timeout=30.0)
+        except asyncio.TimeoutError:
+            logger.warning("NavAgent planning timed out — proceeding without a plan.")
+            plan = []
         if plan:
             _cs.emit_plan(run_id, plan)
             logger.debug("NavAgent plan for %r: %s", task[:60], plan)
@@ -1254,6 +1259,16 @@ class NavAgent:
                     return False, f"Expected '{target}' but frontmost is '{frontmost}'."
                 return None
 
+        # ── show desktop ──────────────────────────────────────────────────
+        # Must come before the Finder folder check — "desktop" appears in both
+        # task texts, and the Finder check would shadow this and fall through
+        # to Gemini vision which may return False even when the task succeeded.
+        if "show" in t and "desktop" in t:
+            # Fn+F11 (show_desktop action) is a deterministic macOS shortcut.
+            # macOS does not make Finder the frontmost app after the keystroke, so
+            # checking frontmost is an unreliable signal. Trust the action itself.
+            return True, "Show-desktop keystroke executed (Fn+F11 is deterministic)."
+
         # ── navigate to / open a folder in Finder ────────────────────────
         if "finder" in frontmost and any(w in t for w in ("folder", "downloads", "documents", "desktop", "applications")):
             try:
@@ -1264,13 +1279,6 @@ class NavAgent:
             except Exception:
                 pass
             return None
-
-        # ── show desktop ──────────────────────────────────────────────────
-        if "show" in t and "desktop" in t:
-            # Fn+F11 (show_desktop action) is a deterministic macOS shortcut.
-            # macOS does not make Finder the frontmost app after the keystroke, so
-            # checking frontmost is an unreliable signal. Trust the action itself.
-            return True, "Show-desktop keystroke executed (Fn+F11 is deterministic)."
 
         # ── clipboard read ────────────────────────────────────────────────
         if "clipboard" in t and any(w in t for w in ("read", "get", "what")):
