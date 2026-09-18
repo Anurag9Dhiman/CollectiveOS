@@ -237,6 +237,11 @@ def task_cancel(task_id: int) -> str:
     return _orchestrator.cancel_task(task_id)
 
 
+def nav_sequence(goal: str, context: str = "") -> str:
+    """Decompose a complex GUI goal into nav-agent subtasks and execute them in order."""
+    return _orchestrator.run_nav_sequence(goal, context)
+
+
 def mcp_list_servers() -> str:
     """List connected MCP servers and the tools they expose."""
     servers = _mcp.list_servers()
@@ -289,6 +294,7 @@ TOOL_FUNCTIONS = {
     "web_search":            _web_search,
     "record_workflow":       _record_workflow,
     "navigate_computer":     _navigate_computer_sync,
+    "nav_sequence":          nav_sequence,
     "wearable_get_events":   _wearable.wearable_get_events,
     "wearable_list_devices": _wearable.wearable_list_devices,
     "robot_status":          _ros2.robot_status,
@@ -1132,6 +1138,39 @@ TOOLS = [
                 },
             },
             "required": ["task"],
+        },
+    },
+    {
+        "name": "nav_sequence",
+        "description": (
+            "Break a complex macOS GUI goal into sequential nav-agent subtasks and execute "
+            "them in order, passing screen state between steps. "
+            "Use this for multi-step goals that require a series of GUI interactions — "
+            "e.g. 'book a dentist appointment for next Tuesday in Calendar', "
+            "'open Terminal, run a command, then copy the output to a TextEdit document'. "
+            "The result of each step is automatically passed as context to the next, so "
+            "the agent knows what is already on screen. "
+            "IMPORTANT: confirm with the user before calling this tool."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": (
+                        "High-level description of the multi-step GUI goal. "
+                        "Example: 'Book a dentist appointment for next Tuesday at 2pm in Calendar.'"
+                    ),
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Optional background context — account details, preferences, or "
+                        "relevant info the agent should know across all steps."
+                    ),
+                },
+            },
+            "required": ["goal"],
         },
     },
     # -----------------------------------------------------------------------
