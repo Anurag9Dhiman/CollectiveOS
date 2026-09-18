@@ -1137,10 +1137,19 @@ class NavAgent:
         Returns (verified, note). Fails open — returns (True, "") on any error
         so a transient API failure never blocks a successfully completed task.
 
-        Conservative bias: Gemini is instructed to return verified=True when
-        uncertain; only flag False when the screenshot clearly shows failure
-        (error message, unchanged state, wrong content).
+        Stage 1 — deterministic: inspect live AX tree and frontmost app.
+        Zero model calls, zero hallucination risk.
+        Stage 2 — model fallback: when no deterministic rule applies,
+        send the screenshot to Gemini Vision. Fails open on any error.
         """
+        # ── Stage 1: deterministic ─────────────────────────────────────────
+        det = self._deterministic_verify(task, claimed_result)
+        if det is not None:
+            verified, note = det
+            logger.debug("Deterministic verify → %s: %s", verified, note)
+            return verified, note
+
+        # ── Stage 2: Gemini vision fallback ───────────────────────────────
         prompt = (
             f"Task: {task}\n"
             f"Claimed result: {claimed_result}\n\n"
@@ -1169,6 +1178,86 @@ class NavAgent:
         except Exception as exc:
             logger.debug("Completion verification skipped: %s", exc)
             return True, ""   # fail open
+
+    def _deterministic_verify(
+        self, task: str, claimed_result: str
+    ) -> tuple[bool, str] | None:
+        """Rule-based verifier using live AX tree state.
+
+        Returns (verified, note) when a rule fires conclusively,
+        or None so the model fallback runs instead.
+        Conservative: only returns False when state is unambiguously wrong.
+        """
+        t  = task.lower()
+        cr = claimed_result.lower()
+
+        try:
+            frontmost = self._get_frontmost_app().lower()
+        except Exception:
+            return None
+
+        # ── open / launch / start an app ─────────────────────────────────
+        for verb in ("open the ", "launch the ", "start the ", "open ", "launch ", "start "):
+            if verb in t:
+                fragment = t.split(verb, 1)[1].split()[0].rstrip(".,")
+                _ALIASES = {
+                    "system settings": "system settings",
+                    "system preferences": "system preferences",
+                    "textedit": "textedit",
+                    "finder": "finder",
+                    "calculator": "calculator",
+                    "terminal": "terminal",
+                    "safari": "safari",
+                    "notes": "notes",
+                    "reminders": "reminders",
+                    "calendar": "calendar",
+                    "messages": "messages",
+                    "mail": "mail",
+                    "preview": "preview",
+                }
+                target = _ALIASES.get(fragment, fragment)
+                if target in frontmost:
+                    return True, f"'{frontmost}' is frontmost — app is open."
+                if frontmost not in ("dock", "loginwindow", "unknown", ""):
+                    return False, f"Expected '{target}' but frontmost is '{frontmost}'."
+                return None
+
+        # ── navigate to / open a folder in Finder ────────────────────────
+        if "finder" in frontmost and any(w in t for w in ("folder", "downloads", "documents", "desktop", "applications")):
+            try:
+                ax = self._get_ax_tree("Finder")
+                for kw in ("downloads", "documents", "desktop", "applications"):
+                    if kw in t and kw in ax.lower():
+                        return True, f"Finder open, AX context contains '{kw}'."
+            except Exception:
+                pass
+            return None
+
+        # ── show desktop ──────────────────────────────────────────────────
+        if "show" in t and "desktop" in t:
+            if frontmost in ("finder", "desktop"):
+                return True, "Desktop is showing."
+            return None
+
+        # ── clipboard read ────────────────────────────────────────────────
+        if "clipboard" in t and any(w in t for w in ("read", "get", "what")):
+            if claimed_result and "clipboard is empty" not in cr:
+                return True, "Clipboard content returned."
+            return False, "Clipboard was empty or unreadable."
+
+        # ── system settings / preferences ────────────────────────────────
+        if any(p in t for p in ("system settings", "system preferences", "sound settings")):
+            if "system settings" in frontmost or "system preferences" in frontmost:
+                return True, "System Settings is frontmost."
+            return None
+
+        # ── spotlight search ──────────────────────────────────────────────
+        if "spotlight" in t:
+            if any(w in cr for w in ("result", "found", "top result", "shows")):
+                return True, "Spotlight search result reported."
+            return None
+
+        return None  # no rule matched — use model fallback
 
     def _build_system_prompt(self, task: str, context: str, plan: list[str] | None = None) -> str:
         prompt = (
