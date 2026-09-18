@@ -81,6 +81,12 @@ _GEMINI_KEY   = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_K
 _VISION_MODEL = os.getenv("VISION_MODEL", "models/gemini-2.0-flash")   # free tier
 _NAV_MAX_ITER = int(os.getenv("NAV_MAX_ITER", "20"))
 
+# UI-TARS local server — when set, the desktop vision path uses UI-TARS instead of Gemini.
+# Start the server with: llama-server -hf Mungert/UI-TARS-1.5-7B-GGUF:Q4_K_M --port 8080
+# Then set UITARS_BASE_URL=http://127.0.0.1:8080/v1 in your .env
+_UITARS_BASE_URL = os.environ.get("UITARS_BASE_URL", "")
+_UITARS_MODEL    = os.environ.get("UITARS_MODEL", "ByteDance-Seed/UI-TARS-1.5-7B")
+
 # Gemini sees a screenshot resized to this resolution
 _DISPLAY_W, _DISPLAY_H = 1280, 800
 
@@ -94,6 +100,24 @@ _SHOT_FEED = _TMP / "nav_feed.png"
 # We compute one scale factor per process and cache it.
 
 _scale_cache: Optional[tuple[float, float]] = None
+_uitars_openai_client = None
+
+
+def _get_uitars_client():
+    """Lazy-init OpenAI-compatible client pointing at the local UI-TARS server."""
+    global _uitars_openai_client
+    if _uitars_openai_client is None:
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError(
+                "openai package required for UI-TARS: pip install openai"
+            ) from exc
+        _uitars_openai_client = OpenAI(
+            base_url=_UITARS_BASE_URL.rstrip("/"),
+            api_key="local",
+        )
+    return _uitars_openai_client
 
 
 def _get_scale() -> tuple[float, float]:
@@ -478,29 +502,34 @@ class NavAgent:
             app_name   = self._get_frontmost_app()
             ax_context = self._get_ax_tree(app_name)   # Phase 2: full AX tree
 
-            # 2. Build prompt
-            parts = self._build_parts(
-                shot_bytes, ax_context, history,
-                first_person_frame if iteration == 0 else None,
-                robot_camera_frame if iteration == 0 else None,
-                stuck_count=stuck_count,
-            )
-
-            # 3. Ask Gemini
+            # 2. Build prompt and ask vision model (UI-TARS or Gemini)
             try:
-                response = self._get_gemini_client().models.generate_content(
-                    model=_VISION_MODEL,
-                    contents=[gtypes.Content(role="user", parts=parts)],
-                    config=gtypes.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        response_mime_type="application/json",
-                        response_schema=_ACTION_SCHEMA,
-                        temperature=0.1,
-                    ),
-                )
-                action = json.loads(response.text)
+                if _UITARS_BASE_URL:
+                    action = self._uitars_decide(
+                        shot_bytes, ax_context, history, stuck_count,
+                        task, context, plan or [],
+                        first_person_frame if iteration == 0 else None,
+                    )
+                else:
+                    parts = self._build_parts(
+                        shot_bytes, ax_context, history,
+                        first_person_frame if iteration == 0 else None,
+                        robot_camera_frame if iteration == 0 else None,
+                        stuck_count=stuck_count,
+                    )
+                    response = self._get_gemini_client().models.generate_content(
+                        model=_VISION_MODEL,
+                        contents=[gtypes.Content(role="user", parts=parts)],
+                        config=gtypes.GenerateContentConfig(
+                            system_instruction=system_prompt,
+                            response_mime_type="application/json",
+                            response_schema=_ACTION_SCHEMA,
+                            temperature=0.1,
+                        ),
+                    )
+                    action = json.loads(response.text)
             except Exception as exc:
-                logger.exception("Gemini vision call failed (iter %d)", iteration)
+                logger.exception("Vision model call failed (iter %d)", iteration)
                 self._release_all_keys()
                 _cs.end_run(run_id, str(exc), iteration)
                 return NavResult(status="error", result=str(exc), steps=steps)
@@ -625,6 +654,201 @@ class NavAgent:
                     pass
         except Exception:
             pass
+
+    # ── UI-TARS perceive-decide ───────────────────────────────────────────────
+
+    def _uitars_decide(
+        self,
+        shot_bytes: bytes,
+        ax_context: str,
+        history: list[dict],
+        stuck_count: int,
+        task: str,
+        context: str,
+        plan: list[str],
+        first_person_frame: Optional[bytes] = None,
+    ) -> dict:
+        """Call UI-TARS via OpenAI-compatible API and return a parsed action dict."""
+        import base64 as _b64
+
+        client = _get_uitars_client()
+        system = self._build_uitars_system_prompt(task, context, plan)
+
+        state_text = f"Screen state: {ax_context}\n"
+        if history:
+            recent = history[-4:]
+            hist_lines = " → ".join(
+                f"{s['action']}({'✓' if s.get('screen_changed', True) else '✗'})"
+                for s in recent
+            )
+            state_text += f"Recent steps: {hist_lines}\n"
+        if stuck_count >= 3:
+            state_text += (
+                f"\n⚠️ STUCK: screen unchanged for {stuck_count} consecutive steps. "
+                "Switch strategy: try spotlight, Tab, right-click, scroll, or Escape + retry."
+            )
+        state_text += "\nWhat is the next single action?"
+
+        user_content: list[dict] = []
+        if first_person_frame:
+            fp_b64 = _b64.b64encode(first_person_frame).decode()
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{fp_b64}"},
+            })
+            user_content.append({"type": "text", "text": "[Wearable camera — user's physical view]\n"})
+
+        img_b64 = _b64.b64encode(shot_bytes).decode()
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+        })
+        user_content.append({"type": "text", "text": state_text})
+
+        response = client.chat.completions.create(
+            model=_UITARS_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=512,
+            temperature=0.1,
+        )
+        raw = response.choices[0].message.content or ""
+        logger.debug("UI-TARS raw output: %s", raw[:200])
+        return self._parse_uitars_action(raw)
+
+    def _build_uitars_system_prompt(self, task: str, context: str, plan: list[str]) -> str:
+        prompt = (
+            "You are a GUI agent controlling a macOS desktop (1280×800 screenshot).\n"
+            "Complete the given task by outputting one action at a time.\n\n"
+            "## Output Format\n"
+            "Thought: <one sentence reasoning>\n"
+            "Action: <action_name>(<params>)\n\n"
+            "## Action Space\n"
+            "click(start_box='(x,y)')                              — click at coordinate\n"
+            "double_click(start_box='(x,y)')                       — double-click\n"
+            "right_click(start_box='(x,y)')                        — right-click\n"
+            "type(start_box='(x,y)', text='...')                   — click field then type\n"
+            "hotkey(key='cmd+space')                               — press key combination\n"
+            "scroll(start_box='(x,y)', direction='down'|'up', step=3) — scroll\n"
+            "drag(start_box='(x1,y1)', end_box='(x2,y2)')         — drag\n"
+            "wait()                                                 — wait 1 second\n"
+            "finished(content='...')                               — task done, content=summary\n\n"
+            "## Rules\n"
+            "- Coordinates are in 1280×800 screenshot space.\n"
+            "- Use AX element centres when available — they are exact.\n"
+            "- Prefer keyboard shortcuts over clicking when possible.\n"
+            "- If the previous step reports screen unchanged, try a different approach.\n"
+        )
+        if plan:
+            plan_lines = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan))
+            prompt += f"\n## Execution Plan\n{plan_lines}\n"
+        if context:
+            prompt += f"\n## Context\n{context}\n"
+        prompt += f"\n## Task\n{task}"
+        return prompt
+
+    @staticmethod
+    def _parse_uitars_action(text: str) -> dict:
+        """Parse UI-TARS text output (Thought/Action format) into our action dict."""
+        # Extract thought for the reason field
+        thought_m = re.search(r'Thought:\s*(.+?)(?=\nAction:|\Z)', text, re.DOTALL | re.IGNORECASE)
+        reason = thought_m.group(1).strip()[:120] if thought_m else ""
+
+        # Locate "Action: name(" and extract balanced params
+        action_m = re.search(r'Action:\s*(\w+)\(', text, re.IGNORECASE)
+        if not action_m:
+            return {"action": "wait", "reason": reason or "no action found in model output"}
+
+        action_name = action_m.group(1).lower()
+        start = action_m.end()
+        depth, end = 1, start
+        for i, ch in enumerate(text[start:]):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end = start + i
+                    break
+        params_str = text[start:end]
+
+        def _coords(key: str) -> tuple[int | None, int | None]:
+            m = re.search(
+                rf"{key}=['\"]?[^(]*\(\s*(\d+)[,\s]+(\d+)\s*\)['\"]?",
+                params_str,
+            )
+            return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+        def _str_param(key: str) -> str:
+            m = re.search(rf"{key}='([^']*)'|{key}=\"([^\"]*)\"", params_str)
+            if m:
+                return m.group(1) if m.group(1) is not None else (m.group(2) or "")
+            return ""
+
+        def _int_param(key: str, default: int = 3) -> int:
+            m = re.search(rf"{key}=(\d+)", params_str)
+            return int(m.group(1)) if m else default
+
+        if action_name in ("click", "left_click"):
+            x, y = _coords("start_box")
+            if x is None:
+                return {"action": "wait", "reason": "click: no coordinates"}
+            return {"action": "click", "x": x, "y": y, "reason": reason}
+
+        if action_name == "double_click":
+            x, y = _coords("start_box")
+            if x is None:
+                return {"action": "wait", "reason": "double_click: no coordinates"}
+            return {"action": "double_click", "x": x, "y": y, "reason": reason}
+
+        if action_name == "right_click":
+            x, y = _coords("start_box")
+            if x is None:
+                return {"action": "wait", "reason": "right_click: no coordinates"}
+            return {"action": "right_click", "x": x, "y": y, "reason": reason}
+
+        if action_name == "type":
+            text_val = _str_param("text")
+            x, y = _coords("start_box")
+            if x is not None:
+                return {"action": "click_and_type", "x": x, "y": y, "text": text_val, "reason": reason}
+            return {"action": "type_text", "text": text_val, "reason": reason}
+
+        if action_name == "hotkey":
+            key = _str_param("key").replace(" ", "+")
+            return {"action": "key_press", "text": key, "reason": reason}
+
+        if action_name == "scroll":
+            x, y = _coords("start_box")
+            direction = _str_param("direction") or "down"
+            step = _int_param("step", 3)
+            result: dict = {"action": "scroll", "direction": direction, "amount": step, "reason": reason}
+            if x is not None:
+                result["x"] = x
+                result["y"] = y
+            return result
+
+        if action_name == "drag":
+            x1, y1 = _coords("start_box")
+            x2, y2 = _coords("end_box")
+            if x1 is None or x2 is None:
+                return {"action": "wait", "reason": "drag: missing coordinates"}
+            return {"action": "drag", "start_x": x1, "start_y": y1,
+                    "end_x": x2, "end_y": y2, "reason": reason}
+
+        if action_name in ("finished", "done"):
+            content = _str_param("content") or reason or "Task completed."
+            return {"action": "done", "result": content, "reason": reason}
+
+        if action_name == "wait":
+            return {"action": "wait", "reason": reason}
+
+        if action_name == "call_user":
+            return {"action": "done", "result": f"Agent needs human input: {reason}", "reason": reason}
+
+        return {"action": "wait", "reason": f"unrecognised UI-TARS action: {action_name}"}
 
     # ── Perceive ─────────────────────────────────────────────────────────────
 
@@ -1056,6 +1280,17 @@ class NavAgent:
                            capture_output=True, check=False)
             pyautogui.hotkey("cmd", "v")
             return f"Typed via clipboard: {text[:60]}{'…' if len(text) > 60 else ''}"
+
+        elif t == "click_and_type":
+            # UI-TARS combines click + type in a single action
+            x, y = _to_screen(action["x"], action["y"])
+            pyautogui.click(x, y)
+            await asyncio.sleep(0.15)
+            text = action.get("text", "")
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"),
+                           capture_output=True, check=False)
+            pyautogui.hotkey("cmd", "v")
+            return f"Clicked ({action['x']},{action['y']}) → screen ({x},{y}) and typed via clipboard."
 
         elif t == _Act.key_press:
             chord = action.get("text", "")
