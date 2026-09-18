@@ -81,7 +81,7 @@ _GEMINI_KEY   = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_K
 
 # Retry delays (seconds) on Gemini 429 / ResourceExhausted.
 # Free tier is 15 RPM; a burst of nav-loop calls can exhaust the window.
-_RETRY_WAITS = (20, 45, 90)
+_RETRY_WAITS = (8, 20, 45)
 
 
 def _is_rate_limited(exc: Exception) -> bool:
@@ -1234,8 +1234,10 @@ class NavAgent:
             return None
 
         # ── open / launch / start an app ─────────────────────────────────
+        # Anchor to the start of the task so "open" in "all open windows" doesn't
+        # spuriously trigger the app-launch rule and return False.
         for verb in ("open the ", "launch the ", "start the ", "open ", "launch ", "start "):
-            if verb in t:
+            if t.startswith(verb):
                 fragment = t.split(verb, 1)[1].split()[0].rstrip(".,")
                 _ALIASES = {
                     "system settings": "system settings",
