@@ -1401,10 +1401,26 @@ def screen_watcher_check_now(_token: str = Depends(_verify_token)):
 # ---------------------------------------------------------------------------
 
 @app.get("/briefing")
-def briefing_now(_token: str = Depends(_verify_token)):
-    """Generate and return a morning briefing immediately."""
+def briefing_get(fresh: bool = False, _token: str = Depends(_verify_token)):
+    """
+    Return the morning briefing.
+
+    By default returns the last cached briefing (fast). Pass ?fresh=true to
+    regenerate from live health + memory data (may take a few seconds).
+    """
     from src import briefing as _briefing
-    return _briefing.generate()
+    if fresh:
+        return _briefing.generate()
+    last = _briefing.get_last()
+    return last if last else _briefing.generate()
+
+
+@app.post("/briefing/deliver", status_code=202)
+def briefing_deliver(_token: str = Depends(_verify_token)):
+    """Generate a fresh briefing and push it to all configured channels + UI queue."""
+    from src import briefing as _briefing
+    _briefing.deliver()
+    return {"status": "delivered"}
 
 
 @app.get("/briefing/schedule")
