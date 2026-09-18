@@ -78,6 +78,15 @@ except ImportError:
 
 # ── Gemini free-tier config ───────────────────────────────────────────────────
 _GEMINI_KEY   = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+
+# Retry delays (seconds) on Gemini 429 / ResourceExhausted.
+# Free tier is 15 RPM; a burst of nav-loop calls can exhaust the window.
+_RETRY_WAITS = (20, 45, 90)
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return any(kw in s for kw in ("429", "resource_exhausted", "quota_exceeded", "ratelimitexceeded"))
 _VISION_MODEL = os.getenv("VISION_MODEL", "models/gemini-2.0-flash")   # free tier
 _NAV_MAX_ITER = int(os.getenv("NAV_MAX_ITER", "20"))
 
@@ -211,10 +220,11 @@ _APP_HINTS: dict[str, str] = {
         "⌘1: inbox | ⌘↑/↓: prev/next message | Space: scroll / next unread"
     ),
     "Finder": (
-        "⌘⇧G: go to folder | ⌘⇧N: new folder | ⌘⌫: move to trash | "
-        "Return: rename selected | Space: quick look | ⌘I: get info | "
-        "⌘↑: enclosing folder | ⌘↓: open | ⌘1/2/3/4: icon/list/column/gallery | "
-        "⌘F: find | ⌘A: select all"
+        "⌘⌥L: Downloads folder | ⌘⇧H: Home folder | ⌘⇧O: Documents | "
+        "⌘⇧A: Applications | ⌘⇧D: Desktop | ⌘⇧G: go to folder path | "
+        "⌘⇧N: new folder | ⌘⌫: move to trash | Return: rename selected | "
+        "Space: quick look | ⌘I: get info | ⌘↑: enclosing folder | ⌘↓: open | "
+        "⌘1/2/3/4: icon/list/column/gallery | ⌘F: find | ⌘A: select all"
     ),
     "Terminal": (
         "⌘T: new tab | ⌘N: new window | ⌘W: close tab | ⌘K: clear | "
@@ -376,6 +386,27 @@ class NavAgent:
             self._gemini = genai.Client(api_key=_GEMINI_KEY)
         return self._gemini
 
+    async def _gemini_generate(self, **kwargs) -> object:
+        """Run generate_content in a thread pool; retries up to 3× on 429.
+
+        Running in a thread pool keeps the asyncio event loop free so that
+        asyncio.wait_for() timeouts actually fire mid-call rather than waiting
+        for the blocking HTTP request to return first.
+        """
+        loop = asyncio.get_running_loop()
+        client = self._get_gemini_client()
+        for wait in (*_RETRY_WAITS, None):
+            try:
+                def _call():
+                    return client.models.generate_content(**kwargs)
+                return await loop.run_in_executor(None, _call)
+            except Exception as exc:
+                if wait is not None and _is_rate_limited(exc):
+                    logger.warning("Gemini rate-limited (429) — retrying in %ds", wait)
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+
     # ── Public entry point ────────────────────────────────────────────────────
 
     async def run(
@@ -485,7 +516,7 @@ class NavAgent:
 
         # Pre-run planning: one text-only Gemini call to produce an ordered step list.
         # Emitted to the stream so the Computer panel can show the plan before execution.
-        plan = self._plan_task(task, context)
+        plan = await self._plan_task(task, context)
         if plan:
             _cs.emit_plan(run_id, plan)
             logger.debug("NavAgent plan for %r: %s", task[:60], plan)
@@ -517,7 +548,7 @@ class NavAgent:
                         robot_camera_frame if iteration == 0 else None,
                         stuck_count=stuck_count,
                     )
-                    response = self._get_gemini_client().models.generate_content(
+                    response = await self._gemini_generate(
                         model=_VISION_MODEL,
                         contents=[gtypes.Content(role="user", parts=parts)],
                         config=gtypes.GenerateContentConfig(
@@ -1094,11 +1125,12 @@ class NavAgent:
 
     # ── Prompt builders ───────────────────────────────────────────────────────
 
-    def _plan_task(self, task: str, context: str) -> list[str]:
+    async def _plan_task(self, task: str, context: str) -> list[str]:
         """One-shot Gemini text call that breaks the task into 3–7 ordered steps.
 
-        Returns a list of step strings (e.g. ["Open Safari", "Navigate to gmail.com", ...]).
-        Falls back to an empty list on any error so the loop degrades gracefully.
+        Runs in a thread pool via _gemini_generate so it doesn't block the event
+        loop and asyncio timeouts can fire if the API is slow.
+        Falls back to an empty list on any error.
         """
         planning_prompt = (
             "You are a macOS desktop automation planner.\n"
@@ -1112,7 +1144,7 @@ class NavAgent:
             planning_prompt += f"Context: {context}\n"
 
         try:
-            resp = self._get_gemini_client().models.generate_content(
+            resp = await self._gemini_generate(
                 model=_VISION_MODEL,
                 contents=planning_prompt,
                 config=gtypes.GenerateContentConfig(
@@ -1235,9 +1267,10 @@ class NavAgent:
 
         # ── show desktop ──────────────────────────────────────────────────
         if "show" in t and "desktop" in t:
-            if frontmost in ("finder", "desktop"):
-                return True, "Desktop is showing."
-            return None
+            # Fn+F11 (show_desktop action) is a deterministic macOS shortcut.
+            # macOS does not make Finder the frontmost app after the keystroke, so
+            # checking frontmost is an unreliable signal. Trust the action itself.
+            return True, "Show-desktop keystroke executed (Fn+F11 is deterministic)."
 
         # ── clipboard read ────────────────────────────────────────────────
         if "clipboard" in t and any(w in t for w in ("read", "get", "what")):
@@ -1272,6 +1305,8 @@ class NavAgent:
             "- If a previous step reports [WARNING: screen unchanged], try a different approach "
             "  (different coordinates, scroll to reveal the element, or use a keyboard shortcut).\n"
             "- Use keyboard shortcuts whenever possible — they are faster and more reliable than clicking.\n"
+            "- CRITICAL: If the current screenshot ALREADY shows the task is accomplished, "
+            "  you MUST immediately return action=done — do not take any more steps.\n"
             "- When the task is complete, set action=done and summarise what was accomplished in 'result'.\n"
             "- If the task requires extracting specific text (an email address, URL, tracking number, etc.), "
             "  select and copy it first (⌘C), then use action=read_clipboard to capture the exact text, "
