@@ -101,6 +101,35 @@ _SHOT_FEED = _TMP / "nav_feed.png"
 
 _scale_cache: Optional[tuple[float, float]] = None
 _uitars_openai_client = None
+_NAV_RUNS_DIR = Path("data/nav_runs")
+
+
+def _save_audit_run(
+    run_id: str,
+    task: str,
+    status: str,
+    steps: list[dict],
+    started_at: float,
+    verified: bool = True,
+) -> None:
+    """Append-write a structured run record to data/nav_runs/{run_id}.json."""
+    try:
+        _NAV_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        record = {
+            "run_id": run_id,
+            "task": task,
+            "status": status,
+            "model": "UI-TARS" if _UITARS_BASE_URL else "Gemini",
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started_at)),
+            "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "duration_s": round(time.time() - started_at, 1),
+            "step_count": len(steps),
+            "verified": verified,
+            "steps": steps,
+        }
+        (_NAV_RUNS_DIR / f"{run_id}.json").write_text(json.dumps(record, indent=2))
+    except Exception as exc:
+        logger.debug("Audit save failed: %s", exc)
 
 
 def _get_uitars_client():
@@ -482,6 +511,7 @@ class NavAgent:
         verify_retries = 0   # how many times we've sent the agent back after a failed verify
 
         run_id = _cs.begin_run(task)
+        started_at = time.time()
 
         # Pre-run planning: one text-only Gemini call to produce an ordered step list.
         # Emitted to the stream so the Computer panel can show the plan before execution.
@@ -496,6 +526,7 @@ class NavAgent:
             if _cs.should_stop():
                 self._release_all_keys()
                 _cs.end_run(run_id, "Stopped by user.", iteration)
+                _save_audit_run(run_id, task, "stopped", steps, started_at)
                 return NavResult(status="error", result="Stopped by user.", steps=steps)
             # 1. Perceive
             shot_bytes = self._capture_screenshot()
@@ -532,6 +563,7 @@ class NavAgent:
                 logger.exception("Vision model call failed (iter %d)", iteration)
                 self._release_all_keys()
                 _cs.end_run(run_id, str(exc), iteration)
+                _save_audit_run(run_id, task, "error", steps, started_at, verified=False)
                 return NavResult(status="error", result=str(exc), steps=steps)
 
             action_type = action.get("action", "wait")
@@ -563,6 +595,7 @@ class NavAgent:
                 if record:
                     self._save_demos(task, demos)
                 _cs.end_run(run_id, claimed, iteration)
+                _save_audit_run(run_id, task, "done", steps, started_at, verified=verified)
                 nav_result = NavResult(status="done", result=claimed,
                                        steps=steps, verified=verified,
                                        final_screenshot=final_shot)
@@ -574,6 +607,7 @@ class NavAgent:
                 description = self._action_description(action)
                 if not await hitl_callback(description):
                     self._release_all_keys()
+                    _save_audit_run(run_id, task, "hitl_cancelled", steps, started_at, verified=False)
                     return NavResult(
                         status="hitl_paused",
                         result=f"Cancelled: {description}",
@@ -641,6 +675,7 @@ class NavAgent:
         msg = f"Reached {_NAV_MAX_ITER}-step limit without completing the task."
         self._release_all_keys()
         _cs.end_run(run_id, msg, _NAV_MAX_ITER)
+        _save_audit_run(run_id, task, "max_iter", steps, started_at, verified=False)
         return NavResult(status="max_iter", result=msg, steps=steps)
 
     # ── Keyboard safety ──────────────────────────────────────────────────────
