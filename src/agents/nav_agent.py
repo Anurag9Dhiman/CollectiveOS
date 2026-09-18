@@ -592,6 +592,14 @@ class NavAgent:
                 stuck_count += 1
                 outcome += " [WARNING: screen unchanged — element may not be clickable or UI is loading]"
                 logger.debug("NavAgent iter %d — screen unchanged after %s (stuck=%d)", iteration, action_type, stuck_count)
+                # Replan every 3 stuck steps with a fresh strategy
+                if stuck_count % 3 == 0:
+                    new_plan = self._replan_task(task, context, history, after_bytes)
+                    if new_plan:
+                        plan = new_plan
+                        system_prompt = self._build_system_prompt(task, context, plan=plan)
+                        _cs.emit_plan(run_id, new_plan)
+                        logger.info("NavAgent replanned after %d stuck steps: %s", stuck_count, new_plan)
             else:
                 stuck_count = 0
 
@@ -1126,6 +1134,74 @@ class NavAgent:
                 return steps[:7]
         except Exception as exc:
             logger.debug("Task planning skipped: %s", exc)
+        return []
+
+    def _replan_task(
+        self, task: str, context: str, history: list[dict], shot_bytes: bytes
+    ) -> list[str]:
+        """Re-plan after getting stuck — looks at the current screenshot and recent
+        failed history to produce a completely different 3–5 step approach.
+        Falls back to [] on any error so the loop continues uninterrupted.
+        """
+        recent_failures = "; ".join(
+            h.get("outcome", "")[:60]
+            for h in history[-6:]
+            if not h.get("screen_changed", True)
+        ) or "agent is stuck"
+
+        planning_prompt = (
+            "You are a macOS desktop automation replanner.\n"
+            "The agent is STUCK. The previous approach has not worked.\n"
+            "Look at the current screenshot and output a JSON array of 3–5 revised steps "
+            "using a COMPLETELY DIFFERENT strategy.\n"
+            "Each step must be a single imperative sentence (≤ 15 words).\n"
+            "Return ONLY a JSON array of strings — no markdown, no explanation.\n\n"
+            f"Task: {task}\n"
+            f"Recent failed steps: {recent_failures}\n"
+            "Good alternatives: Spotlight to launch apps/find files, "
+            "keyboard shortcuts instead of clicking, a different menu path, "
+            "Escape to dismiss and restart from the top.\n"
+        )
+        try:
+            if _UITARS_BASE_URL:
+                import base64 as _b64
+                client = _get_uitars_client()
+                img_b64 = _b64.b64encode(shot_bytes).decode()
+                response = client.chat.completions.create(
+                    model=_UITARS_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url",
+                             "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                            {"type": "text", "text": planning_prompt},
+                        ],
+                    }],
+                    max_tokens=300,
+                    temperature=0.3,
+                )
+                raw = response.choices[0].message.content or "[]"
+                m = re.search(r"\[.+\]", raw, re.DOTALL)
+                steps = json.loads(m.group(0)) if m else []
+            else:
+                resp = self._get_gemini_client().models.generate_content(
+                    model=_VISION_MODEL,
+                    contents=[
+                        gtypes.Part.from_bytes(data=shot_bytes, mime_type="image/png"),
+                        gtypes.Part.from_text(text=planning_prompt),
+                    ],
+                    config=gtypes.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3,
+                        max_output_tokens=300,
+                    ),
+                )
+                steps = json.loads(resp.text)
+
+            if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
+                return steps[:5]
+        except Exception as exc:
+            logger.debug("Replanning skipped: %s", exc)
         return []
 
     def _verify_completion(
