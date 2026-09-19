@@ -548,10 +548,16 @@ class NavAgent:
             # 2. Build prompt and ask vision model (UI-TARS or Gemini)
             try:
                 if _UITARS_BASE_URL:
-                    action = self._uitars_decide(
-                        shot_bytes, ax_context, history, stuck_count,
-                        task, context, plan or [],
-                        first_person_frame if iteration == 0 else None,
+                    # run_in_executor keeps the event loop free during CPU inference
+                    # (each step can take 30-90s on CPU) so asyncio timeouts can fire.
+                    _loop = asyncio.get_running_loop()
+                    action = await _loop.run_in_executor(
+                        None,
+                        lambda: self._uitars_decide(
+                            shot_bytes, ax_context, history, stuck_count,
+                            task, context, plan or [],
+                            first_person_frame if iteration == 0 else None,
+                        ),
                     )
                 else:
                     parts = self._build_parts(
