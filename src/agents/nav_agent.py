@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
+import io
 import json
 import logging
 import os
@@ -747,10 +748,15 @@ class NavAgent:
             })
             user_content.append({"type": "text", "text": "[Wearable camera — user's physical view]\n"})
 
-        img_b64 = _b64.b64encode(shot_bytes).decode()
+        # Downscale to 640×400 for local inference — the mmproj vision encoder
+        # processes proportionally fewer tokens and is ~4x faster than 1280×800.
+        img = Image.open(io.BytesIO(shot_bytes)).convert("RGB").resize((640, 400), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        img_b64 = _b64.b64encode(buf.getvalue()).decode()
         user_content.append({
             "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+            "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
         })
         user_content.append({"type": "text", "text": state_text})
 
