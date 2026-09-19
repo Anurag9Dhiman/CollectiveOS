@@ -173,6 +173,15 @@ async def run_task(task_def: dict, timeout: int = 120) -> dict:
 
 
 def _vtcr(results: list[dict]) -> float:
+    """Verified Task Completion Rate = verified / total.
+
+    A task is counted as successful when verified=True regardless of whether
+    status is 'done' or 'max_iter' — reaching the goal is what matters.
+    """
+    total = len(results)
+    if total == 0:
+        return 0.0
+    verified = sum(1 for r in results if r["verified"])
     """Verified Task Completion Rate = verified_done / total."""
     total = len(results)
     if total == 0:
@@ -196,6 +205,8 @@ def _print_report(results: list[dict]) -> None:
 
     total     = len(results)
     done      = sum(1 for r in results if r["status"] == "done")
+    max_iter  = sum(1 for r in results if r["status"] == "max_iter")
+    verified  = sum(1 for r in results if r["verified"])
     verified  = sum(1 for r in results if r["verified"] and r["status"] == "done")
     vtcr      = _vtcr(results)
     avg_steps = round(sum(r["steps"] for r in results) / total, 1) if total else 0
@@ -204,6 +215,7 @@ def _print_report(results: list[dict]) -> None:
 
     print(f"\nModel          : {model}")
     print(f"Tasks run      : {total}")
+    print(f"Done           : {done}/{total}  (max_iter: {max_iter})")
     print(f"Done           : {done}/{total}")
     print(f"VTCR           : {verified}/{total} = {vtcr:.1%}  ← north-star metric")
     print(f"Avg steps      : {avg_steps}")
@@ -255,6 +267,10 @@ async def _main(args: argparse.Namespace) -> None:
         ver = "✓" if result["verified"] else "✗"
         print(f"{result['status']} {ver}  ({result['steps']} steps, {result['duration']}s)")
 
+        # Pause between tasks: screen settles + respects Gemini free-tier 15 RPM.
+        # Use --inter-task-delay 30 on a free-tier key to avoid 429 timeouts.
+        if i < len(tasks):
+            await asyncio.sleep(args.inter_task_delay)
         # Small pause between tasks so the screen settles
         if i < len(tasks):
             await asyncio.sleep(2)
@@ -281,4 +297,8 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=120, help="Per-task timeout seconds (default 120)")
     parser.add_argument("--dry-run", action="store_true", help="List tasks without running")
     parser.add_argument("--out",     help="Save JSON report to this path")
+    parser.add_argument(
+        "--inter-task-delay", type=int, default=5, dest="inter_task_delay",
+        help="Seconds to wait between tasks (default 5). Use 30 on Gemini free tier to avoid 429s.",
+    )
     asyncio.run(_main(parser.parse_args()))

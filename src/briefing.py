@@ -47,10 +47,14 @@ _SYNTHESIS_SYSTEM = (
     "You are a personal AI assistant delivering a morning briefing. "
     "Given the sections below, write a warm, concise 3-5 sentence briefing "
     "that the user will hear spoken aloud. "
-    "Lead with the date. Mention relevant health or recovery data if available. "
+    "Lead with the date. Highlight last night's sleep quality and HRV if available "
+    "(a low HRV or short sleep is worth flagging gently). "
+    "Mention relevant recovery or readiness data. "
     "Close with a relevant memory or personal context note. "
     "Be conversational, not robotic. Omit sections marked UNAVAILABLE."
 )
+
+_last_briefing: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -89,10 +93,23 @@ def schedule_enabled() -> bool:
 # Data gathering — each section is best-effort
 # ---------------------------------------------------------------------------
 
+def _get_sleep() -> str | None:
+    """Last night's sleep: duration, HRV, efficiency."""
+    try:
+        from src.connectors.health import health_get_sleep
+        result = health_get_sleep(days=1)
+        if result and len(result.strip()) > 10:
+            return result[:600]
+    except Exception as exc:
+        log.debug("Sleep fetch failed: %s", exc)
+    return None
+
+
 def _get_health() -> str | None:
+    """Readiness score and HRV balance."""
     try:
         from src.connectors.health import health_get_readiness
-        result = health_get_readiness()
+        result = health_get_readiness(days=1)
         if result and len(result.strip()) > 10:
             return result[:600]
     except Exception as exc:
@@ -103,7 +120,7 @@ def _get_health() -> str | None:
 def _get_memory_context() -> str | None:
     try:
         from src import memory
-        ctx = memory.search("morning priorities today goals")
+        ctx = memory.search("morning priorities today goals focus")
         if ctx and len(ctx.strip()) > 20:
             return ctx[:500]
     except Exception as exc:
@@ -126,7 +143,8 @@ def _synthesize(sections: dict) -> str:
 
         lines = [f"Today is {sections['date']}."]
         for key, label in [
-            ("health",  "HEALTH / RECOVERY"),
+            ("sleep",   "SLEEP / HRV"),
+            ("health",  "READINESS / RECOVERY"),
             ("memory",  "PERSONAL CONTEXT"),
         ]:
             val = sections.get(key)
@@ -151,6 +169,8 @@ def _synthesize(sections: dict) -> str:
 
 def _fallback_text(sections: dict) -> str:
     parts = [f"Good morning! Today is {sections.get('date', 'today')}."]
+    if sections.get("sleep"):
+        parts.append("Sleep: " + sections["sleep"][:200])
     if sections.get("health"):
         parts.append("Health: " + sections["health"][:200])
     if sections.get("memory"):
@@ -168,11 +188,14 @@ def generate() -> dict:
     Returns:
       { "date": "...", "sections": {...}, "briefing": "...", "generated_at": "..." }
     """
+    global _last_briefing
+
     now = datetime.now()
     date_str = now.strftime("%A, %B %-d, %Y")
 
     sections = {
         "date":   date_str,
+        "sleep":  _get_sleep(),
         "health": _get_health(),
         "memory": _get_memory_context(),
     }
@@ -180,12 +203,19 @@ def generate() -> dict:
     briefing_text = _synthesize(sections)
     log.info("Morning briefing generated (%d chars)", len(briefing_text))
 
-    return {
+    result = {
         "date":         date_str,
         "sections":     sections,
         "briefing":     briefing_text,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    _last_briefing = result
+    return result
+
+
+def get_last() -> dict | None:
+    """Return the last generated briefing, or None if none has been generated yet."""
+    return _last_briefing
 
 
 # ---------------------------------------------------------------------------
@@ -193,18 +223,22 @@ def generate() -> dict:
 # ---------------------------------------------------------------------------
 
 def deliver() -> None:
-    """Generate a briefing and push it via the configured output channel."""
+    """Generate a briefing and push it via the configured output channel and the UI queue."""
     try:
-        from src import output_bus
+        from src import output_bus, proactive
         result = generate()
         text = result["briefing"]
         cfg = get_config()
-        output_bus.deliver(
-            title="Morning Briefing",
-            body=text,
-            channel=cfg.get("notify_via", "notification"),
+        channel = cfg.get("notify_via", "notification")
+        output_bus.deliver(title="Morning Briefing", body=text, channel=channel)
+        # Always push to the in-app proactive queue so the UI shows the bubble.
+        proactive.push(
+            text,
+            trigger="briefing",
+            icon="🌅",
+            action_prompt="Show me more details about my morning briefing.",
         )
-        log.info("Morning briefing delivered via %s", cfg.get("notify_via"))
+        log.info("Morning briefing delivered via %s + proactive queue", channel)
     except Exception as exc:
         log.error("Briefing delivery failed: %s", exc)
 

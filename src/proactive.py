@@ -72,16 +72,17 @@ def pop_all() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _morning_trigger() -> None:
-    push(
-        "Good morning! It's time for your daily briefing — I can check your calendar, "
-        "summarise overnight emails, and report the weather.",
-        trigger="schedule",
-        icon="☀️",
-        action_prompt=(
-            "Give me a morning briefing: list today's calendar events, summarise any "
-            "important emails received overnight, and check the weather."
-        ),
-    )
+    try:
+        from src import briefing as _briefing
+        _briefing.deliver()
+    except Exception as exc:
+        log.warning("Morning briefing delivery failed, falling back to generic prompt: %s", exc)
+        push(
+            "Good morning! Ready for your daily briefing.",
+            trigger="schedule",
+            icon="☀️",
+            action_prompt="Give me a morning briefing.",
+        )
 
 
 def _evening_trigger() -> None:

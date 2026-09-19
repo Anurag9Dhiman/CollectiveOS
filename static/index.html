@@ -2325,6 +2325,7 @@
       <!-- Controls -->
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="briefing-now-btn">⚡ Generate now</button>
+        <button id="briefing-deliver-btn" style="background:#1a3a2a;border:1px solid #2ea043;color:#3fb950;padding:7px 14px;border-radius:7px;cursor:pointer;font-size:0.82rem">📤 Deliver now</button>
       </div>
 
       <!-- Schedule config -->
@@ -5042,11 +5043,9 @@
     const secs = data.sections || {};
     briefingSections.innerHTML = "";
     const sectionMeta = [
-      ["calendar", "📅 Calendar"],
-      ["tasks",    "✅ Tasks"],
-      ["emails",   "📬 Emails"],
-      ["weather",  "🌤 Weather"],
-      ["memory",   "🧠 Context"],
+      ["sleep",  "😴 Sleep / HRV"],
+      ["health", "💪 Readiness"],
+      ["memory", "🧠 Context"],
     ];
     for (const [key, label] of sectionMeta) {
       const val = secs[key];
@@ -5089,7 +5088,7 @@
     briefingText.textContent = "Gathering data from connected services…";
     briefingSections.innerHTML = "";
     try {
-      const data = await apiFetch("/briefing");
+      const data = await apiFetch("/briefing?fresh=true");
       briefingRenderResult(data);
     } catch (err) {
       briefingText.className = "";
@@ -5097,6 +5096,20 @@
     } finally {
       briefingNowBtn.disabled = false;
       briefingNowBtn.textContent = "⚡ Generate now";
+    }
+  });
+
+  const briefingDeliverBtn = document.getElementById("briefing-deliver-btn");
+  briefingDeliverBtn.addEventListener("click", async () => {
+    briefingDeliverBtn.disabled = true;
+    briefingDeliverBtn.textContent = "Delivering…";
+    try {
+      await apiFetch("/briefing/deliver", { method: "POST" });
+      briefingDeliverBtn.textContent = "Delivered ✓";
+      setTimeout(() => { briefingDeliverBtn.textContent = "📤 Deliver now"; briefingDeliverBtn.disabled = false; }, 3000);
+    } catch (err) {
+      briefingDeliverBtn.textContent = "Error — retry";
+      briefingDeliverBtn.disabled = false;
     }
   });
 
