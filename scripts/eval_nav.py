@@ -182,6 +182,11 @@ def _vtcr(results: list[dict]) -> float:
     if total == 0:
         return 0.0
     verified = sum(1 for r in results if r["verified"])
+    """Verified Task Completion Rate = verified_done / total."""
+    total = len(results)
+    if total == 0:
+        return 0.0
+    verified = sum(1 for r in results if r["verified"] and r["status"] == "done")
     return round(verified / total, 3)
 
 
@@ -202,6 +207,7 @@ def _print_report(results: list[dict]) -> None:
     done      = sum(1 for r in results if r["status"] == "done")
     max_iter  = sum(1 for r in results if r["status"] == "max_iter")
     verified  = sum(1 for r in results if r["verified"])
+    verified  = sum(1 for r in results if r["verified"] and r["status"] == "done")
     vtcr      = _vtcr(results)
     avg_steps = round(sum(r["steps"] for r in results) / total, 1) if total else 0
     avg_dur   = round(sum(r["duration"] for r in results) / total, 1) if total else 0
@@ -210,6 +216,7 @@ def _print_report(results: list[dict]) -> None:
     print(f"\nModel          : {model}")
     print(f"Tasks run      : {total}")
     print(f"Done           : {done}/{total}  (max_iter: {max_iter})")
+    print(f"Done           : {done}/{total}")
     print(f"VTCR           : {verified}/{total} = {vtcr:.1%}  ← north-star metric")
     print(f"Avg steps      : {avg_steps}")
     print(f"Avg duration   : {avg_dur}s")
@@ -264,6 +271,9 @@ async def _main(args: argparse.Namespace) -> None:
         # Use --inter-task-delay 30 on a free-tier key to avoid 429 timeouts.
         if i < len(tasks):
             await asyncio.sleep(args.inter_task_delay)
+        # Small pause between tasks so the screen settles
+        if i < len(tasks):
+            await asyncio.sleep(2)
 
     _print_report(results)
 

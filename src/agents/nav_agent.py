@@ -111,6 +111,35 @@ _SHOT_FEED = _TMP / "nav_feed.png"
 
 _scale_cache: Optional[tuple[float, float]] = None
 _uitars_openai_client = None
+_NAV_RUNS_DIR = Path("data/nav_runs")
+
+
+def _save_audit_run(
+    run_id: str,
+    task: str,
+    status: str,
+    steps: list[dict],
+    started_at: float,
+    verified: bool = True,
+) -> None:
+    """Append-write a structured run record to data/nav_runs/{run_id}.json."""
+    try:
+        _NAV_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        record = {
+            "run_id": run_id,
+            "task": task,
+            "status": status,
+            "model": "UI-TARS" if _UITARS_BASE_URL else "Gemini",
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started_at)),
+            "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "duration_s": round(time.time() - started_at, 1),
+            "step_count": len(steps),
+            "verified": verified,
+            "steps": steps,
+        }
+        (_NAV_RUNS_DIR / f"{run_id}.json").write_text(json.dumps(record, indent=2))
+    except Exception as exc:
+        logger.debug("Audit save failed: %s", exc)
 
 
 def _get_uitars_client():
@@ -514,6 +543,7 @@ class NavAgent:
         verify_retries = 0   # how many times we've sent the agent back after a failed verify
 
         run_id = _cs.begin_run(task)
+        started_at = time.time()
 
         # Pre-run planning: one text-only Gemini call to produce an ordered step list.
         # Emitted to the stream so the Computer panel can show the plan before execution.
@@ -539,6 +569,7 @@ class NavAgent:
             if _cs.should_stop():
                 self._release_all_keys()
                 _cs.end_run(run_id, "Stopped by user.", iteration)
+                _save_audit_run(run_id, task, "stopped", steps, started_at)
                 return NavResult(status="error", result="Stopped by user.", steps=steps)
             # 1. Perceive
             shot_bytes = self._capture_screenshot()
@@ -575,6 +606,7 @@ class NavAgent:
                 logger.exception("Vision model call failed (iter %d)", iteration)
                 self._release_all_keys()
                 _cs.end_run(run_id, str(exc), iteration)
+                _save_audit_run(run_id, task, "error", steps, started_at, verified=False)
                 return NavResult(status="error", result=str(exc), steps=steps)
 
             action_type = action.get("action", "wait")
@@ -606,6 +638,7 @@ class NavAgent:
                 if record:
                     self._save_demos(task, demos)
                 _cs.end_run(run_id, claimed, iteration)
+                _save_audit_run(run_id, task, "done", steps, started_at, verified=verified)
                 nav_result = NavResult(status="done", result=claimed,
                                        steps=steps, verified=verified,
                                        final_screenshot=final_shot)
@@ -617,6 +650,7 @@ class NavAgent:
                 description = self._action_description(action)
                 if not await hitl_callback(description):
                     self._release_all_keys()
+                    _save_audit_run(run_id, task, "hitl_cancelled", steps, started_at, verified=False)
                     return NavResult(
                         status="hitl_paused",
                         result=f"Cancelled: {description}",
@@ -635,6 +669,14 @@ class NavAgent:
                 stuck_count += 1
                 outcome += " [WARNING: screen unchanged — element may not be clickable or UI is loading]"
                 logger.debug("NavAgent iter %d — screen unchanged after %s (stuck=%d)", iteration, action_type, stuck_count)
+                # Replan every 3 stuck steps with a fresh strategy
+                if stuck_count % 3 == 0:
+                    new_plan = self._replan_task(task, context, history, after_bytes)
+                    if new_plan:
+                        plan = new_plan
+                        system_prompt = self._build_system_prompt(task, context, plan=plan)
+                        _cs.emit_plan(run_id, new_plan)
+                        logger.info("NavAgent replanned after %d stuck steps: %s", stuck_count, new_plan)
             else:
                 stuck_count = 0
 
@@ -676,6 +718,7 @@ class NavAgent:
         msg = f"Reached {_NAV_MAX_ITER}-step limit without completing the task."
         self._release_all_keys()
         _cs.end_run(run_id, msg, _NAV_MAX_ITER)
+        _save_audit_run(run_id, task, "max_iter", steps, started_at, verified=False)
         return NavResult(status="max_iter", result=msg, steps=steps)
 
     # ── Keyboard safety ──────────────────────────────────────────────────────
@@ -1170,6 +1213,74 @@ class NavAgent:
                 return steps[:7]
         except Exception as exc:
             logger.debug("Task planning skipped: %s", exc)
+        return []
+
+    def _replan_task(
+        self, task: str, context: str, history: list[dict], shot_bytes: bytes
+    ) -> list[str]:
+        """Re-plan after getting stuck — looks at the current screenshot and recent
+        failed history to produce a completely different 3–5 step approach.
+        Falls back to [] on any error so the loop continues uninterrupted.
+        """
+        recent_failures = "; ".join(
+            h.get("outcome", "")[:60]
+            for h in history[-6:]
+            if not h.get("screen_changed", True)
+        ) or "agent is stuck"
+
+        planning_prompt = (
+            "You are a macOS desktop automation replanner.\n"
+            "The agent is STUCK. The previous approach has not worked.\n"
+            "Look at the current screenshot and output a JSON array of 3–5 revised steps "
+            "using a COMPLETELY DIFFERENT strategy.\n"
+            "Each step must be a single imperative sentence (≤ 15 words).\n"
+            "Return ONLY a JSON array of strings — no markdown, no explanation.\n\n"
+            f"Task: {task}\n"
+            f"Recent failed steps: {recent_failures}\n"
+            "Good alternatives: Spotlight to launch apps/find files, "
+            "keyboard shortcuts instead of clicking, a different menu path, "
+            "Escape to dismiss and restart from the top.\n"
+        )
+        try:
+            if _UITARS_BASE_URL:
+                import base64 as _b64
+                client = _get_uitars_client()
+                img_b64 = _b64.b64encode(shot_bytes).decode()
+                response = client.chat.completions.create(
+                    model=_UITARS_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url",
+                             "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                            {"type": "text", "text": planning_prompt},
+                        ],
+                    }],
+                    max_tokens=300,
+                    temperature=0.3,
+                )
+                raw = response.choices[0].message.content or "[]"
+                m = re.search(r"\[.+\]", raw, re.DOTALL)
+                steps = json.loads(m.group(0)) if m else []
+            else:
+                resp = self._get_gemini_client().models.generate_content(
+                    model=_VISION_MODEL,
+                    contents=[
+                        gtypes.Part.from_bytes(data=shot_bytes, mime_type="image/png"),
+                        gtypes.Part.from_text(text=planning_prompt),
+                    ],
+                    config=gtypes.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3,
+                        max_output_tokens=300,
+                    ),
+                )
+                steps = json.loads(resp.text)
+
+            if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
+                return steps[:5]
+        except Exception as exc:
+            logger.debug("Replanning skipped: %s", exc)
         return []
 
     def _verify_completion(
