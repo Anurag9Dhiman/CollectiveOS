@@ -518,18 +518,23 @@ class NavAgent:
 
         # Pre-run planning: one text-only Gemini call to produce an ordered step list.
         # Emitted to the stream so the Computer panel can show the plan before execution.
+        # Skip planning in UI-TARS mode — UI-TARS does its own reasoning, and trying to
+        # call Gemini when it is rate-limited wastes 30 s of the task budget every time.
         # Cap at 30s so rate-limit retries inside _plan_task can't eat the whole task budget.
         # inspect.isawaitable guards against synchronous test doubles (MagicMock) that
         # return a plain list — await on a list raises TypeError.
-        try:
-            plan_result = self._plan_task(task, context)
-            if inspect.isawaitable(plan_result):
-                plan = await asyncio.wait_for(plan_result, timeout=30.0)
-            else:
-                plan = plan_result
-        except asyncio.TimeoutError:
-            logger.warning("NavAgent planning timed out — proceeding without a plan.")
+        if _UITARS_BASE_URL:
             plan = []
+        else:
+            try:
+                plan_result = self._plan_task(task, context)
+                if inspect.isawaitable(plan_result):
+                    plan = await asyncio.wait_for(plan_result, timeout=30.0)
+                else:
+                    plan = plan_result
+            except asyncio.TimeoutError:
+                logger.warning("NavAgent planning timed out — proceeding without a plan.")
+                plan = []
         if plan:
             _cs.emit_plan(run_id, plan)
             logger.debug("NavAgent plan for %r: %s", task[:60], plan)
@@ -552,6 +557,7 @@ class NavAgent:
                     # run_in_executor keeps the event loop free during CPU inference
                     # (each step can take 30-90s on CPU) so asyncio timeouts can fire.
                     _loop = asyncio.get_running_loop()
+                    _t0 = _loop.time()
                     action = await _loop.run_in_executor(
                         None,
                         lambda: self._uitars_decide(
@@ -560,6 +566,7 @@ class NavAgent:
                             first_person_frame if iteration == 0 else None,
                         ),
                     )
+                    logger.info("UI-TARS iter %d took %.1fs → %s", iteration, _loop.time() - _t0, action.get("action"))
                 else:
                     parts = self._build_parts(
                         shot_bytes, ax_context, history,
@@ -768,9 +775,10 @@ class NavAgent:
             ],
             max_tokens=512,
             temperature=0.1,
+            timeout=60,
         )
         raw = response.choices[0].message.content or ""
-        logger.debug("UI-TARS raw output: %s", raw[:200])
+        logger.debug("UI-TARS raw: %s", raw[:300])
         return self._parse_uitars_action(raw)
 
     def _build_uitars_system_prompt(self, task: str, context: str, plan: list[str]) -> str:
@@ -790,10 +798,14 @@ class NavAgent:
             "drag(start_box='(x1,y1)', end_box='(x2,y2)')         — drag\n"
             "wait()                                                 — wait 1 second\n"
             "finished(content='...')                               — task done, content=summary\n\n"
+            "## macOS Keyboard Shortcuts\n"
+            "- Spotlight search: hotkey(key='cmd+space')  ← use this to open any app\n"
+            "- Open app from Spotlight: type the app name, then hotkey(key='return')\n"
+            "- This is macOS — use 'cmd' not 'ctrl' for shortcuts.\n\n"
             "## Rules\n"
             "- Coordinates are in 1280×800 screenshot space.\n"
             "- Use AX element centres when available — they are exact.\n"
-            "- Prefer keyboard shortcuts over clicking when possible.\n"
+            "- To launch any app: cmd+space → type app name → return.\n"
             "- If the previous step reports screen unchanged, try a different approach.\n"
         )
         if plan:
