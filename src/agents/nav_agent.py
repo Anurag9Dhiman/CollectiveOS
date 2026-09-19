@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 import logging
 import os
@@ -517,8 +518,14 @@ class NavAgent:
         # Pre-run planning: one text-only Gemini call to produce an ordered step list.
         # Emitted to the stream so the Computer panel can show the plan before execution.
         # Cap at 30s so rate-limit retries inside _plan_task can't eat the whole task budget.
+        # inspect.isawaitable guards against synchronous test doubles (MagicMock) that
+        # return a plain list — await on a list raises TypeError.
         try:
-            plan = await asyncio.wait_for(self._plan_task(task, context), timeout=30.0)
+            plan_result = self._plan_task(task, context)
+            if inspect.isawaitable(plan_result):
+                plan = await asyncio.wait_for(plan_result, timeout=30.0)
+            else:
+                plan = plan_result
         except asyncio.TimeoutError:
             logger.warning("NavAgent planning timed out — proceeding without a plan.")
             plan = []
