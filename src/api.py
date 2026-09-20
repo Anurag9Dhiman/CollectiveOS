@@ -1284,7 +1284,8 @@ async def robot_websocket(ws: WebSocket, token: str = "") -> None:
 
     Auth: pass ?token=<API_TOKEN> as a query parameter.
     """
-    if token != _API_TOKEN:
+    expected = os.environ.get("API_TOKEN", "")
+    if not expected or token != expected:
         await ws.close(code=4401, reason="Unauthorized")
         return
     from src.robot_stream import handle_robot_ws
