@@ -88,8 +88,9 @@ _RETRY_WAITS = (8, 20, 45)
 
 def _is_rate_limited(exc: Exception) -> bool:
     s = str(exc).lower()
-    return any(kw in s for kw in ("429", "resource_exhausted", "quota_exceeded", "ratelimitexceeded"))
-_VISION_MODEL = os.getenv("VISION_MODEL", "models/gemini-2.0-flash")   # free tier
+    return any(kw in s for kw in ("429", "503", "resource_exhausted", "quota_exceeded",
+                                   "ratelimitexceeded", "unavailable", "overloaded"))
+_VISION_MODEL = os.getenv("VISION_MODEL", "models/gemini-3.6-flash")
 _NAV_MAX_ITER = int(os.getenv("NAV_MAX_ITER", "20"))
 
 # UI-TARS local server — when set, the desktop vision path uses UI-TARS instead of Gemini.
@@ -376,12 +377,28 @@ class NavAgent:
     Computer navigation agent — 100% free stack, Phase 2.
     Gemini Flash vision (free) + browser-use (MIT) + pyautogui (MIT).
     Phase 2 adds: pyobjc AX tree, OpenCV verification, coordinate scaling.
+
+    Ablation flags (for RQ2/RQ3/RQ4 experiments):
+      ax_mode      — "both" | "screenshot_only" | "ax_only"
+      verify_mode  — "two_stage" | "gemini_only" | "deterministic_only" | "none"
+      stuck_mode   — "detect" | "recover" | "none"
     """
 
-    def __init__(self, genai_client: object | None = None) -> None:
+    def __init__(
+        self,
+        genai_client: object | None = None,
+        *,
+        ax_mode: str = "both",
+        verify_mode: str = "two_stage",
+        stuck_mode: str = "detect",
+    ) -> None:
         # Accept an injected client so tests can substitute a fake before the
         # real genai.Client is constructed. Created lazily when None.
         self._gemini = genai_client
+        self._ax_mode = ax_mode          # RQ2: grounding source
+        self._verify_mode = verify_mode  # RQ3: verification strategy
+        self._stuck_mode = stuck_mode    # RQ4: stuck detection strategy
+        self._partial_result: "NavResult | None" = None  # set on CancelledError
 
     def _get_gemini_client(self) -> genai.Client:
         if self._gemini is None:
@@ -546,10 +563,21 @@ class NavAgent:
                 self._release_all_keys()
                 _cs.end_run(run_id, "Stopped by user.", iteration)
                 return NavResult(status="error", result="Stopped by user.", steps=steps)
-            # 1. Perceive
-            shot_bytes = self._capture_screenshot()
+            # 1. Perceive (RQ2: ax_mode controls which input modalities are used)
             app_name   = self._get_frontmost_app()
-            ax_context = self._get_ax_tree(app_name)   # Phase 2: full AX tree
+            if self._ax_mode == "ax_only":
+                # Use a blank 1×1 white PNG so Gemini still receives a valid image part
+                ax_context = self._get_ax_tree(app_name)
+                import io as _io2
+                buf = _io2.BytesIO()
+                Image.new("RGB", (1, 1), (255, 255, 255)).save(buf, format="PNG")
+                shot_bytes = buf.getvalue()
+            elif self._ax_mode == "screenshot_only":
+                shot_bytes = self._capture_screenshot()
+                ax_context = ""   # no AX context
+            else:   # "both" — default
+                shot_bytes = self._capture_screenshot()
+                ax_context = self._get_ax_tree(app_name)   # Phase 2: full AX tree
 
             # 2. Build prompt and ask vision model (UI-TARS or Gemini)
             try:
@@ -585,6 +613,15 @@ class NavAgent:
                         ),
                     )
                     action = json.loads(response.text)
+            except asyncio.CancelledError:
+                # Outer wait_for timeout fired. Save partial progress so eval can recover it.
+                self._partial_result = NavResult(
+                    status="timeout",
+                    result=f"Cancelled after {len(steps)} steps.",
+                    steps=steps,
+                )
+                self._release_all_keys()
+                raise
             except Exception as exc:
                 logger.exception("Vision model call failed (iter %d)", iteration)
                 self._release_all_keys()
@@ -646,8 +683,23 @@ class NavAgent:
             after_bytes = await self._wait_for_stable_screen()
             changed = self._verify_screen_change(shot_bytes, after_bytes)
             if not changed and action_type not in (_Act.type_text, _Act.key_press, _Act.wait):
-                stuck_count += 1
-                outcome += " [WARNING: screen unchanged — element may not be clickable or UI is loading]"
+                if self._stuck_mode == "none":
+                    pass   # RQ4: no stuck detection — never increment counter
+                else:
+                    stuck_count += 1
+                    if self._stuck_mode == "recover" and stuck_count >= 3:
+                        # RQ4 "recover" mode: stronger recovery prompt with concrete alternatives
+                        outcome += (
+                            " [STUCK: screen unchanged for 3+ steps. "
+                            "REQUIRED: abandon current approach entirely. "
+                            "Try one of: (1) cmd+space Spotlight to reopen app, "
+                            "(2) Escape to dismiss overlays, "
+                            "(3) scroll to reveal the element, "
+                            "(4) right-click for context menu, "
+                            "(5) use keyboard shortcut from hints instead of clicking.]"
+                        )
+                    else:
+                        outcome += " [WARNING: screen unchanged — element may not be clickable or UI is loading]"
                 logger.debug("NavAgent iter %d — screen unchanged after %s (stuck=%d)", iteration, action_type, stuck_count)
             else:
                 stuck_count = 0
@@ -1201,23 +1253,32 @@ class NavAgent:
     ) -> tuple[bool, str]:
         """Post-completion sanity check: did the task actually succeed?
 
-        Sends the final screenshot + task description to Gemini Vision.
-        Returns (verified, note). Fails open — returns (True, "") on any error
-        so a transient API failure never blocks a successfully completed task.
+        Controlled by self._verify_mode (RQ3):
+          "none"               → always return (True, "") — no verification
+          "gemini_only"        → skip deterministic; always call Gemini Vision
+          "deterministic_only" → use only AX-tree rules; return (True,"") when no rule fires
+          "two_stage" (default)→ deterministic first, Gemini fallback (original behavior)
 
-        Stage 1 — deterministic: inspect live AX tree and frontmost app.
-        Zero model calls, zero hallucination risk.
-        Stage 2 — model fallback: when no deterministic rule applies,
-        send the screenshot to Gemini Vision. Fails open on any error.
+        Fails open — returns (True, "") on any error so transient API failures
+        never block a successfully completed task.
         """
+        # ── RQ3: "none" mode — skip all verification ──────────────────────
+        if self._verify_mode == "none":
+            return True, ""
+
         # ── Stage 1: deterministic ─────────────────────────────────────────
-        det = self._deterministic_verify(task, claimed_result)
-        if det is not None:
-            verified, note = det
-            logger.debug("Deterministic verify → %s: %s", verified, note)
-            return verified, note
+        if self._verify_mode in ("two_stage", "deterministic_only"):
+            det = self._deterministic_verify(task, claimed_result)
+            if det is not None:
+                verified, note = det
+                logger.debug("Deterministic verify → %s: %s", verified, note)
+                return verified, note
+            # If deterministic_only, don't fall through to Gemini
+            if self._verify_mode == "deterministic_only":
+                return True, ""   # no rule fired — fail open
 
         # ── Stage 2: Gemini vision fallback ───────────────────────────────
+        # Reached when verify_mode is "two_stage" (no deterministic rule) or "gemini_only"
         prompt = (
             f"Task: {task}\n"
             f"Claimed result: {claimed_result}\n\n"
