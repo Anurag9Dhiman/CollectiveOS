@@ -1,0 +1,241 @@
+{
+  "rq": "RQ16",
+  "configs": {
+    "fixed_timeout_30": {
+      "vtcr": 0.0,
+      "avg_planning_s": 0.0,
+      "avg_duration_s": 151.4,
+      "timeout_rate": 0.0,
+      "avg_budget_pct": 0.0,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.6,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "spotlight_math"
+        }
+      ]
+    },
+    "fixed_timeout_15": {
+      "vtcr": 0.0,
+      "avg_planning_s": 0.0,
+      "avg_duration_s": 151.1,
+      "timeout_rate": 0.0,
+      "avg_budget_pct": 0.0,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 150.1,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "spotlight_math"
+        }
+      ]
+    },
+    "original_schedule": {
+      "vtcr": 0.0,
+      "avg_planning_s": 0.0,
+      "avg_duration_s": 151.3,
+      "timeout_rate": 0.0,
+      "avg_budget_pct": 0.0,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.4,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.4,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "spotlight_math"
+        }
+      ]
+    },
+    "reduced_schedule": {
+      "vtcr": 0.0,
+      "avg_planning_s": 0.0,
+      "avg_duration_s": 151.7,
+      "timeout_rate": 0.0,
+      "avg_budget_pct": 0.0,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "launch_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 151.3,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 153.2,
+          "planning_time_s": 0,
+          "plan_timed_out": false,
+          "plan_pct_budget": 0,
+          "id": "spotlight_math"
+        }
+      ]
+    }
+  }
+}

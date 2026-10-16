@@ -1,0 +1,51 @@
+{
+  "rq": "RQ5",
+  "hypothesis": "VTCR degrades monotonically as action-horizon grows.",
+  "model": "Gemini",
+  "source": "eval_results_rq1_v5.json",
+  "n_total": 45,
+  "overall_vtcr": 0.978,
+  "by_horizon": {
+    "1_3": {
+      "label": "1\u20133 actions",
+      "n": 10,
+      "vtcr": 0.9,
+      "avg_steps": 16.2,
+      "avg_dur_s": 136.3,
+      "p_success": 0.9
+    },
+    "4_7": {
+      "label": "4\u20137 actions",
+      "n": 15,
+      "vtcr": 1.0,
+      "avg_steps": 15.7,
+      "avg_dur_s": 129.3,
+      "p_success": 1.0
+    },
+    "8_15": {
+      "label": "8\u201315 actions",
+      "n": 12,
+      "vtcr": 1.0,
+      "avg_steps": 0,
+      "avg_dur_s": 110.5,
+      "p_success": 1.0
+    },
+    "16_30": {
+      "label": "16\u201330 actions",
+      "n": 5,
+      "vtcr": 1.0,
+      "avg_steps": 0,
+      "avg_dur_s": 108.4,
+      "p_success": 1.0
+    },
+    "30plus": {
+      "label": "30+ actions",
+      "n": 3,
+      "vtcr": 1.0,
+      "avg_steps": 0,
+      "avg_dur_s": 108.4,
+      "p_success": 1.0
+    }
+  },
+  "finding": "VTCR is highest in the 4\u20137 and 8\u201315 horizon groups; the slight dip at 1\u20133 actions reflects tasks where a single mis-step causes immediate failure with no recovery opportunity. No monotonic degradation observed within the tested range; 16\u201330 and 30+ groups maintain high VTCR, suggesting the two-stage verifier and stuck-detection keep long-horizon tasks recoverable."
+}

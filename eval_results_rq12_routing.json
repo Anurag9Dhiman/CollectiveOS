@@ -1,0 +1,245 @@
+{
+  "rq": "RQ12",
+  "A_route": 1.0,
+  "n_correct": 30,
+  "n_total": 30,
+  "avg_latency": 0.0,
+  "confusion": {
+    "nav": {
+      "nav": 12,
+      "visual": 0,
+      "task": 0,
+      "direct": 0
+    },
+    "visual": {
+      "nav": 0,
+      "visual": 5,
+      "task": 0,
+      "direct": 0
+    },
+    "task": {
+      "nav": 0,
+      "visual": 0,
+      "task": 9,
+      "direct": 0
+    },
+    "direct": {
+      "nav": 0,
+      "visual": 0,
+      "task": 0,
+      "direct": 4
+    }
+  },
+  "results": [
+    {
+      "query": "Open the Calculator app",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Take a screenshot of the current screen",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Open Safari and navigate to example.com",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Find and open the Downloads folder",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Type 'hello' into the currently focused text field",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Press Command+Space to open Spotlight",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Open System Settings and check the battery level",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Launch Terminal and run ls ~/Documents",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Click on the Finder icon in the Dock",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Switch to the next open application with Cmd+Tab",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "What apps are currently open on the screen?",
+      "expected": "visual",
+      "predicted": "visual",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Describe what you see on the screen right now",
+      "expected": "visual",
+      "predicted": "visual",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Scan the current window and summarize its content",
+      "expected": "visual",
+      "predicted": "visual",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "What does the error message on screen say?",
+      "expected": "visual",
+      "predicted": "visual",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Is there a modal dialog open on the screen?",
+      "expected": "visual",
+      "predicted": "visual",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "What was the last task I asked you to help with?",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Create a plan to migrate my Python project to TypeScript",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Remember that my preferred IDE is VS Code",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Schedule a reminder to review the quarterly report",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "What do you know about my work preferences?",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Summarize the tasks I've been working on this week",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Help me debug this Python error: AttributeError on line 42",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Write a bash script to back up my Documents folder",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Search for 'machine learning' online",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Find my notes about the AI project",
+      "expected": "task",
+      "predicted": "task",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "Check my calendar for tomorrow",
+      "expected": "nav",
+      "predicted": "nav",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "What time is it?",
+      "expected": "direct",
+      "predicted": "direct",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "What is the capital of France?",
+      "expected": "direct",
+      "predicted": "direct",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "How many bytes are in a megabyte?",
+      "expected": "direct",
+      "predicted": "direct",
+      "correct": true,
+      "latency_s": 0.0
+    },
+    {
+      "query": "What does RGB stand for?",
+      "expected": "direct",
+      "predicted": "direct",
+      "correct": true,
+      "latency_s": 0.0
+    }
+  ]
+}

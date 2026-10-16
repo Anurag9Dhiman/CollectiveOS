@@ -1,0 +1,13 @@
+{
+  "rq": "RQ6",
+  "title": "Persistent Memory Benefit",
+  "status": "deferred",
+  "reason": "Requires live gemini-embedding-001 API (EMBED_MODEL env var). Quota exhausted during evaluation period.",
+  "description": "Compare task success with vs without persistent memory across 6 task types.",
+  "how_to_run": "python3 scripts/eval_memory.py rq6",
+  "dependencies": [
+    "Gemini API quota",
+    "PostgreSQL + pgvector",
+    "EMBED_MODEL=gemini-embedding-001"
+  ]
+}

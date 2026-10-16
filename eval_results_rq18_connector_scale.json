@@ -1,0 +1,179 @@
+{
+  "rq": "RQ18",
+  "library_sizes": {
+    "5": {
+      "accuracy": 1.0,
+      "correct": 4,
+      "total": 4,
+      "avg_tokens": 144,
+      "avg_latency_s": 1.43,
+      "errors": []
+    },
+    "10": {
+      "accuracy": 0.5,
+      "correct": 3,
+      "total": 6,
+      "avg_tokens": 229,
+      "avg_latency_s": 1.33,
+      "errors": [
+        {
+          "query": "Search the web for Python async tutorial",
+          "expected": "web_search",
+          "got": "3"
+        },
+        {
+          "query": "Create a new note about the project",
+          "expected": "notes",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Play some music on Spotify",
+          "expected": "spotify",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        }
+      ]
+    },
+    "25": {
+      "accuracy": 0.6,
+      "correct": 9,
+      "total": 15,
+      "avg_tokens": 490,
+      "avg_latency_s": 1.31,
+      "errors": [
+        {
+          "query": "Turn down the system volume to 30%",
+          "expected": "mac_system",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Send an email to alice@example.com",
+          "expected": "email",
+          "got": "5"
+        },
+        {
+          "query": "What is the weather in San Francisco?",
+          "expected": "weather",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Get directions to the nearest coffee shop",
+          "expected": "maps",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Open amazon.com in the browser",
+          "expected": "browser_nav",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Search GitHub for langgraph issues",
+          "expected": "github",
+          "got": "20"
+        }
+      ]
+    },
+    "50": {
+      "accuracy": 0.733,
+      "correct": 11,
+      "total": 15,
+      "avg_tokens": 869,
+      "avg_latency_s": 1.65,
+      "errors": [
+        {
+          "query": "Search the web for Python async tutorial",
+          "expected": "web_search",
+          "got": "3"
+        },
+        {
+          "query": "Create a new note about the project",
+          "expected": "notes",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Send a message to the team channel on Slack",
+          "expected": "slack",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Copy this text to clipboard",
+          "expected": "clipboard",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        }
+      ]
+    },
+    "100": {
+      "accuracy": 0.133,
+      "correct": 2,
+      "total": 15,
+      "avg_tokens": 1654,
+      "avg_latency_s": 1.86,
+      "errors": [
+        {
+          "query": "Search the web for Python async tutorial",
+          "expected": "web_search",
+          "got": "3"
+        },
+        {
+          "query": "Add a meeting to my calendar for tomorrow at 3pm",
+          "expected": "calendar",
+          "got": "4"
+        },
+        {
+          "query": "Send an email to alice@example.com",
+          "expected": "email",
+          "got": "5"
+        },
+        {
+          "query": "Create a new note about the project",
+          "expected": "notes",
+          "got": "6"
+        },
+        {
+          "query": "Turn off the living room lights",
+          "expected": "home_assistant",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "How many steps have I taken today?",
+          "expected": "health",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "What is the weather in San Francisco?",
+          "expected": "weather",
+          "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your cu"
+        },
+        {
+          "query": "Get directions to the nearest coffee shop",
+          "expected": "maps",
+          "got": "14"
+        },
+        {
+          "query": "Open amazon.com in the browser",
+          "expected": "browser_nav",
+          "got": "15"
+        },
+        {
+          "query": "Run git status in the terminal",
+          "expected": "terminal",
+          "got": "18"
+        },
+        {
+          "query": "Search GitHub for langgraph issues",
+          "expected": "github",
+          "got": "20"
+        },
+        {
+          "query": "Send a message to the team channel on Slack",
+          "expected": "slack",
+          "got": "21"
+        },
+        {
+          "query": "Copy this text to clipboard",
+          "expected": "clipboard",
+          "got": "16"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "rq": "RQ15",
+  "hypothesis": "Q8_0 outperforms Q4_K_M on E_coord; IQ2_XXS degrades significantly.",
+  "conditions": {
+    "uitars_q4_k_m": {
+      "model": "UI-TARS-1.5-7B-Q4_K_M",
+      "n": 45,
+      "vtcr": 0.9778,
+      "avg_dur_s": 122.1,
+      "e_coord_mean": null,
+      "note": "E_coord not captured (step-level coordinate logging not enabled in RQ1 run)."
+    },
+    "uitars_q8_0": {
+      "status": "deferred",
+      "reason": "Requires separate Q8_0 model loaded into llama-server."
+    },
+    "uitars_iq2_xxs": {
+      "status": "deferred",
+      "reason": "Requires IQ2_XXS model weights."
+    }
+  },
+  "source": "eval_results_rq1_v5.json"
+}

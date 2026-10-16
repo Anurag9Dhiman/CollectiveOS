@@ -1,0 +1,183 @@
+{
+  "rq": "RQ21",
+  "analyses": [
+    {
+      "file": "eval_results_rq1_v5",
+      "total": 45,
+      "failures": 1,
+      "vtcr": 0.978,
+      "categories": {
+        "model_api": 1
+      },
+      "per_horizon": {
+        "1_3": {
+          "model_api": 1
+        }
+      },
+      "per_task_type": {
+        "spotlight": {
+          "model_api": 1
+        },
+        "math": {
+          "model_api": 1
+        }
+      }
+    },
+    {
+      "file": "eval_results_rq2_ax_both",
+      "total": 10,
+      "failures": 0,
+      "vtcr": 1.0,
+      "categories": {},
+      "per_horizon": {},
+      "per_task_type": {}
+    },
+    {
+      "file": "eval_results_rq2_screenshot_only",
+      "total": 10,
+      "failures": 0,
+      "vtcr": 1.0,
+      "categories": {},
+      "per_horizon": {},
+      "per_task_type": {}
+    },
+    {
+      "file": "eval_results_rq2_ax_only",
+      "total": 10,
+      "failures": 0,
+      "vtcr": 1.0,
+      "categories": {},
+      "per_horizon": {},
+      "per_task_type": {}
+    },
+    {
+      "file": "eval_results_rq3_det_only",
+      "total": 10,
+      "failures": 2,
+      "vtcr": 0.8,
+      "categories": {
+        "model_api": 2
+      },
+      "per_horizon": {
+        "1_3": {
+          "model_api": 2
+        }
+      },
+      "per_task_type": {
+        "app_launch": {
+          "model_api": 2
+        },
+        "browser": {
+          "model_api": 1
+        },
+        "spotlight": {
+          "model_api": 1
+        }
+      }
+    },
+    {
+      "file": "eval_results_rq3_gemini_only",
+      "total": 10,
+      "failures": 6,
+      "vtcr": 0.4,
+      "categories": {
+        "model_api": 5,
+        "unknown": 1
+      },
+      "per_horizon": {
+        "1_3": {
+          "model_api": 5,
+          "unknown": 1
+        }
+      },
+      "per_task_type": {
+        "app_launch": {
+          "model_api": 2
+        },
+        "spotlight": {
+          "model_api": 4
+        },
+        "os_action": {
+          "model_api": 1
+        },
+        "show_desktop": {
+          "model_api": 1
+        },
+        "clipboard": {
+          "unknown": 1
+        },
+        "read": {
+          "unknown": 1
+        },
+        "search": {
+          "model_api": 1
+        },
+        "math": {
+          "model_api": 1
+        }
+      }
+    },
+    {
+      "file": "eval_results_rq3_none",
+      "total": 10,
+      "failures": 0,
+      "vtcr": 1.0,
+      "categories": {},
+      "per_horizon": {},
+      "per_task_type": {}
+    },
+    {
+      "file": "eval_results_rq4_none",
+      "total": 10,
+      "failures": 5,
+      "vtcr": 0.5,
+      "categories": {
+        "model_api": 5
+      },
+      "per_horizon": {
+        "1_3": {
+          "model_api": 5
+        }
+      },
+      "per_task_type": {
+        "app_launch": {
+          "model_api": 4
+        },
+        "spotlight": {
+          "model_api": 4
+        },
+        "browser": {
+          "model_api": 1
+        },
+        "math": {
+          "model_api": 1
+        }
+      }
+    },
+    {
+      "file": "eval_results_rq4_recover",
+      "total": 10,
+      "failures": 2,
+      "vtcr": 0.8,
+      "categories": {
+        "model_api": 2
+      },
+      "per_horizon": {
+        "1_3": {
+          "model_api": 2
+        }
+      },
+      "per_task_type": {
+        "spotlight": {
+          "model_api": 2
+        },
+        "search": {
+          "model_api": 1
+        },
+        "math": {
+          "model_api": 1
+        }
+      }
+    }
+  ]
+}
