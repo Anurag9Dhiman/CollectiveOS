@@ -39,7 +39,7 @@ import subprocess
 import tempfile
 
 from src.agents.base import AgentRegistry, AgentResult
-from src.agents.task_agent import TaskAgentClient
+from src.agents.nav_agent_client import NavAgentClient
 from src.agents.visual_agent import VisualOSClient
 
 logger = logging.getLogger("collectiveos.orchestrator")
@@ -55,8 +55,9 @@ def setup() -> None:
     Called at application startup.  Remote agents may also self-register
     later via POST /agents/register.
     """
-    # Task agent is always available
-    AgentRegistry.register("task", TaskAgentClient())
+    # NavAgent is the sole task executor — all requests are carried out
+    # through GUI interaction via UI-TARS; no connector tools are called.
+    AgentRegistry.register("task", NavAgentClient())
 
     # VisualOS — register when LENS_URL is configured
     lens_url = os.environ.get("LENS_URL", "").rstrip("/")
@@ -131,7 +132,7 @@ def _is_screen_capture_query(text: str) -> bool:
     return any(phrase in lower for phrase in _VISUAL_CAPTURE_PHRASES)
 
 
-def run(
+async def run(
     text: str,
     entity_refs: dict | None = None,
     image_b64: str | None = None,
@@ -181,23 +182,24 @@ def run(
         if visual_prefix else text
     )
 
-    # ── Route 3: Task agent ──────────────────────────────────────────────────
-    task_agent = AgentRegistry.find_by_capability("task")
-    if task_agent is None:
-        logger.error("No task agent registered — returning error reply")
+    # ── Route 3: NavAgent — sole execution engine ────────────────────────────
+    # All tasks are carried out through GUI interaction (UI-TARS for desktop,
+    # browser-use for web).  No connector tools are invoked.  Memory context
+    # injected as a prefix so the agent has cross-session facts without APIs.
+    nav_agent = AgentRegistry.find_by_capability("task")
+    if nav_agent is None:
+        logger.error("No nav agent registered — returning error reply")
         return AgentResult(
             text="Assistant is not available right now.",
             metadata={"interrupted": False, "destructive": False},
         )
 
-    return task_agent.call(
-        enriched,
-        context=entity_refs,
-        system_prompt=system_prompt,
-        thread_id=thread_id,
-        image_b64=image_b64,
-        image_mime=image_mime,
-    )
+    # Prefix the task with memory/system context so UI-TARS knows user prefs
+    task_text = enriched
+    if system_prompt:
+        task_text = f"[Context]\n{system_prompt}\n\n[Task]\n{enriched}"
+
+    return await nav_agent.acall(task_text, context={"visual_prefix": visual_prefix})
 
 
 def _take_screenshot() -> bytes | None:

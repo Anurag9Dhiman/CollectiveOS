@@ -38,6 +38,10 @@ class AgentClient(ABC):
     def call(self, text: str, context: dict | None = None, **kwargs) -> AgentResult:
         """Invoke the agent with a user message and optional context dict."""
 
+    async def acall(self, text: str, context: dict | None = None, **kwargs) -> AgentResult:
+        """Async variant — override in agents that run an async loop."""
+        return self.call(text, context, **kwargs)
+
     def is_healthy(self) -> bool:
         """Override to add a liveness check (used by the registry health sweep)."""
         return True

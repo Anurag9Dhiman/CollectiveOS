@@ -206,10 +206,7 @@ async def _run_task(
         system = _system_prompt(past)
         thread_id = f"voice_{user_id}"
 
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            multi_agent.run,
+        result = await multi_agent.run(
             text, entity_refs, None, "image/jpeg", system, thread_id,
         )
         reply = result.text
