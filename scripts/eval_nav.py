@@ -233,6 +233,51 @@ TASKS: list[dict] = [
         "desktop_only": True,
     },
     {
+        "desktop_only": True,
+    },
+    {
+        "id": "finder_column_view",
+        "task": "Open Finder and switch to Column view.",
+        "tags": ["finder", "view"],
+        "horizon_group": "4_7",
+        "desktop_only": True,
+    },
+    {
+        "id": "safari_new_tab",
+        "task": "Open Safari and open a new tab.",
+        "tags": ["browser", "tab"],
+        "horizon_group": "4_7",
+        "desktop_only": False,
+    },
+    {
+        "id": "notes_new_note",
+        "task": "Open Notes and create a new note.",
+        "tags": ["app_launch", "notes"],
+        "horizon_group": "4_7",
+        "desktop_only": True,
+    },
+    {
+        "id": "screenshot_desktop",
+        "task": "Take a screenshot of the desktop using the keyboard shortcut and report the file path.",
+        "tags": ["keyboard_shortcut", "screenshot"],
+        "horizon_group": "4_7",
+        "desktop_only": True,
+    },
+    {
+        "id": "check_accessibility",
+        "task": "Open System Settings, navigate to Accessibility, and report what options are visible.",
+        "tags": ["system", "settings", "read"],
+        "horizon_group": "4_7",
+        "desktop_only": True,
+    },
+    {
+        "id": "spotlight_launch_app",
+        "task": "Use Spotlight to open the Calculator app.",
+        "tags": ["spotlight", "app_launch"],
+        "horizon_group": "4_7",
+        "desktop_only": True,
+    },
+    {
         "id": "finder_get_info",
         "task": "Open Finder, navigate to the Downloads folder, and use Get Info to check the folder size.",
         "tags": ["finder", "navigation", "read"],
@@ -595,8 +640,27 @@ def _error_breakdown(results: list[dict]) -> dict:
     total = len(results)
     if total == 0:
         return 0.0
-    verified = sum(1 for r in results if r["verified"] and r["status"] == "done")
-    return round(verified / total, 3)
+    return round(sum(1 for r in results if r["verified"]) / total, 3)
+
+
+def _horizon_breakdown(results: list[dict]) -> dict:
+    """VTCR per horizon group (RQ5)."""
+    groups: dict[str, list] = {}
+    for r in results:
+        g = r.get("horizon_group", "unknown")
+        groups.setdefault(g, []).append(r)
+    order = ["1_3", "4_7", "8_15", "16_30", "30plus", "unknown"]
+    return {g: _vtcr(groups[g]) for g in order if g in groups}
+
+
+def _error_breakdown(results: list[dict]) -> dict:
+    """Failure category counts (RQ21)."""
+    cats: dict[str, int] = {}
+    for r in results:
+        if not r.get("verified"):
+            cat = r.get("error_cat") or "unknown"
+            cats[cat] = cats.get(cat, 0) + 1
+    return dict(sorted(cats.items(), key=lambda x: -x[1]))
 
 
 def _print_report(results: list[dict]) -> None:
@@ -636,7 +700,6 @@ def _print_report(results: list[dict]) -> None:
     print(f"\nModel          : {model}")
     print(f"Tasks run      : {total}")
     print(f"Done           : {done}/{total}  (max_iter: {max_iter})")
-    print(f"Done           : {done}/{total}")
     print(f"VTCR           : {verified}/{total} = {vtcr:.1%}  ← north-star metric")
     print(f"Avg steps      : {avg_steps}")
     print(f"Avg duration   : {avg_dur}s")
