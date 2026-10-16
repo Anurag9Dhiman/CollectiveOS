@@ -43,31 +43,93 @@ def _get_client() -> genai.Client:
     return _client
 
 
-from src.connectors.google_calendar import get_calendar_events, create_event
-from src.connectors.gmail import get_recent_emails, search_emails, create_draft, send_email
-from src.connectors.google_drive import list_files, read_file
-from src.connectors.todoist import get_tasks, get_projects, add_task, complete_task, update_task
 from src.connectors.home_assistant import get_devices, get_device_state, control_device
 from src.connectors import spotify as _spotify
 from src.connectors import mac_system as _mac
-from src.connectors.web_search import search as web_search
-from src.connectors import imessage as _imessage
-from src.connectors.screen_capture import capture_screen
 from src.connectors import local_files as _fs
-from src.connectors import browser as _browser
-from src.connectors import apple_native as _apple
-from src.connectors import telegram_bot as _telegram
-from src.connectors import notion as _notion
-from src.connectors import github as _github
-from src.connectors import slack_bot as _slack
 from src.connectors import health as _health
-from src.connectors import finance as _finance
 from src.connectors import car as _car
-from src.connectors.lens_analyze import lens_analyze as _lens_analyze
 from src.connectors import appliances as _appliances
 from src.connectors.ios_push import push_notification as _push_notification
-from src.connectors import ai_models as _ai
-from src.connectors.computer import computer_use
+from src.connectors.web_search import web_search as _web_search
+from src import workflow_recorder as _workflow_recorder
+from src.agents.nav_agent import (
+    navigate_computer as _nav_async,
+    get_and_clear_first_person_frame,
+)
+
+
+# Tasks that finish within this window are returned synchronously.
+# Tasks still running after this hand off to a background daemon thread.
+_NAV_SYNC_TIMEOUT = 30  # seconds
+
+
+def _navigate_computer_sync(task: str, context: str = "") -> str:
+    """Sync shim with background fallback.
+
+    Short tasks (≤ 30 s): blocks and returns the result directly so the
+    agent can include it in its reply.
+
+    Long tasks (> 30 s): registers in nav_queue, hands off to a background
+    daemon thread, and returns a status message immediately.  When the task
+    finishes, the result is delivered via Slack and the queue entry is updated.
+    """
+    import asyncio
+    import queue as _queue
+    import threading
+    from src import nav_queue as _nq
+
+    frame = get_and_clear_first_person_frame()
+    result_q: _queue.Queue = _queue.Queue()
+
+    def _run_in_thread() -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                _nav_async(task, context, _first_person_frame=frame)
+            )
+            result_q.put(("ok", result))
+        except Exception as exc:
+            result_q.put(("error", f"[nav error] {exc}"))
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run_in_thread, daemon=True, name="nav-bg")
+    thread.start()
+
+    try:
+        status, result = result_q.get(timeout=_NAV_SYNC_TIMEOUT)
+        return result
+    except _queue.Empty:
+        # Task still running — register it in the queue and tail it.
+        tid = _nq.submit(task)
+        _nq.mark_running(tid)
+
+        def _notify_on_finish() -> None:
+            try:
+                status, result = result_q.get(timeout=600)  # 10-min hard cap
+                _nq.mark_done(tid, result, error=(status == "error"))
+            except _queue.Empty:
+                result = (
+                    f"[nav timeout] Task '{task[:60]}' exceeded 10 minutes "
+                    "and was abandoned."
+                )
+                _nq.mark_done(tid, result, error=True)
+            _output_bus.deliver(
+                title=f"Task done: {task[:50]}",
+                body=result,
+                channel="slack",
+            )
+
+        threading.Thread(
+            target=_notify_on_finish, daemon=True, name="nav-notify"
+        ).start()
+        return (
+            f"[running in background] Navigation task started: '{task[:80]}'. "
+            f"Track it in the Computer panel (task id: {tid}). "
+            "You'll get a Slack message when done."
+        )
 from src import memory, graph_memory, router, permissions, observability as _obs
 from src import output_bus as _output_bus
 from src import orchestrator as _orchestrator
@@ -115,12 +177,25 @@ def usage_summary(days: int = 1) -> str:
     return _obs.usage_summary(days)
 
 
-def set_light(room: str, state: str) -> str:
-    """Placeholder — replace body with a real Home Assistant call later."""
-    return f"OK, the {room} light is now {state} (pretend action)."
+def _record_workflow(description: str, name: str = "", schedule: str = "") -> str:
+    """Convert a workflow description into a saved scheduled nav routine."""
+    try:
+        result = _workflow_recorder.record(
+            description=description,
+            name=name or None,
+            schedule=schedule or None,
+        )
+        sched_human = result.get("schedule_human", result.get("schedule", ""))
+        return (
+            f"Workflow saved as routine #{result['id']} — \"{result['name']}\". "
+            f"Schedule: {sched_human}. "
+            f"Nav task: {result['nav_task']}"
+        )
+    except Exception as exc:
+        return f"[workflow error] {exc}"
 
 
-def notify_user(message: str, channel: str = "notification") -> str:
+def notify_user(message: str, channel: str = "slack") -> str:
     """Deliver a proactive message to the user via the specified channel."""
     if channel not in _output_bus.VALID_CHANNELS:
         return f"[ERROR: unknown channel '{channel}'. Use: notification, telegram, push, both]"
@@ -162,6 +237,11 @@ def task_cancel(task_id: int) -> str:
     return _orchestrator.cancel_task(task_id)
 
 
+def nav_sequence(goal: str, context: str = "") -> str:
+    """Decompose a complex GUI goal into nav-agent subtasks and execute them in order."""
+    return _orchestrator.run_nav_sequence(goal, context)
+
+
 def mcp_list_servers() -> str:
     """List connected MCP servers and the tools they expose."""
     servers = _mcp.list_servers()
@@ -180,25 +260,9 @@ TOOL_FUNCTIONS = {
     "memory_graph_query": memory_graph_query,
     "usage_summary":      usage_summary,
     "mcp_list_servers":   mcp_list_servers,
-    "ai_ask":             _ai.ai_ask,
-    "ai_compare":         _ai.ai_compare,
-    "get_calendar_events": get_calendar_events,
-    "create_event":        create_event,
-    "get_recent_emails":   get_recent_emails,
-    "search_emails":       search_emails,
-    "create_draft":        create_draft,
-    "send_email":          send_email,
-    "list_drive_files":    list_files,
-    "read_drive_file":     read_file,
-    "get_tasks":           get_tasks,
-    "get_projects":        get_projects,
-    "add_task":            add_task,
-    "complete_task":       complete_task,
-    "update_task":         update_task,
     "get_devices":         get_devices,
     "get_device_state":    get_device_state,
     "control_device":      control_device,
-    "set_light":           set_light,
     "spotify_now_playing":  _spotify.get_now_playing,
     "spotify_get_devices":  _spotify.get_devices,
     "spotify_control":      _spotify.control_playback,
@@ -207,64 +271,30 @@ TOOL_FUNCTIONS = {
     "get_system_info":      _mac.get_system_info,
     "get_wifi_info":        _mac.get_wifi_info,
     "show_notification":    _mac.show_notification,
-    "open_application":     _mac.open_application,
+    "open_file":            _mac.open_file,
     "set_system_volume":    _mac.set_system_volume,
-    "web_search":           web_search,
-    "imessage_get_messages": _imessage.get_messages,
-    "imessage_send":         _imessage.send_message,
-    "capture_screen":        capture_screen,
     "list_directory":        _fs.list_directory,
     "read_local_file":       _fs.read_local_file,
     "write_local_file":      _fs.write_local_file,
-    "browser_get_active_tab": _browser.get_active_tab,
-    "browser_list_tabs":      _browser.list_tabs,
-    "browser_open_url":       _browser.open_url,
-    "contacts_search":        _apple.contacts_search,
-    "reminders_list":         _apple.reminders_list,
-    "reminders_add":          _apple.reminders_add,
-    "reminders_complete":     _apple.reminders_complete,
-    "notes_list":             _apple.notes_list,
-    "notes_read":             _apple.notes_read,
-    "notes_create":           _apple.notes_create,
-    "notes_append":           _apple.notes_append,
-    "clipboard_read":         _apple.clipboard_read,
-    "clipboard_write":        _apple.clipboard_write,
-    "telegram_get_messages":  _telegram.get_messages,
-    "telegram_send":          _telegram.send_message,
-    "notion_search":          _notion.notion_search,
-    "notion_read_page":       _notion.notion_read_page,
-    "notion_create_page":     _notion.notion_create_page,
-    "notion_append_to_page":  _notion.notion_append_to_page,
-    "github_list_repos":      _github.github_list_repos,
-    "github_list_prs":        _github.github_list_prs,
-    "github_list_issues":     _github.github_list_issues,
-    "github_get_ci_status":   _github.github_get_ci_status,
-    "github_create_issue":    _github.github_create_issue,
-    "slack_list_channels":    _slack.slack_list_channels,
-    "slack_read_messages":    _slack.slack_read_messages,
-    "slack_send_message":     _slack.slack_send_message,
     "health_get_sleep":       _health.health_get_sleep,
     "health_get_activity":    _health.health_get_activity,
     "health_get_readiness":   _health.health_get_readiness,
-    "finance_get_accounts":          _finance.finance_get_accounts,
-    "finance_get_transactions":      _finance.finance_get_transactions,
-    "finance_get_spending_summary":  _finance.finance_get_spending_summary,
     "car_get_status":   _car.car_get_status,
     "car_lock":         _car.car_lock,
     "car_climate":      _car.car_climate,
     "appliances_list":       _appliances.appliances_list,
     "appliances_get_status": _appliances.appliances_get_status,
     "appliances_control":    _appliances.appliances_control,
-    "telegram_get_messages": _telegram.get_messages,
-    "telegram_send":         _telegram.send_message,
-    "lens_analyze":          _lens_analyze,
     "push_notification":     _push_notification,
     "notify_user":           notify_user,
     "task_plan":             task_plan,
     "task_status":           task_status,
     "task_list":             task_list,
     "task_cancel":           task_cancel,
-    "computer_use":          computer_use,
+    "web_search":            _web_search,
+    "record_workflow":       _record_workflow,
+    "navigate_computer":     _navigate_computer_sync,
+    "nav_sequence":          nav_sequence,
     "wearable_get_events":   _wearable.wearable_get_events,
     "wearable_list_devices": _wearable.wearable_list_devices,
     "robot_status":          _ros2.robot_status,
@@ -366,336 +396,6 @@ TOOLS = [
         },
     },
     {
-        "name": "ai_ask",
-        "description": (
-            "Send a prompt to a specific external AI model and return its response. "
-            "Use when the user wants to ask ChatGPT, Grok, Gemini, or Claude a specific question, "
-            "e.g. 'ask ChatGPT to explain quantum computing', 'what does Grok think about X', "
-            "'get Gemini to write a poem'. model must be one of: chatgpt, claude, grok, gemini."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "model": {
-                    "type": "string",
-                    "description": "AI model to query. One of: chatgpt, claude, grok, gemini.",
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "The question or instruction to send to the model.",
-                },
-                "system": {
-                    "type": "string",
-                    "description": "Optional system prompt / persona to set for the model.",
-                },
-            },
-            "required": ["model", "prompt"],
-        },
-    },
-    {
-        "name": "ai_compare",
-        "description": (
-            "Send the same prompt to all configured AI models (ChatGPT, Claude, Grok, Gemini) "
-            "simultaneously and return a side-by-side comparison of their responses. "
-            "Use when the user says 'compare AI opinions on X', 'what do different AIs think about Y', "
-            "'ask all models about Z'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "The question or task to send to all models.",
-                },
-                "system": {
-                    "type": "string",
-                    "description": "Optional system prompt to apply to all models.",
-                },
-            },
-            "required": ["prompt"],
-        },
-    },
-    {
-        "name": "get_calendar_events",
-        "description": "Get upcoming events from the user's primary Google Calendar.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "days_ahead": {
-                    "type": "integer",
-                    "description": "How many days ahead to look. Defaults to 7.",
-                }
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "create_event",
-        "description": (
-            "Create a new event on the user's primary Google Calendar. "
-            "Always confirm the details (title, date, time, duration) with the user before calling. "
-            "Use ISO 8601 for datetimes, e.g. '2024-07-10T14:00:00'. "
-            "Ask the user for their timezone if not already known; default to UTC."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Event title / summary.",
-                },
-                "start_datetime": {
-                    "type": "string",
-                    "description": "Start time in ISO 8601 format, e.g. '2024-07-10T14:00:00'.",
-                },
-                "end_datetime": {
-                    "type": "string",
-                    "description": "End time in ISO 8601 format, e.g. '2024-07-10T15:00:00'.",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Optional event description / notes.",
-                },
-                "timezone": {
-                    "type": "string",
-                    "description": "IANA timezone name, e.g. 'America/New_York'. Defaults to UTC.",
-                },
-            },
-            "required": ["title", "start_datetime", "end_datetime"],
-        },
-    },
-    {
-        "name": "get_recent_emails",
-        "description": "Fetch the most recent emails from the user's Gmail inbox.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Number of emails to return. Defaults to 10.",
-                }
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "search_emails",
-        "description": (
-            "Search the user's Gmail using a query string. "
-            "Supports Gmail search syntax, e.g. 'from:alice', 'subject:invoice', "
-            "'is:unread', 'after:2024/01/01'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Gmail search query.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Number of results to return. Defaults to 5.",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "create_draft",
-        "description": (
-            "Create a Gmail draft. Does NOT send — the user reviews and sends it from Gmail. "
-            "Always confirm recipient, subject, and body with the user before calling. "
-            "Prefer this over send_email unless the user explicitly says 'send now'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "to": {
-                    "type": "string",
-                    "description": "Recipient email address.",
-                },
-                "subject": {
-                    "type": "string",
-                    "description": "Email subject. Leave blank when reply_to_id is set to auto-fill 'Re: ...'.",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Plain-text email body.",
-                },
-                "reply_to_id": {
-                    "type": "string",
-                    "description": "Optional message id to reply to (from get_recent_emails). Keeps the email in the same thread.",
-                },
-            },
-            "required": ["to", "body"],
-        },
-    },
-    {
-        "name": "send_email",
-        "description": (
-            "Send an email immediately via Gmail. "
-            "Only call this after the user has explicitly confirmed the full content — "
-            "recipient, subject, and body. For safety, use create_draft first so the user "
-            "can review before sending."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "to": {
-                    "type": "string",
-                    "description": "Recipient email address.",
-                },
-                "subject": {
-                    "type": "string",
-                    "description": "Email subject.",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Plain-text email body.",
-                },
-                "reply_to_id": {
-                    "type": "string",
-                    "description": "Optional message id to reply to (keeps thread).",
-                },
-            },
-            "required": ["to", "subject", "body"],
-        },
-    },
-    {
-        "name": "list_drive_files",
-        "description": (
-            "List files in the user's Google Drive. "
-            "Optionally filter with a Drive query, e.g. \"name contains 'budget'\" "
-            "or \"mimeType='application/vnd.google-apps.document'\"."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max number of files to return. Defaults to 20.",
-                },
-                "query": {
-                    "type": "string",
-                    "description": "Optional Drive query string to filter results.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "read_drive_file",
-        "description": (
-            "Read the text content of a Google Drive file by its ID. "
-            "Works for Google Docs, Sheets, Slides, and plain text files."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "file_id": {
-                    "type": "string",
-                    "description": "The Drive file ID (from list_drive_files).",
-                }
-            },
-            "required": ["file_id"],
-        },
-    },
-    {
-        "name": "get_tasks",
-        "description": (
-            "List active Todoist tasks. Optionally filter by project name or "
-            "a Todoist filter expression (e.g. 'today', 'overdue', 'p1', '7 days')."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Filter to tasks in this project (partial match).",
-                },
-                "filter_str": {
-                    "type": "string",
-                    "description": "Todoist filter expression, e.g. 'today' or 'overdue'.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "get_projects",
-        "description": "List all Todoist projects.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "add_task",
-        "description": (
-            "Add a new task to Todoist. Always confirm with the user before calling this."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "Task title.",
-                },
-                "due_string": {
-                    "type": "string",
-                    "description": "Natural-language due date, e.g. 'tomorrow', 'next Monday'.",
-                },
-                "project_name": {
-                    "type": "string",
-                    "description": "Destination project name. Uses Inbox if omitted.",
-                },
-            },
-            "required": ["content"],
-        },
-    },
-    {
-        "name": "complete_task",
-        "description": (
-            "Mark a Todoist task as completed. "
-            "Always confirm with the user before calling. "
-            "Use get_tasks first if you don't have the task id."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "The task id shown in brackets by get_tasks.",
-                },
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
-        "name": "update_task",
-        "description": (
-            "Update an existing Todoist task — rename it or change its due date. "
-            "Confirm the change with the user before calling. "
-            "Use get_tasks first if you don't have the task id. "
-            "Pass due_string='none' to remove the due date."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "The task id from get_tasks.",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "New task title. Omit to keep current.",
-                },
-                "due_string": {
-                    "type": "string",
-                    "description": "New due date in natural language, e.g. 'Friday'. Pass 'none' to clear.",
-                },
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
         "name": "get_devices",
         "description": (
             "List Home Assistant entities and their current states. "
@@ -748,22 +448,6 @@ TOOLS = [
                 },
             },
             "required": ["entity_id", "action"],
-        },
-    },
-    {
-        "name": "set_light",
-        "description": "Turn a light on or off in a specific room.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "room":  {"type": "string", "description": "e.g. 'kitchen'."},
-                "state": {
-                    "type": "string",
-                    "enum": ["on", "off"],
-                    "description": "Whether to turn the light on or off.",
-                },
-            },
-            "required": ["room", "state"],
         },
     },
     {
@@ -874,20 +558,27 @@ TOOLS = [
         },
     },
     {
-        "name": "open_application",
+        "name": "open_file",
         "description": (
-            "Open a macOS application by name, e.g. 'Safari', 'Spotify', 'VS Code', 'Calendar'. "
-            "Always confirm with the user before opening apps."
+            "Open a file or folder on this Mac using its default application. "
+            "Works for PDFs (opens in Preview), images, documents, spreadsheets, "
+            "folders (opens in Finder), and any file the OS knows how to handle. "
+            "Use this instead of navigate_computer when the task is just 'open X'. "
+            "Supports ~ paths and absolute paths."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {
+                "path": {
                     "type": "string",
-                    "description": "Application name as it appears in /Applications.",
+                    "description": (
+                        "File or folder path to open. "
+                        "Examples: '~/Downloads/ML_CV.pdf', "
+                        "'~/Documents/report.docx', '~/Downloads'."
+                    ),
                 },
             },
-            "required": ["name"],
+            "required": ["path"],
         },
     },
     {
@@ -906,104 +597,6 @@ TOOLS = [
                 },
             },
             "required": ["level"],
-        },
-    },
-    {
-        "name": "web_search",
-        "description": (
-            "Search the web for current, real-time information — news, weather, prices, "
-            "sports scores, documentation, local businesses, travel info, or anything "
-            "that may have changed since the model's training cutoff. "
-            "Use this whenever the user asks about something recent, live, or factual "
-            "that you cannot answer from memory alone."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query. Be specific for better results, e.g. "
-                                   "'weather Toronto today' not just 'weather'.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Number of sources to return (1–10). Defaults to 5.",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "imessage_get_messages",
-        "description": (
-            "Read recent iMessages from this Mac's Messages history. "
-            "Optionally filter to a single conversation by phone number or Apple ID. "
-            "Requires Full Disk Access granted to the terminal or server process."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "contact": {
-                    "type": "string",
-                    "description": "Phone number (+1…) or Apple ID email to filter to "
-                                   "one thread. Leave blank for recent messages across all chats.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max number of messages to return. Defaults to 10.",
-                },
-                "days": {
-                    "type": "integer",
-                    "description": "How many days back to look. Defaults to 3.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "imessage_send",
-        "description": (
-            "Send an iMessage to a phone number (+1…) or Apple ID email. "
-            "Always confirm the recipient and the full message text with the user "
-            "before calling. Messages.app will prompt for Automation permission on first use."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "to": {
-                    "type": "string",
-                    "description": "Recipient phone number (e.g. '+14155552671') or Apple ID email.",
-                },
-                "message": {
-                    "type": "string",
-                    "description": "Message text to send.",
-                },
-            },
-            "required": ["to", "message"],
-        },
-    },
-    {
-        "name": "capture_screen",
-        "description": (
-            "Take a screenshot of the current Mac screen and analyse it using "
-            "Gemini's vision. Use this when the user asks about something on their "
-            "screen — an error message, the current app state, a piece of UI, code "
-            "they are looking at, or any visible text. "
-            "The screenshot is sent to Google's API for analysis and then deleted."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": (
-                        "Specific question to answer about the screen, e.g. "
-                        "'What does this error say?' or 'Which tab is active?'. "
-                        "Leave blank for a general description of what's visible."
-                    ),
-                },
-            },
-            "required": [],
         },
     },
     {
@@ -1071,313 +664,6 @@ TOOLS = [
             "required": ["path", "content"],
         },
     },
-    {
-        "name": "browser_get_active_tab",
-        "description": (
-            "Get the title and URL of the currently active tab in Safari or Chrome. "
-            "Use this when the user asks what page they are on, what site is open, "
-            "or wants context about their current browsing."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "browser_list_tabs",
-        "description": (
-            "List all open tabs across all windows in Safari and Google Chrome. "
-            "Returns titles and URLs grouped by browser and window."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "browser_open_url",
-        "description": (
-            "Open a URL in the default browser. "
-            "Only http:// and https:// URLs are allowed. "
-            "Always confirm the URL with the user before opening."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "Full URL to open, e.g. 'https://example.com'.",
-                },
-            },
-            "required": ["url"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Apple-native: Contacts
-    # -----------------------------------------------------------------------
-    {
-        "name": "contacts_search",
-        "description": (
-            "Search Apple Contacts by name and return phone numbers and email addresses. "
-            "macOS will prompt for Contacts access on first use."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Full or partial name to search for, e.g. 'Alice' or 'Smith'.",
-                },
-            },
-            "required": ["name"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Apple-native: Reminders
-    # -----------------------------------------------------------------------
-    {
-        "name": "reminders_list",
-        "description": "List incomplete reminders from the Mac Reminders app. "
-                       "Optionally filter by list name.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "list_name": {
-                    "type": "string",
-                    "description": "Reminders list name to filter to, e.g. 'Groceries'. "
-                                   "Leave blank to show all lists.",
-                },
-                "due_today": {
-                    "type": "boolean",
-                    "description": "If true, show only reminders due today or overdue.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "reminders_add",
-        "description": (
-            "Add a new reminder to the Mac Reminders app. "
-            "Always confirm the title and due date with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Reminder text.",
-                },
-                "due_date": {
-                    "type": "string",
-                    "description": "Optional due date in YYYY-MM-DD format, e.g. '2026-07-28'.",
-                },
-                "list_name": {
-                    "type": "string",
-                    "description": "Reminders list to add to. Defaults to the default list.",
-                },
-            },
-            "required": ["title"],
-        },
-    },
-    {
-        "name": "reminders_complete",
-        "description": (
-            "Mark a reminder as completed. "
-            "Always confirm with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Title of the reminder to complete (partial match).",
-                },
-                "list_name": {
-                    "type": "string",
-                    "description": "Optional list name to narrow the search.",
-                },
-            },
-            "required": ["title"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Apple-native: Notes
-    # -----------------------------------------------------------------------
-    {
-        "name": "notes_list",
-        "description": "List note titles in the Mac Notes app. "
-                       "Optionally filter by folder name.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "folder": {
-                    "type": "string",
-                    "description": "Notes folder name to filter to. Leave blank for all notes.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "notes_read",
-        "description": "Read the full text content of a note by title (partial match).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Full or partial note title.",
-                },
-            },
-            "required": ["title"],
-        },
-    },
-    {
-        "name": "notes_create",
-        "description": (
-            "Create a new note in the Mac Notes app. "
-            "Always confirm the title and content with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string", "description": "Note title."},
-                "body":  {"type": "string", "description": "Note body text."},
-                "folder": {
-                    "type": "string",
-                    "description": "Notes folder to create in (optional).",
-                },
-            },
-            "required": ["title", "body"],
-        },
-    },
-    {
-        "name": "notes_append",
-        "description": (
-            "Append text to an existing note matched by title. "
-            "Always confirm which note and what text with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Title of the note to append to (partial match).",
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Text to add at the end of the note.",
-                },
-            },
-            "required": ["title", "text"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Apple-native: Clipboard
-    # -----------------------------------------------------------------------
-    {
-        "name": "clipboard_read",
-        "description": "Read the current text contents of the Mac clipboard. "
-                       "Useful when the user says 'I just copied something' or "
-                       "'use what's in my clipboard'.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "clipboard_write",
-        "description": (
-            "Copy text to the Mac clipboard, replacing its current contents. "
-            "Always confirm the text with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "Text to copy to the clipboard.",
-                },
-            },
-            "required": ["text"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Telegram
-    # -----------------------------------------------------------------------
-    {
-        "name": "telegram_get_messages",
-        "description": (
-            "Read recent messages sent to the Telegram bot. "
-            "Returns sender name, chat ID, and message text. "
-            "Use to proactively check for incoming Telegram messages."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Max messages to return. Defaults to 10."},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "telegram_send",
-        "description": (
-            "Send a Telegram message to a specific chat ID or to the configured default chat. "
-            "Requires explicit user confirmation."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "message": {"type": "string", "description": "Message text (Markdown supported)."},
-                "chat_id": {"type": "string", "description": "Target chat ID (optional — uses TELEGRAM_CHAT_ID env var if omitted)."},
-            },
-            "required": ["message"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Finance (read-only)
-    # -----------------------------------------------------------------------
-    {
-        "name": "finance_get_accounts",
-        "description": (
-            "List connected bank and credit card accounts with real-time balances "
-            "(current and available). Requires Plaid setup."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "finance_get_transactions",
-        "description": (
-            "Fetch recent transactions from all connected accounts, sorted newest first. "
-            "Shows date, amount, merchant name, and spending category. "
-            "Optionally filter to a single account by its Plaid account ID."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "days": {
-                    "type": "integer",
-                    "description": "How many days of history to fetch. Defaults to 30.",
-                },
-                "account_id": {
-                    "type": "string",
-                    "description": "Optional Plaid account ID to filter to one account.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "finance_get_spending_summary",
-        "description": (
-            "Summarize spending by top-level Plaid category (Food and Drink, "
-            "Travel, Shopping, etc.) over the last N days. "
-            "Shows totals and percentage of overall spend per category."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "days": {
-                    "type": "integer",
-                    "description": "How many days to summarize. Defaults to 30.",
-                },
-            },
-            "required": [],
-        },
-    },
     # -----------------------------------------------------------------------
     # Health
     # -----------------------------------------------------------------------
@@ -1433,268 +719,6 @@ TOOLS = [
                 },
             },
             "required": [],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Slack
-    # -----------------------------------------------------------------------
-    {
-        "name": "slack_list_channels",
-        "description": (
-            "List Slack channels the bot has access to, with member count and topic. "
-            "Use this to discover channel names and IDs before reading messages."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Max channels to return. Defaults to 30.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "slack_read_messages",
-        "description": (
-            "Read recent messages from a Slack channel. "
-            "Pass a channel name (e.g. 'general') or channel ID (e.g. 'C12345'). "
-            "Messages are shown oldest-first with timestamps and sender names."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "channel": {
-                    "type": "string",
-                    "description": "Channel name (with or without #) or Slack channel ID.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Number of recent messages to fetch. Defaults to 20.",
-                },
-            },
-            "required": ["channel"],
-        },
-    },
-    {
-        "name": "slack_send_message",
-        "description": (
-            "Send a message to a Slack channel or DM. "
-            "Pass a channel name, channel ID, or a Slack user ID (U...) to send a direct message. "
-            "Always confirm the channel and full message text with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "channel": {
-                    "type": "string",
-                    "description": "Channel name, channel ID (C...), or user ID (U...) for a DM.",
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Message text to send. Supports Slack mrkdwn formatting.",
-                },
-            },
-            "required": ["channel", "text"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # GitHub
-    # -----------------------------------------------------------------------
-    {
-        "name": "github_list_repos",
-        "description": (
-            "List the authenticated GitHub user's repositories, most recently updated first. "
-            "Includes repo name, language, visibility, and description."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Max repos to return. Defaults to 20.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "github_list_prs",
-        "description": "List pull requests for a GitHub repository (owner/repo format).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "repo": {
-                    "type": "string",
-                    "description": "Repository in owner/repo format, e.g. 'Anurag9Dhiman/CollectiveOS'.",
-                },
-                "state": {
-                    "type": "string",
-                    "enum": ["open", "closed", "all"],
-                    "description": "Filter by PR state. Defaults to 'open'.",
-                },
-            },
-            "required": ["repo"],
-        },
-    },
-    {
-        "name": "github_list_issues",
-        "description": "List issues for a GitHub repository. Excludes pull requests.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "repo": {
-                    "type": "string",
-                    "description": "Repository in owner/repo format.",
-                },
-                "state": {
-                    "type": "string",
-                    "enum": ["open", "closed", "all"],
-                    "description": "Filter by issue state. Defaults to 'open'.",
-                },
-                "labels": {
-                    "type": "string",
-                    "description": "Comma-separated label names to filter by, e.g. 'bug,help wanted'.",
-                },
-            },
-            "required": ["repo"],
-        },
-    },
-    {
-        "name": "github_get_ci_status",
-        "description": (
-            "Get CI check-run results for a branch, tag, or commit SHA in a repository. "
-            "Shows pass/fail status for each check (Actions workflows, status checks, etc.)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "repo": {
-                    "type": "string",
-                    "description": "Repository in owner/repo format.",
-                },
-                "ref": {
-                    "type": "string",
-                    "description": "Branch name (e.g. 'main'), tag, or full commit SHA.",
-                },
-            },
-            "required": ["repo", "ref"],
-        },
-    },
-    {
-        "name": "github_create_issue",
-        "description": (
-            "Create a new GitHub issue in a repository. "
-            "Always confirm the repo, title, body, and labels with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "repo": {
-                    "type": "string",
-                    "description": "Repository in owner/repo format.",
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Issue title.",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Issue body / description in Markdown. Optional.",
-                },
-                "labels": {
-                    "type": "string",
-                    "description": "Comma-separated label names to apply, e.g. 'bug,enhancement'. Optional.",
-                },
-            },
-            "required": ["repo", "title"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Notion
-    # -----------------------------------------------------------------------
-    {
-        "name": "notion_search",
-        "description": (
-            "Search Notion for pages and databases by keyword. "
-            "Returns titles, IDs, and URLs for matching results. "
-            "Use this to find a page ID before reading or appending to it."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search term, e.g. 'daily notes', 'project plan', 'reading list'.",
-                },
-                "filter_type": {
-                    "type": "string",
-                    "enum": ["page", "database", "all"],
-                    "description": "Limit results to 'page', 'database', or 'all' for both. Defaults to 'all'.",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "notion_read_page",
-        "description": "Read the full text content of a Notion page by its ID.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "page_id": {
-                    "type": "string",
-                    "description": "Notion page ID (from notion_search). Dashes are optional.",
-                },
-            },
-            "required": ["page_id"],
-        },
-    },
-    {
-        "name": "notion_create_page",
-        "description": (
-            "Create a new Notion page under a parent page or database. "
-            "Always confirm the title, parent, and content with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "parent_id": {
-                    "type": "string",
-                    "description": "ID of the parent page or database (from notion_search).",
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Title of the new page.",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Optional initial text content. Paragraphs separated by blank lines.",
-                },
-            },
-            "required": ["parent_id", "title"],
-        },
-    },
-    {
-        "name": "notion_append_to_page",
-        "description": (
-            "Append text to the end of an existing Notion page. "
-            "Always confirm which page and what content with the user before calling."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "page_id": {
-                    "type": "string",
-                    "description": "Notion page ID to append to (from notion_search).",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Text to append. Paragraphs separated by blank lines.",
-                },
-            },
-            "required": ["page_id", "content"],
         },
     },
     # -----------------------------------------------------------------------
@@ -1769,37 +793,6 @@ TOOLS = [
             "required": ["device_id", "command"],
         },
     },
-    {
-        "name": "lens_analyze",
-        "description": (
-            "Identify and describe what is in a photo using VisualOS. "
-            "Returns the entity name, a detailed description, historical and live facts, "
-            "and source citations. Works on buildings, monuments, objects, and more. "
-            "Call this when the user wants to know what is in an image file on their device."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "image_path": {
-                    "type": "string",
-                    "description": "Absolute or relative file path to a JPEG, PNG, or WebP image.",
-                },
-                "lat": {
-                    "type": "number",
-                    "description": "Optional GPS latitude (decimal degrees) to improve location context.",
-                },
-                "lng": {
-                    "type": "number",
-                    "description": "Optional GPS longitude (decimal degrees) to improve location context.",
-                },
-                "user_id": {
-                    "type": "string",
-                    "description": "User identifier for personalised memory lookup in VisualOS. Defaults to 'default'.",
-                },
-            },
-            "required": ["image_path"],
-        },
-    },
     # -----------------------------------------------------------------------
     # iOS push notifications (APNs)
     # -----------------------------------------------------------------------
@@ -1834,139 +827,6 @@ TOOLS = [
             },
             "required": ["title", "body"],
         },
-    },
-    # -----------------------------------------------------------------------
-    # Output bus
-    # -----------------------------------------------------------------------
-    {
-        "name": "notify_user",
-        "description": (
-            "Proactively deliver a message to the user via a chosen channel. "
-            "Use when the user says 'let me know on Telegram', 'send me a notification', "
-            "'ping me on my phone', or when you need to alert the user after completing "
-            "background work. "
-            "Channels: notification (Mac banner), telegram (Telegram message), "
-            "push (iOS APNs), both (Mac + Telegram)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "description": "The message text to deliver to the user.",
-                },
-                "channel": {
-                    "type": "string",
-                    "description": "Delivery channel: notification | telegram | push | both. Default: notification.",
-                    "enum": ["notification", "telegram", "push", "both"],
-                },
-            },
-            "required": ["message"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Task orchestrator
-    # -----------------------------------------------------------------------
-    {
-        "name": "task_plan",
-        "description": (
-            "Plan and execute a complex multi-step task using the task orchestrator. "
-            "Use when the user asks for something that requires several sequential tool calls — "
-            "for example 'research X, summarise it, and save to Notion', or "
-            "'check my emails and add follow-up tasks to Todoist'. "
-            "The orchestrator creates a plan (up to 10 steps), runs each step, "
-            "and returns a summary of what was done. "
-            "Results are stored in the tasks database so you can check them later with task_status."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string",
-                    "description": "Full description of the task to accomplish, including any specific constraints or output requirements.",
-                },
-            },
-            "required": ["description"],
-        },
-    },
-    {
-        "name": "task_status",
-        "description": (
-            "Check the status of a previously created task, including each step's result. "
-            "Use after task_plan to confirm completion, or when the user asks 'how did that task go'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "integer",
-                    "description": "The task ID returned by task_plan or task_list.",
-                },
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
-        "name": "task_list",
-        "description": "List the 10 most recent tasks and their statuses (completed, failed, running, cancelled).",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    },
-    {
-        "name": "task_cancel",
-        "description": "Cancel a task that is still pending, planning, or running.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "integer",
-                    "description": "The task ID to cancel.",
-                },
-            },
-            "required": ["task_id"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # Computer use (desktop agent)
-    # -----------------------------------------------------------------------
-    {
-        "name": "computer_use",
-        "description": (
-            "Control this Mac's desktop to complete a multi-step task: take screenshots, "
-            "move the mouse, click, type, scroll, and navigate apps. "
-            "Use for tasks that require interacting with an app's UI directly — "
-            "e.g. 'fill in this web form', 'click through this wizard', 'resize this window'. "
-            "Gemini Vision analyzes each screenshot and decides what to do next. "
-            "IMPORTANT: this is a write-tier action — always confirm with the user before calling it."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task": {
-                    "type": "string",
-                    "description": (
-                        "Clear description of what to do on screen. Be specific: name the app, "
-                        "the target element, and the desired outcome."
-                    ),
-                },
-            },
-            "required": ["task"],
-        },
-    },
-    # -----------------------------------------------------------------------
-    # MCP server management
-    # -----------------------------------------------------------------------
-    {
-        "name": "mcp_list_servers",
-        "description": (
-            "List all connected MCP (Model Context Protocol) servers and the number of tools "
-            "each one exposes. Use when the user asks what MCP servers are running, or to "
-            "diagnose why an MCP-backed tool isn't available."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     # -----------------------------------------------------------------------
     # Wearable devices
@@ -2077,6 +937,254 @@ TOOLS = [
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
+    # -----------------------------------------------------------------------
+    # Output bus
+    # -----------------------------------------------------------------------
+    {
+        "name": "notify_user",
+        "description": (
+            "Proactively deliver a message to the user via a chosen channel. "
+            "Use when the user says 'let me know on Slack', 'send me a notification', "
+            "'ping me on my phone', or when you need to alert the user after completing "
+            "background work. "
+            "Channels: slack (primary — Slack message), notification (Mac banner), "
+            "both (Mac + Slack), push (iOS APNs), telegram (legacy)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The message text to deliver to the user.",
+                },
+                "channel": {
+                    "type": "string",
+                    "description": "Delivery channel: slack | notification | both | push | telegram. Default: slack.",
+                    "enum": ["slack", "notification", "both", "push", "telegram"],
+                },
+            },
+            "required": ["message"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Task orchestrator
+    # -----------------------------------------------------------------------
+    {
+        "name": "task_plan",
+        "description": (
+            "Plan and execute a complex multi-step task using the task orchestrator. "
+            "Use when the user asks for something that requires several sequential tool calls — "
+            "for example 'research X, summarise it, and save to Notion', or "
+            "'check my emails and add follow-up tasks to Todoist'. "
+            "The orchestrator creates a plan (up to 10 steps), runs each step, "
+            "and returns a summary of what was done. "
+            "Results are stored in the tasks database so you can check them later with task_status."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "Full description of the task to accomplish, including any specific constraints or output requirements.",
+                },
+            },
+            "required": ["description"],
+        },
+    },
+    {
+        "name": "task_status",
+        "description": (
+            "Check the status of a previously created task, including each step's result. "
+            "Use after task_plan to confirm completion, or when the user asks 'how did that task go'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "The task ID returned by task_plan or task_list.",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "task_list",
+        "description": "List the 10 most recent tasks and their statuses (completed, failed, running, cancelled).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "task_cancel",
+        "description": "Cancel a task that is still pending, planning, or running.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "The task ID to cancel.",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Web search
+    # -----------------------------------------------------------------------
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web and return a summary of the top results. "
+            "Use for current events, facts that may have changed since your training, "
+            "documentation lookups, research, or any question that benefits from "
+            "live internet data. "
+            "Primary backend: Brave Search API (BRAVE_API_KEY). "
+            "Fallback: DuckDuckGo Instant Answers (no key required, limited results)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query. Be specific for better results.",
+                },
+                "num_results": {
+                    "type": "integer",
+                    "description": "Number of results to return (1–10, default 5).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Workflow recorder
+    # -----------------------------------------------------------------------
+    {
+        "name": "record_workflow",
+        "description": (
+            "Convert a plain-English workflow description into a saved, scheduled "
+            "nav routine that runs automatically on the computer. "
+            "Use when the user says 'automate this for me', 'do this every morning', "
+            "'save this as a routine', or describes a repeating computer task. "
+            "The LLM infers the schedule and exact nav steps from the description. "
+            "The routine is saved immediately and starts running on the inferred schedule."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Full description of the workflow, including what to do and when. "
+                        "Example: 'Every weekday morning open Mail, archive newsletters, "
+                        "and reply to anything flagged urgent.'"
+                    ),
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Optional short name for the routine (3–6 words). LLM suggests one if omitted.",
+                },
+                "schedule": {
+                    "type": "string",
+                    "description": "Optional cron override (5-field). LLM infers from description if omitted.",
+                },
+            },
+            "required": ["description"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Computer use (desktop agent)
+    # -----------------------------------------------------------------------
+    {
+        "name": "navigate_computer",
+        "description": (
+            "Navigate the macOS GUI to complete any task — no separate API key needed. "
+            "Automatically picks the best path:\n"
+            "  • Web / browser tasks (Gmail, GitHub, Notion, Slack, Google Calendar, "
+            "    any website): uses Playwright browser automation + Gemini Vision — "
+            "    follows links, fills forms, clicks buttons.\n"
+            "  • Native desktop app tasks (Finder, Terminal, Xcode, Mail, any native app): "
+            "    uses Gemini Vision loop + pyautogui — sees the screen, decides the next "
+            "    action, executes, repeats.\n\n"
+            "Use this for ANY task that involves interacting with an app on screen: "
+            "read and send emails, manage GitHub PRs, edit Notion pages, browse websites, "
+            "run Terminal commands, or use any macOS app. "
+            "Built-in safety gate: pauses and asks the user before irreversible sub-actions "
+            "(send, delete, purchase, submit, book …). "
+            "PREFERRED over computer_use for all new tasks. "
+            "IMPORTANT: confirm with the user before calling this tool."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "Precise description of what to do. Name the app or website, "
+                        "the target element, and the desired outcome. "
+                        "Example: 'Open Gmail, find the latest email from Alice, "
+                        "reply with: On my way!'"
+                    ),
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Optional user context to help the agent make decisions, "
+                        "e.g. account email, username, or relevant preferences."
+                    ),
+                },
+            },
+            "required": ["task"],
+        },
+    },
+    {
+        "name": "nav_sequence",
+        "description": (
+            "Break a complex macOS GUI goal into sequential nav-agent subtasks and execute "
+            "them in order, passing screen state between steps. "
+            "Use this for multi-step goals that require a series of GUI interactions — "
+            "e.g. 'book a dentist appointment for next Tuesday in Calendar', "
+            "'open Terminal, run a command, then copy the output to a TextEdit document'. "
+            "The result of each step is automatically passed as context to the next, so "
+            "the agent knows what is already on screen. "
+            "IMPORTANT: confirm with the user before calling this tool."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": (
+                        "High-level description of the multi-step GUI goal. "
+                        "Example: 'Book a dentist appointment for next Tuesday at 2pm in Calendar.'"
+                    ),
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Optional background context — account details, preferences, or "
+                        "relevant info the agent should know across all steps."
+                    ),
+                },
+            },
+            "required": ["goal"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # MCP server management
+    # -----------------------------------------------------------------------
+    {
+        "name": "mcp_list_servers",
+        "description": (
+            "List all connected MCP (Model Context Protocol) servers and the number of tools "
+            "each one exposes. Use when the user asks what MCP servers are running, or to "
+            "diagnose why an MCP-backed tool isn't available."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
 ]
 
 # Merge MCP-discovered tool schemas (populated once mcp.load() ran above)
@@ -2169,29 +1277,13 @@ CACHE_TTL: dict[str, int] = {
     "health_get_sleep":              300,
     "health_get_activity":           300,
     "health_get_readiness":          300,
-    "finance_get_accounts":          120,
-    "finance_get_transactions":      120,
-    "finance_get_spending_summary":  120,
     "car_get_status":                 30,
     "get_devices":                    60,
     "get_device_state":               15,
     "appliances_list":                60,
     "appliances_get_status":          30,
-    "web_search":                     60,
-    "github_list_repos":             300,
-    "github_list_prs":                60,
-    "github_list_issues":             60,
-    "github_get_ci_status":           30,
-    "slack_list_channels":           300,
-    "slack_read_messages":            30,
-    "notion_search":                  60,
-    "notion_read_page":               60,
-    "get_tasks":                      30,
-    "get_projects":                  300,
-    "get_recent_emails":              30,
-    "search_emails":                  30,
-    "list_drive_files":               60,
-    "get_calendar_events":            30,
+    "get_system_info":                30,
+    "get_wifi_info":                  60,
 }
 
 
@@ -2231,6 +1323,12 @@ def _exec_tool_fn(name: str, args: dict) -> str:
             _obs.log_tool_call(name, int((time.monotonic() - t0) * 1000), success=True)
             if ttl > 0:
                 _cache.set(cache_key, result, ttl=ttl)
+            # Record for personalization (fire-and-forget; never blocks)
+            try:
+                from src import personalization as _pers
+                _pers.record_interaction(name)
+            except Exception:
+                pass
             return result
         except Exception as exc:
             exc_type = type(exc).__name__

@@ -110,12 +110,19 @@ def _history_to_gemini(history: list[dict]) -> list[Any]:
                 parts.append(_gtypes.Part(text=p["text"]))
             elif "function_call" in p:
                 fc = p["function_call"]
-                parts.append(_gtypes.Part(
-                    function_call=_gtypes.FunctionCall(
+                part_kwargs: dict = {
+                    "function_call": _gtypes.FunctionCall(
                         name=fc["name"],
                         args=fc.get("args", {}),
                     )
-                ))
+                }
+                ts = p.get("thought_signature")
+                if ts:
+                    import base64
+                    part_kwargs["thought_signature"] = (
+                        base64.b64decode(ts) if isinstance(ts, str) else ts
+                    )
+                parts.append(_gtypes.Part(**part_kwargs))
             elif "function_response" in p:
                 fr = p["function_response"]
                 parts.append(_gtypes.Part(
@@ -138,13 +145,25 @@ def _history_to_gemini(history: list[dict]) -> list[Any]:
 
 
 def _extract_fn_call_dicts(response: Any) -> list[dict]:
-    """Pull function calls from a Gemini response as serialisable dicts."""
+    """Pull function calls from a Gemini response as serialisable dicts.
+
+    Preserves thought_signature (base64-encoded bytes) from the Part for
+    thinking models so it can be restored when we re-send history to Gemini.
+    thought_signature lives on Part, not on FunctionCall.
+    """
+    import base64
     calls = []
     try:
         for part in response.candidates[0].content.parts:
             fc = getattr(part, "function_call", None)
             if fc and fc.name:
-                calls.append({"name": fc.name, "args": dict(fc.args or {})})
+                call: dict = {"name": fc.name, "args": dict(fc.args or {})}
+                ts = getattr(part, "thought_signature", None)
+                if ts:
+                    call["thought_signature"] = (
+                        base64.b64encode(ts).decode() if isinstance(ts, bytes) else ts
+                    )
+                calls.append(call)
     except (IndexError, AttributeError):
         pass
     return calls
@@ -220,6 +239,35 @@ def _trim_history(history: list[dict]) -> list[dict]:
 # Graph nodes
 # ---------------------------------------------------------------------------
 
+def _strip_thought_parts(history: list[Any]) -> list[Any]:
+    """Remove thought parts (thought=True) from history before sending to Gemini.
+
+    Thought parts are never stored in our history dicts (we skip them in
+    _extract_fn_call_dicts), so this function's main job is safety: drop any
+    that sneak in. thought_signature on function_call parts is preserved —
+    Gemini requires it when the call was made by a thinking model.
+
+    Note: this is called with Gemini Content objects (from _history_to_gemini),
+    not dicts, so the dict-path code here is a guard for safety.
+    """
+    cleaned = []
+    for entry in history:
+        if not isinstance(entry, dict) or "parts" not in entry:
+            # Gemini Content object — pass through unchanged; thought parts
+            # in Content objects are not re-sent because _extract_fn_call_dicts
+            # never stores them.
+            cleaned.append(entry)
+            continue
+        clean_parts = [
+            p for p in entry["parts"]
+            if not (isinstance(p, dict) and p.get("thought"))
+        ]
+        if not clean_parts:
+            continue
+        cleaned.append({**entry, "parts": clean_parts})
+    return cleaned
+
+
 @traceable(name="gemini_call")
 def _call_gemini(
     history: list[Any],
@@ -232,7 +280,7 @@ def _call_gemini(
     gemini_tools = _to_gemini_tools(active_tools)
     return _get_client().models.generate_content(
         model=model,
-        contents=history,
+        contents=_strip_thought_parts(history),
         config=_gtypes.GenerateContentConfig(
             tools=gemini_tools or None,
             system_instruction=system_prompt or None,
@@ -293,18 +341,35 @@ def agent_node(state: AgentState) -> dict:
             "image_b64": None,
         }
 
-    # Add model's tool-call turn to history
-    model_parts = [
-        {"function_call": {"name": c["name"], "args": c["args"]}} for c in fn_calls
-    ]
+    # Add model's tool-call turn to history (preserve thought_signature for thinking models).
+    # thought_signature lives on Part, not inside function_call.
+    model_parts = []
+    for c in fn_calls:
+        part_dict: dict = {"function_call": {"name": c["name"], "args": c["args"]}}
+        if c.get("thought_signature"):
+            part_dict["thought_signature"] = c["thought_signature"]
+        model_parts.append(part_dict)
     new_history = history + [{"role": "model", "parts": model_parts}]
 
     write_calls = [c for c in fn_calls if c["name"] in WRITE_TOOLS]
     read_calls  = [c for c in fn_calls if c["name"] not in WRITE_TOOLS]
 
     # Execute read tools immediately inline; defer write tools for HITL
+    nav_shot_b64: str | None = None
     if read_calls:
         new_history = _execute_calls(read_calls, new_history)
+
+        # If navigate_computer just ran, it stored a final screenshot.
+        # Retrieve it so the next Gemini call can see the screen and describe it.
+        if any(c["name"] == "navigate_computer" for c in read_calls):
+            try:
+                import base64 as _b64
+                from src.agents.nav_agent import get_and_clear_first_person_frame as _gnf
+                _shot = _gnf()
+                if _shot:
+                    nav_shot_b64 = _b64.b64encode(_shot).decode()
+            except Exception:
+                pass
 
     if write_calls:
         destructive = any(is_destructive(c["name"]) for c in write_calls)
@@ -316,12 +381,18 @@ def agent_node(state: AgentState) -> dict:
         }
 
     # Only read tools — agent loops back automatically
-    return {
+    result: dict = {
         "history": new_history,
         "pending_write": [],
         "has_destructive": False,
         "iteration": iteration,
     }
+    # Pass the nav screenshot into the next agent_node call so Gemini sees
+    # the current screen state when generating its final reply.
+    if nav_shot_b64:
+        result["image_b64"] = nav_shot_b64
+        result["image_mime"] = "image/jpeg"
+    return result
 
 
 def _execute_calls(calls: list[dict], history: list[dict]) -> list[dict]:
@@ -517,7 +588,19 @@ def run(
     # Build checkpoint-safe history: text only, never base64 blobs.
     # The image is passed via AgentState.image_b64 and injected into the
     # Gemini call inside agent_node, then cleared — so it never accumulates.
-    prior = history or []
+    #
+    # If the caller didn't pass prior history, pull it from the LangGraph
+    # PostgresSaver checkpoint so the model remembers previous turns.
+    if history is None:
+        try:
+            _graph = get_graph()
+            _prev = _graph.get_state({"configurable": {"thread_id": thread_id}})
+            prior = (_prev.values or {}).get("history", []) if _prev else []
+        except Exception:
+            prior = []
+    else:
+        prior = history
+
     user_parts: list[dict] = [{"text": user_message}]
     if image_b64:
         user_parts.append({"text": f"[Image attached: {image_mime}]"})

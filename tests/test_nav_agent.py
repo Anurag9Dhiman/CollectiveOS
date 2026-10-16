@@ -1,0 +1,645 @@
+"""
+Unit tests for NavAgent — free-only stack.
+
+All external I/O is mocked:
+- google.genai (Gemini Flash free tier)
+- pyautogui, subprocess, PIL, browser_use
+No real screen, API calls, or file writes happen.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+import types
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+
+# ── Make PIL.Image.open usable in tests ──────────────────────────────────────
+
+_fake_img = MagicMock()
+_fake_img.resize.return_value = _fake_img
+_fake_img.save = MagicMock()
+sys.modules["PIL"].Image.open = MagicMock(return_value=_fake_img)
+sys.modules["PIL"].Image.LANCZOS = 1
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _make_gemini_response(action_dict: dict) -> MagicMock:
+    resp = MagicMock()
+    resp.text = json.dumps(action_dict)
+    return resp
+
+
+def _nav_agent():
+    """Import NavAgent fresh (conftest already mocked google.genai)."""
+    # clear cached module so each test group can reload cleanly
+    for key in list(sys.modules):
+        if key.startswith("src.agents.nav_agent"):
+            del sys.modules[key]
+    from src.agents.nav_agent import NavAgent
+    agent = NavAgent()
+    # Trigger lazy client creation so agent._gemini is a MagicMock (from conftest
+    # mock of genai.Client) and tests can do agent._gemini.models.generate_content = ...
+    agent._get_gemini_client()
+    return agent
+
+
+# ── Routing ───────────────────────────────────────────────────────────────────
+
+class TestRouting:
+    def test_browser_task_detected(self):
+        from src.agents.nav_agent import NavAgent
+        assert NavAgent._is_browser_task("open gmail and find the latest email") is True
+        assert NavAgent._is_browser_task("go to github.com and create an issue") is True
+        assert NavAgent._is_browser_task("search on Google for coffee shops") is True
+
+    def test_desktop_task_not_browser(self):
+        from src.agents.nav_agent import NavAgent
+        assert NavAgent._is_browser_task("open Terminal and run ls") is False
+        assert NavAgent._is_browser_task("take a screenshot of Finder") is False
+        assert NavAgent._is_browser_task("open Xcode and build the project") is False
+
+
+# ── HITL gate ─────────────────────────────────────────────────────────────────
+
+class TestHITL:
+    def setup_method(self):
+        from src.agents.nav_agent import NavAgent
+        self.agent = NavAgent()
+
+    def test_write_action_triggers_confirmation(self):
+        assert self.agent._needs_confirmation({"action": "type_text", "text": "send this"}) is True
+        assert self.agent._needs_confirmation({"action": "click", "reason": "submit the form"}) is True
+        assert self.agent._needs_confirmation({"action": "key_press", "text": "delete"}) is True
+        assert self.agent._needs_confirmation({"action": "type_text", "text": "purchase ticket"}) is True
+
+    def test_safe_action_skips_confirmation(self):
+        assert self.agent._needs_confirmation({"action": "click", "x": 100, "y": 200}) is False
+        assert self.agent._needs_confirmation({"action": "scroll", "direction": "down"}) is False
+        assert self.agent._needs_confirmation({"action": "key_press", "text": "cmd+c"}) is False
+
+    def test_action_description_type_text(self):
+        desc = self.agent._action_description({"action": "type_text", "text": "Hello world"})
+        assert "Hello world" in desc
+
+    def test_action_description_key_press(self):
+        desc = self.agent._action_description({"action": "key_press", "text": "cmd+shift+d"})
+        assert "cmd+shift+d" in desc
+
+    def test_action_description_click_coords(self):
+        desc = self.agent._action_description({"action": "click", "x": 42, "y": 84})
+        assert "42" in desc and "84" in desc
+
+
+# ── Desktop vision loop ───────────────────────────────────────────────────────
+
+class TestDesktopLoop:
+    def _patched_run(self, gemini_responses: list[dict]):
+        """Return a NavAgent with mocked perceive + Gemini."""
+        agent = _nav_agent()
+
+        # Mock screencapture and PIL
+        agent._capture_screenshot = MagicMock(return_value=b"fake-png")
+        agent._get_frontmost_app  = MagicMock(return_value="Finder")
+        agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: AXButton[OK]@(640,400)")
+
+        # Skip planning and verification calls — they would otherwise consume
+        # responses from the side_effect list and break loop iteration counts.
+        agent._plan_task = MagicMock(return_value=[])
+        agent._verify_completion = MagicMock(return_value=(True, ""))
+
+        # Mock Gemini response sequence for the vision loop only
+        responses = [_make_gemini_response(r) for r in gemini_responses]
+        agent._gemini.models.generate_content = MagicMock(side_effect=responses)
+
+        return agent
+
+    @pytest.mark.asyncio
+    async def test_done_on_first_action(self):
+        agent = self._patched_run([
+            {"action": "done", "result": "Opened Finder."},
+        ])
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("open Finder", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "done"
+        assert "Finder" in result.result
+
+    @pytest.mark.asyncio
+    async def test_click_then_done(self):
+        agent = self._patched_run([
+            {"action": "click", "x": 100, "y": 200, "reason": "click Finder icon"},
+            {"action": "done", "result": "Task done."},
+        ])
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("click Finder", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "done"
+        assert len(result.steps) == 1
+
+    @pytest.mark.asyncio
+    async def test_hitl_blocks_write_action(self):
+        """HITL callback rejecting a write action → hitl_paused status."""
+        agent = self._patched_run([
+            {"action": "type_text", "text": "send email now", "reason": "send it"},
+        ])
+
+        async def reject(_): return False
+
+        with patch("pyautogui.write"), patch("subprocess.run"):
+            result = await agent._run_desktop("send email", "", hitl_callback=reject,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "hitl_paused"
+
+    @pytest.mark.asyncio
+    async def test_hitl_approved_continues(self):
+        """HITL callback approving → execution continues."""
+        agent = self._patched_run([
+            {"action": "type_text", "text": "send email now", "reason": "send it"},
+            {"action": "done", "result": "Email sent."},
+        ])
+
+        async def approve(_): return True
+
+        with patch("pyautogui.write"), patch("subprocess.run"):
+            result = await agent._run_desktop("send email", "", hitl_callback=approve,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "done"
+
+    @pytest.mark.asyncio
+    async def test_max_iter_guard(self):
+        """Returns max_iter after hitting iteration cap."""
+        # Always return a safe action — never done
+        responses = [{"action": "scroll", "direction": "down", "amount": 3}] * 25
+        agent = self._patched_run(responses)
+
+        # Patch NAV_MAX_ITER to 3 so the test is fast
+        with patch("src.agents.nav_agent._NAV_MAX_ITER", 3), \
+             patch("pyautogui.scroll"), patch("subprocess.run"):
+            result = await agent._run_desktop("scroll forever", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "max_iter"
+
+    @pytest.mark.asyncio
+    async def test_read_clipboard_action_returns_content(self):
+        """read_clipboard action runs pbpaste and returns its stdout."""
+        agent = self._patched_run([
+            {"action": "read_clipboard", "reason": "capture copied text"},
+            {"action": "done", "result": "Got email: user@example.com"},
+        ])
+        fake_pbpaste = MagicMock()
+        fake_pbpaste.stdout = "user@example.com"
+        with patch("pyautogui.click"), \
+             patch("subprocess.run", return_value=fake_pbpaste):
+            result = await agent._run_desktop("get email from screen", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "done"
+        clipboard_step = result.steps[0]
+        assert "user@example.com" in clipboard_step["outcome"]
+
+    @pytest.mark.asyncio
+    async def test_gemini_error_returns_error_status(self):
+        agent = _nav_agent()
+        agent._capture_screenshot = MagicMock(return_value=b"fake-png")
+        agent._get_frontmost_app  = MagicMock(return_value="Safari")
+        agent._get_ax_summary     = MagicMock(return_value="")
+        agent._gemini.models.generate_content = MagicMock(side_effect=RuntimeError("API down"))
+
+        result = await agent._run_desktop("do something", "", hitl_callback=None,
+                                          first_person_frame=None, robot_camera_frame=None,
+                                          record=False)
+        assert result.status == "error"
+        assert "API down" in result.result
+
+
+# ── Browser path ──────────────────────────────────────────────────────────────
+
+class TestBrowserPath:
+    @pytest.mark.asyncio
+    async def test_browser_use_unavailable_falls_back(self):
+        """If browser-use is not installed, falls back to desktop vision path."""
+        agent = _nav_agent()
+        agent._capture_screenshot = MagicMock(return_value=b"fake-png")
+        agent._get_frontmost_app  = MagicMock(return_value="Chrome")
+        agent._get_ax_tree        = MagicMock(return_value="App: Chrome | AX elements: none")
+        agent._gemini.models.generate_content = MagicMock(
+            return_value=_make_gemini_response({"action": "done", "result": "Found it."})
+        )
+
+        # Force ImportError inside _run_browser by removing browser_use mock
+        with patch.dict(sys.modules, {"browser_use": None}), \
+             patch("subprocess.run"):
+            result = await agent._run_browser("open gmail", "", None, False)
+
+        # Falls back to desktop path which completes via mocked Gemini
+        assert result.status in ("done", "error", "max_iter")
+
+    @pytest.mark.asyncio
+    async def test_browser_use_success(self):
+        """browser-use Agent.run() returns result → done."""
+        agent = _nav_agent()
+
+        fake_browser_agent = MagicMock()
+        fake_browser_agent.run = AsyncMock(return_value="Email found: hello@example.com")
+
+        fake_bu_module      = MagicMock()
+        fake_bu_module.Agent = MagicMock(return_value=fake_browser_agent)
+
+        with patch.dict(sys.modules, {"browser_use": fake_bu_module,
+                                       "langchain_google_genai": sys.modules["langchain_google_genai"]}):
+            result = await agent._run_browser("check gmail", "user context", None, False)
+
+        assert result.status == "done"
+        assert "Email found" in result.result
+
+
+# ── Phase 23: Adaptive wait ───────────────────────────────────────────────────
+
+class TestStableScreenWait:
+    @pytest.mark.asyncio
+    async def test_returns_immediately_without_cv2(self):
+        """Without OpenCV, returns after a single poll interval."""
+        agent = _nav_agent()
+        frames = [b"frame-A"]
+        agent._capture_screenshot = MagicMock(side_effect=frames)
+
+        with patch("src.agents.nav_agent._CV2_OK", False), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await agent._wait_for_stable_screen()
+
+        assert result == b"frame-A"
+        assert agent._capture_screenshot.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_returns_on_first_stable_pair(self):
+        """With OpenCV, returns as soon as two consecutive frames match."""
+        agent = _nav_agent()
+        # frame-A changes to frame-B, then frame-B stays the same → stable
+        agent._capture_screenshot = MagicMock(side_effect=[b"frame-A", b"frame-B", b"frame-B"])
+        # First call: changing (A→B), second call: stable (B==B)
+        agent._verify_screen_change = MagicMock(side_effect=[True, False])
+
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await agent._wait_for_stable_screen(max_wait=2.0, poll_interval=0.2)
+
+        assert result == b"frame-B"
+        assert agent._capture_screenshot.call_count == 3   # initial + 2 polls
+
+    @pytest.mark.asyncio
+    async def test_returns_last_frame_on_timeout(self):
+        """If screen keeps changing until max_wait, returns the last captured frame."""
+        agent = _nav_agent()
+        # Always changing: A→B→C→D→… — never stable
+        frames = [b"frame-%d" % i for i in range(20)]
+        agent._capture_screenshot = MagicMock(side_effect=frames)
+        agent._verify_screen_change = MagicMock(return_value=True)  # always changing
+
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await agent._wait_for_stable_screen(max_wait=0.4, poll_interval=0.2)
+
+        # Should have polled until 0.4s (2 extra polls after initial) and returned last frame
+        assert result.startswith(b"frame-")
+        assert agent._capture_screenshot.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_integration_replaces_fixed_sleep(self):
+        """The desktop loop no longer calls asyncio.sleep(0.35) directly after execute."""
+        import inspect
+        from src.agents.nav_agent import NavAgent
+        src = inspect.getsource(NavAgent._run_desktop)
+        # The old fixed sleep should be gone; adaptive wait method should be present
+        assert "asyncio.sleep(0.35)" not in src
+        assert "_wait_for_stable_screen" in src
+
+
+# ── LangGraph tool wrapper ────────────────────────────────────────────────────
+
+class TestNavigateComputerTool:
+    @pytest.mark.asyncio
+    async def test_returns_string(self):
+        from src.agents import nav_agent as mod
+
+        async def fake_run(task, context="", *, hitl_callback=None,
+                           first_person_frame=None, robot_camera_frame=None, record=False):
+            from src.agents.nav_agent import NavResult
+            return NavResult(status="done", result="Opened app.", steps=[{}, {}])
+
+        with patch.object(mod._get_agent(), "run", side_effect=fake_run):
+            out = await mod.navigate_computer("open Finder")
+        assert isinstance(out, str)
+        assert "done" in out
+        assert "2 steps" in out
+
+
+# ── Phase 2: coordinate scaling ───────────────────────────────────────────────
+
+class TestCoordinateScaling:
+    def test_to_screen_identity_when_scale_is_one(self):
+        """When scale=(1,1), screenshot coords == screen coords."""
+        from src.agents.nav_agent import _to_screen
+        with patch("src.agents.nav_agent._scale_cache", (1.0, 1.0)):
+            assert _to_screen(640, 400) == (640, 400)
+
+    def test_to_screen_scales_down_for_retina(self):
+        """For a 1512×982 logical screen, scale=(1280/1512, 800/982)."""
+        from src.agents.nav_agent import _to_screen
+        sx = 1280 / 1512
+        sy = 800  / 982
+        with patch("src.agents.nav_agent._scale_cache", (sx, sy)):
+            x, y = _to_screen(640, 400)
+            # 640 / (1280/1512) = 640 * 1512/1280 = 756
+            assert x == 756
+            assert y == int(400 / sy)
+
+    def test_get_scale_uses_pyautogui_size(self):
+        """_get_scale() reads pyautogui.size() and caches the result."""
+        import src.agents.nav_agent as mod
+        import pyautogui
+        original = mod._scale_cache
+        mod._scale_cache = None   # force recompute
+        try:
+            pyautogui.size = MagicMock(return_value=(1512, 982))
+            sx, sy = mod._get_scale()
+            assert abs(sx - 1280/1512) < 0.001
+            assert abs(sy - 800/982)   < 0.001
+        finally:
+            mod._scale_cache = original
+
+
+# ── Phase 2: OpenCV verification ──────────────────────────────────────────────
+
+class TestScreenVerification:
+    def test_verify_returns_true_when_cv2_unavailable(self):
+        """When OpenCV is not installed, verification always returns True (safe default)."""
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        with patch("src.agents.nav_agent._CV2_OK", False):
+            assert agent._verify_screen_change(b"before", b"after") is True
+
+    def test_verify_true_on_different_frames(self):
+        """Two different byte arrays → changed=True (mocked cv2)."""
+        import src.agents.nav_agent as mod
+        agent = mod.NavAgent()
+        # Make cv2 available in the module with a diff that exceeds threshold
+        fake_diff = MagicMock()
+        fake_diff.mean.return_value = 5.0   # > 0.5 threshold
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("src.agents.nav_agent._cv2") as mock_cv2, \
+             patch("src.agents.nav_agent._np") as mock_np:
+            mock_np.frombuffer.return_value = b"data"
+            mock_cv2.imdecode.return_value = MagicMock()
+            mock_cv2.absdiff.return_value = fake_diff
+            assert agent._verify_screen_change(b"A", b"B") is True
+
+    def test_verify_false_on_identical_frames(self):
+        """Same frame → changed=False."""
+        import src.agents.nav_agent as mod
+        agent = mod.NavAgent()
+        fake_diff = MagicMock()
+        fake_diff.mean.return_value = 0.0   # no change
+        with patch("src.agents.nav_agent._CV2_OK", True), \
+             patch("src.agents.nav_agent._cv2") as mock_cv2, \
+             patch("src.agents.nav_agent._np") as mock_np:
+            mock_np.frombuffer.return_value = b"data"
+            mock_cv2.imdecode.return_value = MagicMock()
+            mock_cv2.absdiff.return_value = fake_diff
+            assert agent._verify_screen_change(b"A", b"A") is False
+
+
+# ── Phase 2: AX tree fallback ─────────────────────────────────────────────────
+
+class TestAXTree:
+    def test_falls_back_to_applescript_when_pyobjc_unavailable(self):
+        """When _PYOBJC_OK is False, _get_ax_tree calls the AppleScript path."""
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        agent._applescript_ax_summary = MagicMock(return_value="App: Finder | Focused: none")
+        with patch("src.agents.nav_agent._PYOBJC_OK", False):
+            result = agent._get_ax_tree("Finder")
+        agent._applescript_ax_summary.assert_called_once_with("Finder")
+        assert "Finder" in result
+
+    def test_falls_back_on_pyobjc_exception(self):
+        """If pyobjc AX walk raises, falls back to AppleScript."""
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        agent._pyobjc_ax_tree = MagicMock(side_effect=RuntimeError("AX denied"))
+        agent._applescript_ax_summary = MagicMock(return_value="fallback")
+        with patch("src.agents.nav_agent._PYOBJC_OK", True):
+            result = agent._get_ax_tree("Terminal")
+        assert result == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_unchanged_screen_adds_warning_to_history(self):
+        """When screen doesn't change after a click, outcome contains [WARNING]."""
+        agent = _nav_agent()
+        agent._capture_screenshot = MagicMock(return_value=b"same-bytes")
+        agent._get_frontmost_app  = MagicMock(return_value="Finder")
+        agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: none")
+        agent._verify_screen_change = MagicMock(return_value=False)  # no change
+        agent._plan_task = MagicMock(return_value=[])              # don't consume loop responses
+        agent._verify_completion = MagicMock(return_value=(True, ""))  # don't consume loop responses
+        agent._gemini.models.generate_content = MagicMock(side_effect=[
+            _make_gemini_response({"action": "click", "x": 100, "y": 100, "reason": "click item"}),
+            _make_gemini_response({"action": "done", "result": "Done."}),
+        ])
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("click Finder item", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+        assert result.status == "done"
+        click_step = result.steps[0]
+        assert "WARNING" in click_step["outcome"]
+        assert click_step["screen_changed"] is False
+
+
+# ── Phase 21: Modal dialog detection ─────────────────────────────────────────
+
+class TestDialogDetection:
+    def _make_ax_sheet(self, title: str, button_labels: list[str]) -> tuple:
+        """Helper: return (app_elem, window, sheet, buttons) mocks wired for _detect_modal_dialog."""
+        buttons = []
+        for lbl in button_labels:
+            btn = MagicMock()
+            btn._role = "AXButton"
+            btn._title = lbl
+            btn._children = []
+            buttons.append(btn)
+
+        sheet = MagicMock()
+        sheet._role = "AXSheet"
+        sheet._title = title
+        sheet._children = buttons
+
+        window = MagicMock()
+        window._role = "AXWindow"
+        window._children = [sheet]
+
+        app_elem = MagicMock()
+        app_elem._windows = [window]
+
+        def mock_ax_attr(elem, attr):
+            if elem is app_elem and attr == "AXWindows":
+                return getattr(elem, "_windows", [])
+            if attr == "AXRole":
+                return getattr(elem, "_role", None)
+            if attr == "AXTitle":
+                return getattr(elem, "_title", None)
+            if attr == "AXDescription":
+                return None
+            if attr == "AXChildren":
+                return getattr(elem, "_children", [])
+            return None
+
+        return app_elem, mock_ax_attr
+
+    def test_detects_ax_sheet_with_buttons(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        app_elem, mock_ax_attr = self._make_ax_sheet("Allow Access?", ["Allow", "Deny"])
+        agent._ax_attr = MagicMock(side_effect=mock_ax_attr)
+
+        result = agent._detect_modal_dialog(app_elem)
+
+        assert "MODAL DIALOG" in result
+        assert "Allow Access?" in result
+        assert "Allow" in result
+        assert "Deny" in result
+
+    def test_dialog_warning_prepended_to_ax_context(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        app_elem, mock_ax_attr = self._make_ax_sheet("Delete file?", ["OK", "Cancel"])
+        agent._ax_attr = MagicMock(side_effect=mock_ax_attr)
+
+        warning = agent._detect_modal_dialog(app_elem)
+        assert warning.startswith("MODAL DIALOG")
+        # Simulating what _pyobjc_ax_tree does with the warning
+        context = f"⚠️ {warning} | App: Finder | AX elements: AXButton[Open]@(640,400)"
+        assert context.startswith("⚠️ MODAL DIALOG")
+        assert "OK" in context and "Cancel" in context
+
+    def test_returns_empty_when_no_dialog(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+
+        window = MagicMock()
+        app_elem = MagicMock()
+
+        def mock_ax_attr(elem, attr):
+            if elem is app_elem and attr == "AXWindows":
+                return [window]
+            if elem is window and attr == "AXRole":
+                return "AXWindow"
+            if elem is window and attr == "AXChildren":
+                return []
+            return None
+
+        agent._ax_attr = MagicMock(side_effect=mock_ax_attr)
+        result = agent._detect_modal_dialog(app_elem)
+        assert result == ""
+
+    def test_returns_empty_on_exception(self):
+        from src.agents.nav_agent import NavAgent
+        agent = NavAgent()
+        agent._ax_attr = MagicMock(side_effect=RuntimeError("AX denied"))
+        result = agent._detect_modal_dialog(MagicMock())
+        assert result == ""
+
+
+# ── Phase 22: Post-task verification ─────────────────────────────────────────
+
+class TestVerification:
+    def test_verify_completion_returns_true_on_success(self):
+        """When Gemini says verified=true, _verify_completion returns (True, note)."""
+        agent = _nav_agent()
+        resp = MagicMock()
+        resp.text = '{"verified": true, "note": "Email was sent successfully."}'
+        agent._gemini.models.generate_content = MagicMock(return_value=resp)
+
+        ok, note = agent._verify_completion("send email", "Email sent.", b"fake-png")
+        assert ok is True
+        assert "sent" in note
+
+    def test_verify_completion_returns_false_on_failure(self):
+        """When Gemini says verified=false, _verify_completion returns (False, note)."""
+        agent = _nav_agent()
+        resp = MagicMock()
+        resp.text = '{"verified": false, "note": "Error dialog visible, email not sent."}'
+        agent._gemini.models.generate_content = MagicMock(return_value=resp)
+
+        ok, note = agent._verify_completion("send email", "Email sent.", b"fake-png")
+        assert ok is False
+        assert "Error" in note
+
+    def test_verify_completion_fails_open_on_api_error(self):
+        """If the Gemini call raises, verification returns (True, '') — never blocks."""
+        agent = _nav_agent()
+        agent._gemini.models.generate_content = MagicMock(
+            side_effect=RuntimeError("API down")
+        )
+        ok, note = agent._verify_completion("task", "done", b"fake-png")
+        assert ok is True
+        assert note == ""
+
+    @pytest.mark.asyncio
+    async def test_failed_verification_retries_loop(self):
+        """When verification fails, the agent is sent back into the loop (max 2 retries)."""
+        agent = self._setup_agent([
+            # iter 0: agent says done
+            {"action": "done", "result": "File deleted."},
+            # iter 1: agent sent back — tries again and says done again
+            {"action": "done", "result": "File deleted."},
+            # iter 2: third done attempt — after 2 retries we accept regardless
+            {"action": "done", "result": "File deleted."},
+        ])
+        # Verification always fails
+        agent._verify_completion = MagicMock(return_value=(False, "File still visible."))
+
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("delete file", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+
+        # After 2 retries verification gives up and returns done with verified=False
+        assert result.status == "done"
+        assert result.verified is False
+
+    @pytest.mark.asyncio
+    async def test_verified_result_sets_verified_true(self):
+        """Successful verification sets NavResult.verified=True."""
+        agent = self._setup_agent([{"action": "done", "result": "Done."}])
+        agent._verify_completion = MagicMock(return_value=(True, "Looks good."))
+
+        with patch("pyautogui.click"), patch("subprocess.run"):
+            result = await agent._run_desktop("open Finder", "", hitl_callback=None,
+                                              first_person_frame=None, robot_camera_frame=None,
+                                              record=False)
+
+        assert result.status == "done"
+        assert result.verified is True
+
+    def _setup_agent(self, gemini_responses: list[dict]):
+        """Like _patched_run but does NOT mock _verify_completion (tests control it)."""
+        agent = _nav_agent()
+        agent._capture_screenshot = MagicMock(return_value=b"fake-png")
+        agent._get_frontmost_app  = MagicMock(return_value="Finder")
+        agent._get_ax_tree        = MagicMock(return_value="App: Finder | AX elements: none")
+        agent._plan_task          = MagicMock(return_value=[])
+        responses = [_make_gemini_response(r) for r in gemini_responses]
+        agent._gemini.models.generate_content = MagicMock(side_effect=responses)
+        return agent

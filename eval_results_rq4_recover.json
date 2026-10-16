@@ -1,0 +1,207 @@
+{
+  "model": "UI-TARS",
+  "ax_mode": "both",
+  "verify_mode": "two_stage",
+  "stuck_mode": "recover",
+  "vtcr": 0.8,
+  "total": 10,
+  "vtcr_by_horizon": {
+    "1_3": 0.8
+  },
+  "error_categories": {
+    "model_api": 2
+  },
+  "total_tokens": 0,
+  "results": [
+    {
+      "id": "launch_calculator",
+      "task": "Open the Calculator app.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 276.7,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_finder",
+      "task": "Open a new Finder window.",
+      "tags": [
+        "app_launch",
+        "finder"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 248.6,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_notes",
+      "task": "Open the Notes app.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 276.6,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_terminal",
+      "task": "Open the Terminal app.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 251.6,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_safari",
+      "task": "Open Safari.",
+      "tags": [
+        "app_launch",
+        "browser"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 268.3,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_activity_monitor",
+      "task": "Open Activity Monitor.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 299.4,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "goto_desktop",
+      "task": "Show the desktop by hiding all open windows.",
+      "tags": [
+        "os_action",
+        "show_desktop"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 1,
+      "status": "done",
+      "verified": true,
+      "steps": 1,
+      "duration": 17.8,
+      "result": "\u684c\u9762\u5df2\u7ecf\u663e\u793a\u51fa\u6765\u4e86\uff0c\u6240\u6709\u7a97\u53e3\u90fd\u9690\u85cf\u4e86\u3002",
+      "error_cat": ""
+    },
+    {
+      "id": "read_clipboard",
+      "task": "Read whatever text is currently on the clipboard and report it.",
+      "tags": [
+        "clipboard",
+        "read"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 252.5,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "spotlight_search",
+      "task": "Use Spotlight to search for 'Terminal' and report the top result.",
+      "tags": [
+        "spotlight",
+        "search"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "timeout",
+      "verified": false,
+      "steps": 18,
+      "duration": 301.4,
+      "result": "Timed out after 300s (18 steps done)",
+      "error_cat": "model_api"
+    },
+    {
+      "id": "spotlight_math",
+      "task": "Use Spotlight to calculate 47 multiplied by 23 and report the result.",
+      "tags": [
+        "spotlight",
+        "math"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "timeout",
+      "verified": false,
+      "steps": 17,
+      "duration": 301.4,
+      "result": "Timed out after 300s (17 steps done)",
+      "error_cat": "model_api"
+    }
+  ]
+}

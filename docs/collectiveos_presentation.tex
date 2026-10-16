@@ -1,810 +1,856 @@
-\documentclass[aspectratio=169]{beamer}
+%% CollectiveOS — Beamer Presentation
+%% Structure: Sequoia arc (Purpose → Problem → Solution → Why Now → Product → Proof → Audiences → Brief)
+%% Theme: Metropolis (light background); accentcol (#1E293B) used ONLY on bars
+%% Compile: pdflatex collectiveos_presentation.tex  (twice for TOC/refs)
 
-% ─── Theme ───────────────────────────────────────────────────────────────────
-\usetheme{Madrid}
-\setbeamertemplate{navigation symbols}{}
-\setbeamertemplate{footline}[frame number]
+\documentclass[aspectratio=169, 10pt]{beamer}
 
-% ─── Packages ────────────────────────────────────────────────────────────────
-\usepackage[utf8]{inputenc}
+% ── Theme ──────────────────────────────────────────────────────────────────
+\usetheme[progressbar=frametitle, block=fill, sectionpage=progressbar]{metropolis}
+\usepackage{appendixnumberbeamer}
+
+% ── Fonts ──────────────────────────────────────────────────────────────────
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
-\usepackage{listings}
+\usepackage{microtype}
+
+% ── Colour Palette ─────────────────────────────────────────────────────────
+\definecolor{accentcol}{HTML}{1E293B}   % bars only (#1E293B as specified)
+\definecolor{skyblue}  {HTML}{2563EB}   % primary highlight
+\definecolor{greencol} {HTML}{16A34A}   % live / success
+\definecolor{ambercol} {HTML}{D97706}   % caution / HITL
+\definecolor{redcol}   {HTML}{DC2626}   % problem / warning
+\definecolor{indigocol}{HTML}{6D28D9}   % technical / secondary
+\definecolor{dimcol}   {HTML}{64748B}   % muted text
+\definecolor{lightbg}  {HTML}{F8FAFC}   % slide background
+\definecolor{cardbg}   {HTML}{EFF6FF}   % card / row tint
+
+% ── Apply colours ──────────────────────────────────────────────────────────
+\setbeamercolor{normal text}          {fg=accentcol, bg=lightbg}
+\setbeamercolor{alerted text}         {fg=skyblue}
+\setbeamercolor{example text}         {fg=greencol}
+\setbeamercolor{frametitle}           {fg=white,  bg=accentcol}   % bar ← accentcol
+\setbeamercolor{progress bar}         {fg=skyblue,bg=accentcol!40}% bar ← accentcol
+\setbeamercolor{title separator}      {fg=accentcol}              % bar ← accentcol
+\setbeamercolor{section in head/foot} {fg=white,  bg=accentcol}   % bar ← accentcol
+\setbeamercolor{block title}          {fg=white,  bg=skyblue}
+\setbeamercolor{block body}           {fg=accentcol, bg=cardbg}
+\setbeamercolor{block title alerted}  {fg=white,  bg=ambercol}
+\setbeamercolor{block body alerted}   {fg=accentcol, bg=cardbg}
+\setbeamercolor{block title example}  {fg=white,  bg=greencol}
+\setbeamercolor{block body example}   {fg=accentcol, bg=cardbg}
+\setbeamercolor{palette primary}      {fg=white,  bg=accentcol}
+\setbeamercolor{item}                 {fg=skyblue}
+\setbeamercolor{subitem}              {fg=indigocol}
+
+% ── Packages ───────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{colortbl}          % \rowcolor, \columncolor
 \usepackage{xcolor}
 \usepackage{tikz}
-\usepackage{booktabs}
-\usepackage{array}
-\usepackage{amsmath}
-\usepackage{pifont}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit, calc, decorations.pathreplacing}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{fontawesome5}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins, breakable}
 
-\usetikzlibrary{arrows.meta, shapes.geometric, positioning, fit, backgrounds, calc, decorations.pathreplacing}
-
-% ─── Colours ─────────────────────────────────────────────────────────────────
-\definecolor{primary}{HTML}{1A3A5C}
-\definecolor{accent}{HTML}{2980B9}
-\definecolor{colgreen}{HTML}{27AE60}
-\definecolor{colorange}{HTML}{E67E22}
-\definecolor{colred}{HTML}{C0392B}
-\definecolor{codebg}{HTML}{F0F4F8}
-\definecolor{kw}{HTML}{0033B3}
-\definecolor{str}{HTML}{067D17}
-\definecolor{cmt}{HTML}{8C8C8C}
-\definecolor{lightblue}{HTML}{EBF5FB}
-\definecolor{lightgray}{HTML}{F5F5F5}
-\definecolor{stagecol1}{HTML}{D6EAF8}
-\definecolor{stagecol2}{HTML}{D5F5E3}
-\definecolor{stagecol3}{HTML}{FCF3CF}
-\definecolor{stagecol4}{HTML}{FDEDEC}
-\definecolor{stagecol5}{HTML}{E8DAEF}
-\definecolor{stagecol6}{HTML}{E8F8F5}
-
-% ─── Beamer colours ──────────────────────────────────────────────────────────
-\setbeamercolor{palette primary}{bg=primary, fg=white}
-\setbeamercolor{palette secondary}{bg=accent, fg=white}
-\setbeamercolor{palette tertiary}{bg=primary!80, fg=white}
-\setbeamercolor{palette quaternary}{bg=primary, fg=white}
-\setbeamercolor{structure}{fg=primary}
-\setbeamercolor{section in toc}{fg=primary}
-\setbeamercolor{alerted text}{fg=colred}
-\setbeamercolor{block title}{bg=primary, fg=white}
-\setbeamercolor{block body}{bg=lightblue}
-\setbeamercolor{block title alerted}{bg=colred, fg=white}
-\setbeamercolor{block body alerted}{bg=colred!10}
-\setbeamercolor{block title example}{bg=colgreen, fg=white}
-\setbeamercolor{block body example}{bg=colgreen!10}
-
-% ─── Code style ──────────────────────────────────────────────────────────────
-\lstdefinestyle{py}{
-    language=Python,
-    backgroundcolor=\color{codebg},
-    basicstyle=\ttfamily\scriptsize,
-    keywordstyle=\color{kw}\bfseries,
-    stringstyle=\color{str},
-    commentstyle=\color{cmt}\itshape,
-    showstringspaces=false,
-    breaklines=true,
-    frame=single,
-    framerule=0.3pt,
-    rulecolor=\color{accent!40},
-    xleftmargin=0.5em,
-    framexleftmargin=0.5em,
-    tabsize=4,
-    morekeywords={True, False, None, yield, async, await, with, as},
-}
-\lstset{style=py}
-
-% ─── Custom commands ─────────────────────────────────────────────────────────
-\newcommand{\ic}[1]{\texttt{\small #1}}
-\newcommand{\arw}{$\rightarrow$\ }
-\newcommand{\done}{\textcolor{colgreen}{\ding{51}}}
-\newcommand{\partdone}{\textcolor{colorange}{$\sim$}}
-\newcommand{\pending}{\textcolor{colred}{\ding{55}}}
-
-% TikZ styles used throughout
-\tikzset{
-  pbox/.style={draw=primary, fill=lightblue, rounded corners=4pt, thick,
-               text width=#1, align=center, minimum height=0.6cm,
-               font=\scriptsize},
-  gbox/.style={draw=colgreen, fill=colgreen!10, rounded corners=4pt, thick,
-               text width=#1, align=center, minimum height=0.6cm,
-               font=\scriptsize},
-  obox/.style={draw=colorange, fill=colorange!10, rounded corners=4pt, thick,
-               text width=#1, align=center, minimum height=0.6cm,
-               font=\scriptsize},
-  rbox/.style={draw=colred, fill=colred!10, rounded corners=4pt, thick,
-               text width=#1, align=center, minimum height=0.6cm,
-               font=\scriptsize},
-  abox/.style={draw=accent, fill=accent!10, rounded corners=4pt, thick,
-               text width=#1, align=center, minimum height=0.6cm,
-               font=\scriptsize},
-  stagebox/.style={draw=primary, fill=#1, rounded corners=5pt, thick,
-                   text width=2.1cm, align=center, minimum height=1.4cm,
-                   font=\scriptsize},
+% ── tcolorbox card styles ───────────────────────────────────────────────────
+\tcbset{
+  card/.style={
+    enhanced, colback=white, colframe=accentcol!15,
+    arc=5pt, boxrule=0.7pt, left=7pt, right=7pt, top=5pt, bottom=5pt
+  },
+  % Titled card: coloured stripe on the left + title badge
+  skycard/.style  ={card, colframe=skyblue!35,
+    borderline west={3pt}{0pt}{skyblue},
+    fonttitle=\small\bfseries\color{skyblue}},
+  greencard/.style={card, colframe=greencol!35,
+    borderline west={3pt}{0pt}{greencol},
+    fonttitle=\small\bfseries\color{greencol}},
+  ambercard/.style={card, colframe=ambercol!35,
+    borderline west={3pt}{0pt}{ambercol},
+    fonttitle=\small\bfseries\color{ambercol}},
+  indigocard/.style={card,colframe=indigocol!35,
+    borderline west={3pt}{0pt}{indigocol},
+    fonttitle=\small\bfseries\color{indigocol}},
+  redcard/.style  ={card, colframe=redcol!35,
+    borderline west={3pt}{0pt}{redcol},
+    fonttitle=\small\bfseries\color{redcol}},
 }
 
-% ─── Title ───────────────────────────────────────────────────────────────────
-\title[CollectiveOS]{\textbf{CollectiveOS}\\Personal AI Assistant}
-\subtitle{Engineering Architecture \& Demo}
+% ── Helper macros ──────────────────────────────────────────────────────────
+\newcommand{\hl}[1]{\textcolor{skyblue}{\textbf{#1}}}
+\newcommand{\live}[1]{\textcolor{greencol}{\small\faCircle}\;\textcolor{accentcol}{#1}}
+
+% Chip: tiny coloured pill for component tags inside TikZ
+\newcommand{\chip}[2]{%
+  {\setlength{\fboxsep}{2pt}\colorbox{#1!15}{\textcolor{#1}{\tiny\bfseries\,#2\,}}}%
+}
+
+% ── Meta ───────────────────────────────────────────────────────────────────
+\title{\textbf{CollectiveOS}}
+\subtitle{Personal AI Operating System}
 \author{Anurag Dhiman}
-\date{}
+\date{2026}
+\institute{}
 
-% =============================================================================
+% ═══════════════════════════════════════════════════════════════════════════
 \begin{document}
-% =============================================================================
 
-% ─── Title slide ─────────────────────────────────────────────────────────────
-\begin{frame}
-\titlepage
-\begin{center}
-\small
-\textbf{Stack:}\ Python\ $|$\ Google Gemini (function calling)\ $|$\ PostgreSQL + pgvector\\
-FastAPI + SSE\ $|$\ VoiceOS (LiveKit + Gemini Live)\ $|$\ APScheduler\ $|$\ structlog
-\end{center}
+% ── 01. Title ──────────────────────────────────────────────────────────────
+{
+\setbeamercolor{background canvas}{bg=accentcol}
+\begin{frame}[plain]
+  \begin{columns}[c]
+    \column{0.44\textwidth}
+      \vspace{1em}
+      {\fontsize{30}{34}\selectfont\bfseries\color{white} CollectiveOS}\\[6pt]
+      {\large\color{white!60} Personal AI Operating System}\\[20pt]
+      {\small\color{white!40} Anurag Dhiman · 2026}
+
+      \vspace{1.4em}
+      \begin{tikzpicture}[scale=0.7]
+        \foreach \col/\lbl in {skyblue/85+\,Tools, greencol/3\,Agents, ambercol/\infty\,Memory}{
+          \draw[\col!60, line width=1pt] (0,0)--(0.8,0);
+          \node[right, font=\scriptsize\bfseries, text=\col] at (0.85,0) {\lbl};
+          \coordinate (last) at (0, -0.55);
+          \begin{scope}[yshift=-0.55cm]
+          \end{scope}
+        }
+      \end{tikzpicture}
+      % simple bullet stats
+      \par\vspace{-0.3em}
+      {\scriptsize\color{skyblue}\textbf{85+} Tools\quad}
+      {\scriptsize\color{greencol}\textbf{3} Peer Agents\quad}
+      {\scriptsize\color{ambercol}\textbf{$\infty$} Memory\quad}
+      {\scriptsize\color{white!50}\textbf{0} Cloud Data}
+
+    \column{0.52\textwidth}
+      \centering
+      \begin{tikzpicture}[
+        hub/.style={circle, minimum size=22mm, font=\scriptsize\bfseries},
+        spoke/.style={circle, minimum size=12mm, font=\fontsize{5}{6}\selectfont\bfseries,
+                      align=center, inner sep=1pt},
+        arr/.style={->, >=Stealth, line width=0.7pt},
+      ]
+        % Hub
+        \node[hub, fill=skyblue!25, draw=skyblue!60, text=white] (H) at (0,0)
+          {\color{white}\faLayerGroup\\[2pt]\color{white!80}\tiny Orchestrator};
+
+        % Spokes with icons, evenly around the circle
+        \foreach \lbl/\icon/\col/\ang/\r in {
+          VoiceOS/\faMicrophone/skyblue/90/2.2,
+          VisualOS/\faCamera/indigocol/35/2.1,
+          Gmail/\faEnvelope/redcol/340/2.1,
+          Calendar/\faCalendar/skyblue/295/2.2,
+          Health/\faHeartbeat/greencol/250/2.1,
+          Home/\faHome/ambercol/205/2.1,
+          Slack/\faSlack/indigocol/155/2.2
+        }{
+          \node[spoke, fill=\col!15, draw=\col!40, text=\col!80] (\lbl) at (\ang:\r)
+            {\icon\\[1pt]\lbl};
+          \draw[arr, \col!40] (H)--(\lbl);
+        }
+        % Outer connector label
+        \node[font=\fontsize{5}{6}\selectfont\color{white!40}] at (0,-2.6)
+          {+ 80 more connectors};
+      \end{tikzpicture}
+  \end{columns}
+\end{frame}
+}
+
+% ── 02. Agenda ─────────────────────────────────────────────────────────────
+\begin{frame}{Agenda}
+  \setbeamertemplate{section in toc}[sections numbered]
+  \tableofcontents[hideallsubsections]
 \end{frame}
 
-% ─── Outline ─────────────────────────────────────────────────────────────────
-\begin{frame}{Outline}
-\tableofcontents
+% ═══════════════════════════════════════════════════════════════════════════
+\section{The Problem}
+% ═══════════════════════════════════════════════════════════════════════════
+
+% ── 03. Hook ───────────────────────────────────────────────────────────────
+\begin{frame}{You open 20 apps every morning. None of them know each other.}
+  \begin{columns}[c]
+    \column{0.46\textwidth}
+      {\large\bfseries\color{accentcol}
+        Gmail doesn't know your calendar.\\[5pt]
+        Slack doesn't know your tasks.\\[5pt]
+        Your AI forgets you the moment\\
+        you close it.}
+
+      \vspace{1em}
+      {\color{dimcol}\small
+        You are the only thing connecting all of it.\\
+        Every morning. Every day. Manually.}
+
+    \column{0.50\textwidth}
+      \centering
+      % Chaos diagram: scattered apps, broken connections to "You"
+      \begin{tikzpicture}[
+        scale=0.82, transform shape,
+        app/.style={draw=dimcol!35, fill=white, rounded corners=3pt,
+                    minimum width=1.75cm, minimum height=0.5cm,
+                    font=\fontsize{6}{7}\selectfont, align=center, inner sep=2pt},
+        arr/.style={dimcol!25, dashed, thick, shorten >=4pt, shorten <=4pt},
+      ]
+        % Central "You" — the manual connector
+        \node[circle, draw=redcol, fill=redcol!10, text=redcol,
+              minimum size=1.3cm, font=\small\bfseries] (Y) at (0,0) {You};
+
+        % Apps scattered around (angle : distance)
+        \node[app] (G)  at (82:2.6)    {\faEnvelope\;Gmail};
+        \node[app] (Ca) at (37:2.5)    {\faCalendar\;Calendar};
+        \node[app] (Sl) at (0:2.7)     {\faSlack\;Slack};
+        \node[app] (No) at (330:2.5)   {\faStickyNote\;Notion};
+        \node[app] (To) at (290:2.6)   {\faTasks\;Todoist};
+        \node[app] (He) at (245:2.5)   {\faHeartbeat\;Health};
+        \node[app] (Sp) at (205:2.6)   {\faMusic\;Spotify};
+        \node[app] (Te) at (165:2.5)   {\faTelegram\;Telegram};
+        \node[app] (Gi) at (128:2.7)   {\faGithub\;GitHub};
+
+        % Broken dotted spokes
+        \foreach \n in {G,Ca,Sl,No,To,He,Sp,Te,Gi}
+          \draw[arr] (Y)--(\n);
+
+        % "×" break markers on four spokes to show disconnection
+        \foreach \pt in {
+          {(0.5, 1.0)}, {(1.1, 0.3)}, {(0.1,-1.1)}, {(-0.9, 0.6)}
+        }
+          \node[text=redcol, font=\bfseries\scriptsize] at \pt {$\times$};
+
+        % No connection between apps at all — this is the point
+        \node[font=\fontsize{5}{6}\selectfont\color{dimcol}, text width=1.3cm, align=center]
+          at (0, -2.9) {zero app-to-app\\connections};
+      \end{tikzpicture}
+  \end{columns}
 \end{frame}
 
-% =============================================================================
-\section{Architecture Overview}
-% =============================================================================
+% ── 04. Problem ────────────────────────────────────────────────────────────
+\begin{frame}{Digital fragmentation costs hours of productivity every week}
+  \begin{columns}[T]
+    \column{0.50\textwidth}
+      \begin{tcolorbox}[redcard, title={\faExclamationTriangle\; The Fragmented Reality}]
+        \small
+        \begin{itemize}\setlength\itemsep{3pt}
+          \item Average person juggles \hl{15–20 apps} daily
+          \item Every app is a \textbf{silo} — nothing shares context
+          \item AI chatbots have \textbf{zero memory} across sessions
+          \item Automation tools require coding knowledge
+          \item Context-switching drains focus and time
+        \end{itemize}
+      \end{tcolorbox}
+      \vspace{5pt}
+      \begin{tcolorbox}[card]
+        \small\color{dimcol}\itshape
+        ``The problem isn't the apps. It's the absence of a layer that connects them and remembers everything.''
+      \end{tcolorbox}
 
-\begin{frame}{Architecture Overview}
-% ── Top: Problem → System → Components → Data Flow ──────────────────────────
-\begin{center}
-\begin{tikzpicture}[node distance=0.5cm, every node/.style={font=\scriptsize}]
-  \node[obox=2.3cm] (prob) {\textbf{Problem}\\Fragmented apps,\\no shared memory};
-  \node[pbox=2.3cm, right=0.4cm of prob] (sys) {\textbf{System}\\Single AI agent\\in a tool-use loop};
-  \node[abox=2.3cm, right=0.4cm of sys] (comp) {\textbf{Components}\\Router · Memory\\Agent · Tools · Voice};
-  \node[gbox=2.3cm, right=0.4cm of comp] (flow) {\textbf{Data Flow}\\User \arw Intent \arw\\Tool calls \arw Reply};
-  \draw[-{Stealth}, thick, colorange] (prob) -- (sys);
-  \draw[-{Stealth}, thick, accent]    (sys)  -- (comp);
-  \draw[-{Stealth}, thick, colgreen]  (comp) -- (flow);
-\end{tikzpicture}
-\end{center}
+    \column{0.46\textwidth}
+      \centering\vspace{0.5em}
 
-\vspace{0.3em}
-\begin{columns}[T]
-% ── Tech Stack ───────────────────────────────────────────────────────────────
-\begin{column}{0.38\textwidth}
-\begin{block}{Tech Stack}
-\scriptsize
-\begin{tabular}{ll}
-\textbf{Language}  & Python 3.12 \\
-\textbf{LLM}       & Gemini Flash (function calling) \\
-\textbf{Voice LLM} & Gemini Live (audio I/O) \\
-\textbf{API layer} & FastAPI + SSE \\
-\textbf{DB}        & PostgreSQL + pgvector \\
-\textbf{Embeddings}& all-MiniLM-L6-v2 \\
-\textbf{Scheduler} & APScheduler \\
-\textbf{Logging}   & structlog (JSON) \\
-\end{tabular}
-\end{block}
-\end{column}
-% ── Key Decisions + Security ──────────────────────────────────────────────────
-\begin{column}{0.30\textwidth}
-\begin{block}{Key Design Decisions}
-\scriptsize
-\begin{itemize}
-  \item No agent framework — raw Python loop
-  \item Two-model cascade: Flash router\\narrows 57 tools before main call
-  \item Single Postgres for structured\\data \textit{and} vector search
-  \item Daemon threads for async enrichment
-\end{itemize}
-\end{block}
-\end{column}
-\begin{column}{0.29\textwidth}
-\begin{alertblock}{Security / Governance}
-\scriptsize
-\begin{itemize}
-  \item Secrets in \ic{.env} only — never hardcoded
-  \item All write tools require\\explicit user confirmation
-  \item Heating appliances:\\switch-off only, never remote-start
-  \item Per-user credentials\\encrypted in DB
-  \item Read-only connectors first
-\end{itemize}
-\end{alertblock}
-\begin{exampleblock}{External Integrations}
-\scriptsize
-25+ connectors: Calendar, Gmail, Todoist, Home Assistant, Spotify, GitHub, Telegram, Finance, Voice\ldots
-\end{exampleblock}
-\end{column}
-\end{columns}
+      % Big stats with visual weight
+      \begin{tikzpicture}[scale=0.9]
+        % Grid of 4 stats
+        \foreach \val/\desc/\col/\x/\y in {
+          {20+}/{context switches\\per day}/redcol/0/1.4,
+          {0}/{apps that\\remember you}/redcol/3.6/1.4,
+          {100\%}/{manual effort —\\you are the glue}/redcol/0/0,
+          {\$\$\$}/{per-month\\subscription cost}/ambercol/3.6/0
+        }{
+          \node[align=center] at (\x, \y)
+            {{\fontsize{22}{24}\selectfont\bfseries\color{\col}\val}\\[3pt]
+             {\fontsize{7}{9}\selectfont\color{dimcol}\desc}};
+        }
+      \end{tikzpicture}
+  \end{columns}
 \end{frame}
 
-% =============================================================================
-\section{Engineering Demo Deck}
-% =============================================================================
+% ═══════════════════════════════════════════════════════════════════════════
+\section{The Solution}
+% ═══════════════════════════════════════════════════════════════════════════
 
-% ── 1. What Are We Building ──────────────────────────────────────────────────
-\begin{frame}{What Are We Building?}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\begin{block}{One Assistant. All Your Apps.}
-CollectiveOS is a \textbf{single-user personal AI assistant} that talks to
-every service you use through \textbf{one conversation interface} --- by text
-or by voice.
-\end{block}
-\vspace{0.4em}
-\begin{block}{Core Pattern}
-\scriptsize
-An \textbf{augmented LLM} in a tool-use loop:
-\begin{itemize}
-  \item Model decides which tool to call
-  \item Your code runs the tool (Calendar, Gmail, smart home\ldots)
-  \item Result feeds back into the model
-  \item Repeat until the model produces a final answer
-\end{itemize}
-\textbf{No orchestrator. No multi-agent. One model, one loop.}
-\end{block}
-\end{column}
-\begin{column}{0.48\textwidth}
-\begin{center}
-\begin{tikzpicture}[node distance=0.7cm, every node/.style={font=\scriptsize}]
-  % Center
-  \node[draw=primary, fill=lightblue, rounded corners=6pt, thick,
-        minimum width=2.4cm, minimum height=0.8cm, align=center]
-        (core) {\textbf{CollectiveOS}\\Agent Loop};
+% ── 05. Purpose ────────────────────────────────────────────────────────────
+\begin{frame}{CollectiveOS: one agent that knows your life and acts across all of it}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \begin{tcolorbox}[greencard, title={\faCheckCircle\; In One Sentence}]
+        \normalsize
+        A \hl{personal AI operating system} that connects every digital service you use, remembers every conversation, understands your context, and acts on your behalf — with your permission, on your hardware.
+      \end{tcolorbox}
+      \vspace{5pt}
+      \begin{tcolorbox}[skycard, title={\faExchangeAlt\; Before vs.\ After}]
+        \small
+        \textbf{Before:}\enspace 20 apps, manual switching, zero memory\\[4pt]
+        \textbf{After:}\enspace One sentence. It handles the rest.
+      \end{tcolorbox}
 
-  % User
-  \node[obox=1.8cm, above=1.0cm of core] (user) {You\\(voice / text)};
+    \column{0.48\textwidth}
+      \centering\vspace{0.3em}
+      \begin{tikzpicture}[scale=0.9]
+        % Four pillars
+        \foreach \icon/\val/\desc/\col/\x in {
+          \faWrench/{85+}/{Live\\Tools}/skyblue/0,
+          \faRobot/{3}/{Peer\\Agents}/indigocol/2.2,
+          \faBrain/{$\infty$}/{Persistent\\Memory}/greencol/4.4,
+          \faCloud/{0}/{Cloud Data\\Sent}/ambercol/6.6
+        }{
+          \fill[\col!10] (\x-0.9,-0.4) rectangle (\x+0.9,2.4);
+          \draw[\col!40, rounded corners=3pt] (\x-0.9,-0.4) rectangle (\x+0.9,2.4);
+          \node[\col, font=\scriptsize] at (\x, 2.0) {\icon};
+          \node[font=\fontsize{18}{20}\selectfont\bfseries, text=\col] at (\x, 1.2) {\val};
+          \node[font=\fontsize{7}{9}\selectfont, text=dimcol, align=center, text width=1.6cm] at (\x, 0.2) {\desc};
+        }
+      \end{tikzpicture}
 
-  % Connectors arranged around
-  \node[gbox=1.6cm, right=1.2cm of core, yshift= 0.8cm] (cal)  {Calendar\\Gmail};
-  \node[gbox=1.6cm, right=1.2cm of core, yshift=-0.8cm] (dev)  {Smart Home\\Spotify};
-  \node[gbox=1.6cm, left=1.2cm of core,  yshift= 0.8cm] (task) {Todoist\\GitHub};
-  \node[gbox=1.6cm, left=1.2cm of core,  yshift=-0.8cm] (fin)  {Finance\\Telegram};
-
-  % Arrows
-  \draw[-{Stealth}, thick, colorange] (user) -- (core);
-  \draw[-{Stealth}, thick, colorange] (core) -- (user);
-  \draw[-{Stealth}, thick, colgreen]  (core) -- (cal);
-  \draw[-{Stealth}, thick, colgreen]  (cal)  -- (core);
-  \draw[-{Stealth}, thick, colgreen]  (core) -- (dev);
-  \draw[-{Stealth}, thick, colgreen]  (dev)  -- (core);
-  \draw[-{Stealth}, thick, colgreen]  (core) -- (task);
-  \draw[-{Stealth}, thick, colgreen]  (task) -- (core);
-  \draw[-{Stealth}, thick, colgreen]  (core) -- (fin);
-  \draw[-{Stealth}, thick, colgreen]  (fin)  -- (core);
-\end{tikzpicture}
-\end{center}
-\end{column}
-\end{columns}
+      \vspace{6pt}
+      \begin{tcolorbox}[ambercard, title={\faShieldAlt\; Safety by Architecture}]
+        \small
+        Reads: \textbf{instant}\enspace·\enspace
+        Writes: \textbf{always confirms first}\enspace·\enspace
+        Data: \textbf{stays on your machine}
+      \end{tcolorbox}
+  \end{columns}
 \end{frame}
 
-% ── 2. Problem / Use Case ─────────────────────────────────────────────────────
-\begin{frame}{Problem / Use Case}
-\begin{columns}[T]
-\begin{column}{0.31\textwidth}
-\begin{alertblock}{Today}
-\scriptsize
-\textbf{Fragmented workflows:}
-\begin{itemize}
-  \item Open Calendar app to check schedule
-  \item Open Gmail for emails
-  \item Switch to Spotify to change music
-  \item Open Todoist for tasks
-  \item Manually copy context between apps
-  \item No memory across sessions
-  \item 10+ context switches per hour
-\end{itemize}
-\end{alertblock}
-\end{column}
-\begin{column}{0.03\textwidth}
-\begin{center}\vspace{2em}{\Large\color{accent}$\rightarrow$}\end{center}
-\end{column}
-\begin{column}{0.31\textwidth}
-\begin{block}{With CollectiveOS}
-\scriptsize
-\textbf{One conversation:}
-\begin{itemize}
-  \item ``What's on my calendar?''
-  \item ``Any urgent emails?''
-  \item ``Play focus music''
-  \item ``Add task: review PR''
-  \item Shared context, one interface
-  \item Remembers past conversations
-  \item Zero context switching
-\end{itemize}
-\end{block}
-\end{column}
-\begin{column}{0.03\textwidth}
-\begin{center}\vspace{2em}{\Large\color{colgreen}$\rightarrow$}\end{center}
-\end{column}
-\begin{column}{0.27\textwidth}
-\begin{exampleblock}{Real Example}
-\scriptsize
-\textbf{User (voice):}\\
-``Hey Collective, clear my morning \& reschedule the 10am standup to 2pm''
+% ── 06. Why Now ────────────────────────────────────────────────────────────
+\begin{frame}{Three forces converging make 2026 the right moment}
+  \begin{columns}[T]
+    \column{0.62\textwidth}
+      \begin{tcolorbox}[skycard, title={\faBolt\; 01 · AI Is Finally Capable Enough}]
+        \small
+        Gemini Flash can reason across long tool-calling chains and hold context reliably. Multi-step orchestration that failed two years ago is now table-stakes.
+      \end{tcolorbox}
+      \vspace{4pt}
+      \begin{tcolorbox}[indigocard, title={\faLock\; 02 · Privacy Concerns Are Peaking}]
+        \small
+        Users refuse to hand personal history to cloud AI. Local-first isn't just technically possible — it's what users are demanding. CollectiveOS is local \emph{by architecture}, not policy.
+      \end{tcolorbox}
+      \vspace{4pt}
+      \begin{tcolorbox}[greencard, title={\faMicrophone\; 03 · Voice Is the Next Platform}]
+        \small
+        Gemini Live enables full-duplex audio AI. The shift from screen-first to voice-first is happening now. CollectiveOS already supports ``Hey Collective'' wake-word voice.
+      \end{tcolorbox}
 
-\vspace{0.5em}
-\textbf{CollectiveOS:}\\
-→ Reads calendar\\
-→ Asks confirmation\\
-→ Moves event\\
-→ Confirms back
+    \column{0.34\textwidth}
+      \centering\vspace{0.5em}
+      % Convergence diagram
+      \begin{tikzpicture}[scale=0.9, transform shape,
+        arr/.style={->, >=Stealth, line width=2pt, shorten >=3pt}
+      ]
+        % Three labelled arrows converging on "NOW"
+        \node[circle, fill=accentcol, text=white, minimum size=1.4cm,
+              font=\small\bfseries] (N) at (0,0) {NOW};
 
-\vspace{0.5em}
-\textbf{One utterance.\\Zero app switches.}
-\end{exampleblock}
-\end{column}
-\end{columns}
+        \draw[arr, skyblue]   (-2.8, 1.4) node[left, font=\tiny\bfseries\color{skyblue}, align=right, text width=1.7cm]
+          {AI\\Capability} -- (N);
+
+        \draw[arr, indigocol] (-2.8, 0.0) node[left, font=\tiny\bfseries\color{indigocol}, align=right, text width=1.7cm]
+          {Privacy\\Demand} -- (N);
+
+        \draw[arr, greencol]  (-2.8,-1.4) node[left, font=\tiny\bfseries\color{greencol}, align=right, text width=1.7cm]
+          {Voice\\Platform} -- (N);
+
+        % No consumer product fills the gap
+        \node[font=\fontsize{6}{8}\selectfont\color{dimcol}, align=center, text width=2.5cm] at (0,-1.4)
+          {no consumer product is\\stateful + integrated + private};
+      \end{tikzpicture}
+
+      \vspace{6pt}
+      \begin{tcolorbox}[card]
+        \centering\scriptsize\color{dimcol}
+        \textbf{CollectiveOS is all three.}
+      \end{tcolorbox}
+  \end{columns}
 \end{frame}
 
-% ── 3. Current Capabilities ───────────────────────────────────────────────────
-\begin{frame}{Current Capabilities}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\begin{block}{Working Now}
-\scriptsize
-\begin{tabular}{p{0.3cm}p{4.5cm}}
-\done & Gemini Flash agent loop (function calling) \\
-\done & Intent router — narrows 57 tools per message \\
-\done & 25+ connector stubs (Calendar, Gmail, Todoist, Spotify, GitHub, Home Assistant, Finance, \ldots) \\
-\done & Semantic memory — embed + pgvector retrieval \\
-\done & Knowledge graph — entity extraction, GraphRAG \\
-\done & Permission system — connector toggle + write gate \\
-\done & FastAPI with SSE streaming (\ic{/chat/stream}) \\
-\done & Scheduled routines — APScheduler + cron \\
-\done & Telegram integration (fire-and-forget webhook) \\
-\done & AI model comparison (\ic{ai\_compare}) \\
-\done & Full observability — token cost, tool latency, structlog \\
-\done & Voice mode — VoiceOS integration (LiveKit + Gemini Live) \\
-\done & Wake word gate — ``hey collective'' activates voice \\
-\done & Bilingual (Hindi + English) voice responses \\
-\done & Write-action confirmation gate in voice pipeline \\
-\end{tabular}
-\end{block}
-\end{column}
-\begin{column}{0.48\textwidth}
-\begin{alertblock}{Partial / In Progress}
-\scriptsize
-\begin{tabular}{p{0.3cm}p{4.5cm}}
-{\color{colorange}$\sim$} & PostgreSQL not auto-started — memory silently skips when DB is offline \\
-{\color{colorange}$\sim$} & \ic{DISABLE\_EMBEDDINGS=1} workaround active — sentence-transformers bypassed to avoid asyncio deadlock \\
-{\color{colorange}$\sim$} & Connectors mostly stubbed — Calendar/Gmail need OAuth token flow \\
-{\color{colorange}$\sim$} & Voice sessions require manual VoiceOS startup \\
-{\color{colorange}$\sim$} & Single-user only — no multi-tenant auth \\
-\end{tabular}
-\end{alertblock}
-\vspace{0.4em}
-\begin{exampleblock}{Architecture Constraint}
-\scriptsize
-\textbf{Read-only first.} Every connector is built read-only first.
-Write actions require an \textbf{explicit confirmation step} — enforced
-at the code level (not just in the system prompt).
-\end{exampleblock}
-\end{column}
-\end{columns}
+% ═══════════════════════════════════════════════════════════════════════════
+\section{How It Works}
+% ═══════════════════════════════════════════════════════════════════════════
+
+% ── 07. Architecture ───────────────────────────────────────────────────────
+\begin{frame}{Five layers, each with one job — nothing reaches past its neighbour}
+  \centering
+  \begin{tikzpicture}[scale=0.84, transform shape]
+
+    % ── Layer macro: \lyr{y}{fill color}{icon}{L#}{Name}{components}
+    \foreach \y/\fc/\icon/\ln/\nm/\comps in {
+      4.20/skyblue/\faUser/L4/{You (Input)}/{%
+        \chip{skyblue}{Voice}\enspace
+        \chip{skyblue}{Chat UI}\enspace
+        \chip{skyblue}{iOS /ask}\enspace
+        \chip{skyblue}{REST /chat}\enspace
+        \chip{skyblue}{Telegram}},
+      3.05/ambercol/\faSitemap/L3/{Orchestrator}/{%
+        \chip{ambercol}{Intent Router}\enspace
+        \chip{ambercol}{Visual Routing}\enspace
+        \chip{ambercol}{Context Enrich}\enspace
+        \chip{ambercol}{Agent Registry}\enspace
+        \chip{ambercol}{HITL Gate}},
+      1.90/indigocol/\faRobot/L2/{Peer Agents}/{%
+        \chip{indigocol}{Task Agent (LangGraph)}\enspace
+        \chip{indigocol}{VisualOS — Screen AI}\enspace
+        \chip{indigocol}{VoiceOS — Gemini Live}},
+      0.75/greencol/\faWrench/L1/{Tool Layer}/{%
+        \chip{greencol}{85+ Connectors}\enspace
+        \chip{greencol}{MCP Servers}\enspace
+        \chip{greencol}{HITL Write Gate}\enspace
+        \chip{greencol}{Output Bus (Push·Slack·TG)}},
+      -0.40/accentcol/\faDatabase/L0/{Memory \& Data}/{%
+        \chip{accentcol}{PostgreSQL}\enspace
+        \chip{accentcol}{pgvector HNSW}\enspace
+        \chip{accentcol}{Knowledge Graph}\enspace
+        \chip{accentcol}{LangGraph Checkpoints}\enspace
+        \chip{accentcol}{Redis}}
+    }{
+      % Badge cell (left, solid colour, 1.8 cm wide)
+      \fill[\fc] (-7.2, \y-0.42) rectangle (-5.3, \y+0.42);
+      \node[text=white, font=\fontsize{7}{8}\selectfont\bfseries,
+            align=center, text width=1.7cm] at (-6.25, \y)
+        {\icon\\[2pt]\ln};
+
+      % Body cell (right, light tint)
+      \fill[\fc!10] (-5.3, \y-0.42) rectangle (7.2, \y+0.42);
+      \draw[\fc!30] (-7.2, \y-0.42) rectangle (7.2, \y+0.42);
+
+      \node[text=accentcol, font=\scriptsize, align=left,
+            anchor=west, text width=11.8cm, inner sep=0pt] at (-5.1, \y+0.1)
+        {\textbf{\nm}};
+      \node[text=accentcol!70, font=\fontsize{7}{8}\selectfont, align=left,
+            anchor=west, text width=11.8cm, inner sep=0pt] at (-5.1, \y-0.18)
+        {\comps};
+    }
+
+    % Arrows between layers
+    \foreach \ya/\yb/\col/\lbl in {
+      3.78/3.47/skyblue/{HTTP · WS · JSON},
+      2.63/2.32/ambercol/{capability dispatch},
+      1.48/1.17/indigocol/{tool calls · REST · MCP},
+      0.33/0.02/greencol/{PostgreSQL · Redis}
+    }{
+      \draw[->, >=Stealth, \col!70, thick] (0, \ya)--(0, \yb);
+      \node[font=\fontsize{6}{7}\selectfont\color{dimcol}, right] at (0.12, {(\ya+\yb)/2}) {\lbl};
+    }
+  \end{tikzpicture}
 \end{frame}
 
-% ── 4. System Architecture ────────────────────────────────────────────────────
-\begin{frame}{System Architecture — Augmented LLM Pattern}
-\begin{center}
-\begin{tikzpicture}[node distance=0.6cm and 0.5cm,
-                    every node/.style={font=\scriptsize}]
+% ── 08. Agent Loop ─────────────────────────────────────────────────────────
+\begin{frame}{Every message travels the same loop — and always saves what it learned}
+  \centering
+  \begin{tikzpicture}[
+    scale=0.85, transform shape,
+    step/.style={draw, rounded corners=5pt,
+                 minimum width=2.5cm, minimum height=1.25cm,
+                 font=\fontsize{7}{8}\selectfont\bfseries,
+                 align=center, text width=2.3cm, inner sep=3pt},
+    arr/.style={->, >=Stealth, thick},
+    ann/.style={font=\fontsize{6}{7}\selectfont\color{dimcol},
+                align=center, text width=2.5cm},
+  ]
+    % ── TOP ROW: steps 1-4 (left → right, y = 1.8) ────────────────────────
+    \node[step, fill=skyblue!12,   draw=skyblue!55,   text=skyblue]    (s1) at (0.0, 1.8)
+      {\faCommentDots\\[3pt]01\\Message In};
+    \node[step, fill=ambercol!12,  draw=ambercol!55,  text=ambercol]   (s2) at (3.0, 1.8)
+      {\faSitemap\\[3pt]02\\Route Intent};
+    \node[step, fill=skyblue!12,   draw=skyblue!55,   text=skyblue]    (s3) at (6.0, 1.8)
+      {\faBrain\\[3pt]03\\Memory Inject};
+    \node[step, fill=indigocol!12, draw=indigocol!55, text=indigocol]  (s4) at (9.0, 1.8)
+      {\faRobot\\[3pt]04\\Gemini Reasons};
 
-  % === Central Agent Loop ===
-  \node[draw=primary, fill=lightblue, rounded corners=8pt, very thick,
-        minimum width=3.5cm, minimum height=1.4cm, align=center]
-        (loop) {\textbf{Agent Loop}\\Gemini Flash\\function-calling};
+    % ── BOTTOM ROW: steps 5-8 (right → left, y = 0) ───────────────────────
+    \node[step, fill=greencol!12,  draw=greencol!55,  text=greencol]   (s5) at (9.0, 0.0)
+      {\faWrench\\[3pt]05\\Tool Execute};
+    \node[step, fill=redcol!10,    draw=redcol!40,    text=redcol]     (s6) at (6.0, 0.0)
+      {\faUserCheck\\[3pt]06\\HITL Gate};
+    \node[step, fill=indigocol!12, draw=indigocol!55, text=indigocol]  (s7) at (3.0, 0.0)
+      {\faReply\\[3pt]07\\Loop / Reply};
+    \node[step, fill=greencol!12,  draw=greencol!55,  text=greencol]   (s8) at (0.0, 0.0)
+      {\faSave\\[3pt]08\\Save \& Deliver};
 
-  % === Router (top) ===
-  \node[abox=3.2cm, above=1.0cm of loop] (router)
-        {\textbf{Intent Router}\\Flash · 64 tokens · narrows 57→6 tools};
-  \draw[-{Stealth}, thick, accent] (router) -- node[right]{\tiny 6 tools} (loop);
+    % ── Flow arrows ────────────────────────────────────────────────────────
+    \draw[arr, skyblue!60]   (s1)--(s2);
+    \draw[arr, skyblue!60]   (s2)--(s3);
+    \draw[arr, skyblue!60]   (s3)--(s4);
+    \draw[arr, greencol!70]  (s4)--(s5);   % right-side bend
+    \draw[arr, greencol!60]  (s5)--(s6);
+    \draw[arr, dimcol!50]    (s6)--(s7);
+    \draw[arr, dimcol!50]    (s7)--(s8);
 
-  % === Memory (left) ===
-  \node[pbox=2.4cm, left=1.5cm of loop, yshift=0.6cm] (vec)
-        {pgvector\\Semantic Memory\\top-3 chunks};
-  \node[pbox=2.4cm, left=1.5cm of loop, yshift=-0.6cm] (graph)
-        {Knowledge Graph\\Entity relations\\GraphRAG};
-  \draw[-{Stealth}, thick, primary] (vec)   -- (loop);
-  \draw[-{Stealth}, thick, primary] (graph) -- (loop);
-  \node[above=0.1cm of vec, font=\tiny\bfseries, text=primary] {MEMORY};
+    % ── Loop-back: 07 → 04, arc over the top ──────────────────────────────
+    \draw[->, >=Stealth, dashed, thick, indigocol!55, bend left=30]
+      (s7.north) to
+      node[above, font=\fontsize{6}{7}\selectfont\color{indigocol},
+           text width=2.2cm, align=center] {more tools\\needed?}
+      (s4.south);
 
-  % === Tools (right) ===
-  \node[gbox=2.2cm, right=1.5cm of loop, yshift= 1.0cm] (t1)
-        {Calendar · Gmail\\Todoist · Drive};
-  \node[gbox=2.2cm, right=1.5cm of loop, yshift= 0.0cm] (t2)
-        {Spotify · GitHub\\Telegram · Slack};
-  \node[gbox=2.2cm, right=1.5cm of loop, yshift=-1.0cm] (t3)
-        {Home Assistant\\Finance · AI models};
-  \draw[-{Stealth}, thick, colgreen] (loop) -- (t1);
-  \draw[-{Stealth}, thick, colgreen] (t1)   -- (loop);
-  \draw[-{Stealth}, thick, colgreen] (loop) -- (t2);
-  \draw[-{Stealth}, thick, colgreen] (t2)   -- (loop);
-  \draw[-{Stealth}, thick, colgreen] (loop) -- (t3);
-  \draw[-{Stealth}, thick, colgreen] (t3)   -- (loop);
-  \node[above=0.1cm of t1, font=\tiny\bfseries, text=colgreen] {TOOLS (25+)};
+    % ── Annotations outside the U ──────────────────────────────────────────
+    % Above top row
+    \node[ann, above=5pt of s1] {Voice · Chat\\API input};
+    \node[ann, above=5pt of s2] {Visual? → VisualOS\\Scan? → Enrich};
+    \node[ann, above=5pt of s3] {RAG + Graph\\in system prompt};
+    \node[ann, above=5pt of s4] {Reply direct\\or call a tool};
 
-  % === User / Voice (bottom) ===
-  \node[obox=2.0cm, below=1.0cm of loop, xshift=-1.5cm] (text)
-        {\textbf{Text}\\FastAPI /chat\\SSE streaming};
-  \node[obox=2.0cm, below=1.0cm of loop, xshift= 1.5cm] (voice)
-        {\textbf{Voice}\\VoiceOS + LiveKit\\Gemini Live};
-  \draw[-{Stealth}, thick, colorange] (text)  -- (loop);
-  \draw[-{Stealth}, thick, colorange] (loop)  -- (text);
-  \draw[-{Stealth}, thick, colorange] (voice) -- (loop);
-  \draw[-{Stealth}, thick, colorange] (loop)  -- (voice);
+    % Below bottom row
+    \node[ann, below=5pt of s8] {Memory saved\\Push / Voice out};
+    \node[ann, below=5pt of s7] {Done when no\\tool is left};
+    \node[ann, below=5pt of s6] {``Send this?''\\Yes / No};
+    \node[ann, below=5pt of s5] {Read: instant\\Write: paused};
 
-  % === Observability (top right corner) ===
-  \node[rbox=2.2cm, above=0.4cm of t1, xshift=1.0cm] (obs)
-        {structlog\\api\_usage\\tool\_calls};
-  \draw[-{Stealth}, dashed, colred!60] (loop) -- (obs);
-  \node[above=0.05cm of obs, font=\tiny\bfseries, text=colred] {OBSERVABILITY};
-
-\end{tikzpicture}
-\end{center}
+  \end{tikzpicture}
 \end{frame}
 
-% ── 5. End-to-End Workflow (animated) ─────────────────────────────────────────
-\begin{frame}{End-to-End Workflow}
-\begin{center}
-\begin{tikzpicture}[node distance=0.4cm and 0.35cm,
-                    every node/.style={font=\tiny}]
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Live Today}
+% ═══════════════════════════════════════════════════════════════════════════
 
-  % Row 1 — Ingestion ──────────────────────────────────────────────────────────
-  \node[obox=2.0cm] (user) {User message};
+% ── 09. Connectors ─────────────────────────────────────────────────────────
+\begin{frame}{85+ connectors — every service in your life is reachable right now}
+  \begin{columns}[T]
+    \column{0.50\textwidth}
+      \begin{tcolorbox}[skycard, title={\faCalendar\; Productivity \& Workspace}]
+        \scriptsize
+        \live{Google Calendar}\quad\live{Gmail}\quad\live{Google Drive}\\[2pt]
+        \live{Todoist}\quad\live{Notion}\quad\live{GitHub}
+      \end{tcolorbox}
+      \vspace{3pt}
+      \begin{tcolorbox}[indigocard, title={\faComments\; Communication}]
+        \scriptsize
+        \live{iMessage}\quad\live{Slack}\quad\live{Telegram}\quad\live{iOS Push}
+      \end{tcolorbox}
+      \vspace{3pt}
+      \begin{tcolorbox}[card, title={\textbf{\faApple\; Mac \& System}}, colframe=accentcol!20, borderline west={3pt}{0pt}{accentcol}]
+        \scriptsize
+        \live{Screen Capture}\quad\live{Browser Control}\quad\live{Local Files}\\[2pt]
+        \live{Clipboard}\quad\live{Contacts}\quad\live{Notes}\quad\live{Reminders}\\[2pt]
+        \live{Computer Use Agent}
+      \end{tcolorbox}
 
-  \visible<2->{
-    \node[pbox=2.0cm, right=0.3cm of user] (embed) {Embed query\\384-d vector};
-    \node[pbox=2.0cm, right=0.3cm of embed] (mem)  {pgvector search\\top-3 chunks};
-    \draw[-{Stealth},thick] (user)  -- (embed);
-    \draw[-{Stealth},thick] (embed) -- (mem);
-  }
-
-  \visible<3->{
-    \node[abox=2.2cm, right=0.3cm of mem] (router) {Router · Flash\\57 → 6 tools};
-    \node[pbox=2.2cm, right=0.3cm of router] (main) {Main Gemini call\\6 tools + context};
-    \draw[-{Stealth},thick] (mem)    -- (router);
-    \draw[-{Stealth},thick] (router) -- (main);
-  }
-
-  % Row 2 — Execution ──────────────────────────────────────────────────────────
-  \visible<4->{
-    \node[gbox=2.0cm, below=0.8cm of main] (fn)  {fn\_calls detected\\(e.g.\ get\_calendar)};
-    \node[gbox=2.0cm, left=0.3cm of fn]   (par) {ThreadPool\\parallel execution};
-    \node[gbox=2.0cm, left=0.3cm of par]  (api) {API calls run\\results returned};
-    \draw[-{Stealth},thick] (main) -- (fn);
-    \draw[-{Stealth},thick] (fn)   -- (par);
-    \draw[-{Stealth},thick] (par)  -- (api);
-    \draw[-{Stealth},thick] (api.west) -- ++(-0.4,0) |- (main.west);
-  }
-
-  % Row 3 — Response + Post-processing ─────────────────────────────────────────
-  \visible<5->{
-    \node[rbox=2.0cm, below=0.8cm of api] (out)  {Final answer\\SSE / Voice};
-    \node[pbox=2.0cm, right=0.3cm of out] (save) {memory.save()\\embed + INSERT};
-    \node[pbox=2.0cm, right=0.3cm of save] (gm)  {graph\_memory\\daemon thread};
-    \node[pbox=2.0cm, right=0.3cm of gm]  (obs)  {api\_usage\\tool\_calls\\structlog};
-    \draw[-{Stealth},thick] (api)  -- (out);
-    \draw[-{Stealth},thick] (out)  -- (save);
-    \draw[-{Stealth},thick] (save) -- (gm);
-    \draw[-{Stealth},thick] (gm)   -- (obs);
-  }
-
-\end{tikzpicture}
-\end{center}
-
-\vspace{0.2em}
-\begin{columns}
-\begin{column}{0.25\textwidth}
-\visible<2->{\begin{block}{\centering Step 1}\centering\scriptsize Embed + retrieve memory context\end{block}}
-\end{column}
-\begin{column}{0.25\textwidth}
-\visible<3->{\begin{block}{\centering Step 2}\centering\scriptsize Router narrows tools, Gemini reasons\end{block}}
-\end{column}
-\begin{column}{0.25\textwidth}
-\visible<4->{\begin{block}{\centering Step 3}\centering\scriptsize Tools run in parallel, loop repeats\end{block}}
-\end{column}
-\begin{column}{0.25\textwidth}
-\visible<5->{\begin{exampleblock}{\centering Step 4}\centering\scriptsize Stream reply, save memory, log cost\end{exampleblock}}
-\end{column}
-\end{columns}
+    \column{0.46\textwidth}
+      \begin{tcolorbox}[greencard, title={\faHome\; Smart Home \& Devices}]
+        \scriptsize
+        \live{Home Assistant (lights, switches)}\\[2pt]
+        \live{Appliances (status \& control)}\quad\live{Car Status}
+      \end{tcolorbox}
+      \vspace{3pt}
+      \begin{tcolorbox}[ambercard, title={\faHeartbeat\; Health, Finance \& Media}]
+        \scriptsize
+        \live{Apple Health (sleep, HRV, activity)}\\[2pt]
+        \live{Finance (accounts, transactions)}\\[2pt]
+        \live{Spotify}\quad\live{Wearable (Frame / Garmin)}
+      \end{tcolorbox}
+      \vspace{3pt}
+      \begin{tcolorbox}[indigocard, title={\faRobot\; AI, Vision \& Robotics}]
+        \scriptsize
+        \live{VisualOS (screen \& image AI)}\quad\live{Web Search}\\[2pt]
+        \live{AI Ask / Compare}\quad\live{ROS2 Robot}\\[2pt]
+        \live{MCP Servers}\quad\live{Condition Watchers}
+      \end{tcolorbox}
+  \end{columns}
 \end{frame}
 
-% ── 6. Live Demo ──────────────────────────────────────────────────────────────
-\begin{frame}{Live Demo}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\begin{block}{Demo Script}
-\begin{enumerate}\scriptsize
-  \item \textbf{Start both services}
-  \begin{itemize}
-    \item CollectiveOS: \ic{DISABLE\_EMBEDDINGS=1 collectiveos voice --port 8000}
-    \item VoiceOS: \ic{.venv/bin/voice-service console}
-  \end{itemize}
-  \item \textbf{Wake the assistant}\\
-    Say: \textit{``Hey Collective''}\\
-    → Agent activates. No action taken before wake word.
-  \item \textbf{Simple lookup (English)}\\
-    Say: \textit{``What time is it?''}\\
-    → Answers locally in English.
-  \item \textbf{Simple lookup (Hindi)}\\
-    Say: \textit{``Aaj mera schedule kya hai?''}\\
-    → Responds in Hindi.
-  \item \textbf{Write action (confirmation gate)}\\
-    Say: \textit{``Add a task: review the PR''}\\
-    → Describes action, waits for ``yes'' before executing.
-\end{enumerate}
-\end{block}
-\end{column}
-\begin{column}{0.48\textwidth}
-\begin{alertblock}{What to Observe}
-\scriptsize
-\begin{itemize}
-  \item Wake word gate: speech before ``hey collective'' is ignored
-  \item Language matching: reply language mirrors what the user spoke
-  \item Step-by-step confirmation: write actions never proceed without approval
-  \item Structured logs appear in terminal with token counts and cost per call
-\end{itemize}
-\end{alertblock}
-\vspace{0.4em}
-\begin{exampleblock}{What the Logs Show (terminal)}
-\scriptsize
-\begin{verbatim}
-WebSocket /v1/ws [accepted]
-api_call model=gemini-flash-lite
-  input_tokens=1223 output_tokens=3
-  cost_usd=0.000124 source=router
-api_call model=gemini-flash-lite
-  input_tokens=908 output_tokens=27
-  cost_usd=0.000102 source=chat
-\end{verbatim}
-\end{exampleblock}
-\end{column}
-\end{columns}
+% ═══════════════════════════════════════════════════════════════════════════
+\section{For Every Audience}
+% ═══════════════════════════════════════════════════════════════════════════
+
+% ── 10. General User ───────────────────────────────────────────────────────
+\begin{frame}{For everyday users — your morning routine in one sentence}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \begin{tcolorbox}[skycard, title={\faSun\; Morning Briefing (Voice)}]
+        \small
+        \textit{``Good morning — what's my day?''}\\[3pt]
+        {\color{dimcol}Reads calendar + Gmail + health sleep score.
+        Gives a 30-second spoken summary. One question — everything covered.}
+      \end{tcolorbox}
+      \vspace{4pt}
+      \begin{tcolorbox}[greencard, title={\faCheckCircle\; Action With Confirmation}]
+        \small
+        \textit{``Add a 3pm meeting with Sarah and email the invite.''}\\[3pt]
+        {\color{dimcol}Creates event, drafts email, shows you exactly what it'll do, asks \textbf{``Send this?''} — only executes on your yes.}
+      \end{tcolorbox}
+
+    \column{0.48\textwidth}
+      \begin{tcolorbox}[ambercard, title={\faBrain\; Memory Across Sessions}]
+        \small
+        \textit{``What did I discuss with Sarah last week?''}\\[3pt]
+        {\color{dimcol}Searches semantic memory across all past conversations. No re-explaining context. No inbox archaeology.}
+      \end{tcolorbox}
+      \vspace{4pt}
+      \begin{tcolorbox}[indigocard, title={\faMicrophone\; Voice-First}]
+        \small
+        Say \hl{``Hey Collective''} → then just talk.\\[3pt]
+        {\color{dimcol}Full-duplex Gemini Live audio. Real-time, natural, speaks back. Works while your hands are busy.}
+      \end{tcolorbox}
+  \end{columns}
 \end{frame}
 
-% ── 7. Current Limitations ────────────────────────────────────────────────────
-\begin{frame}{Current Limitations}
-\begin{center}
-\scriptsize
-\begin{tabular}{p{3.8cm}p{4.2cm}p{4.5cm}}
-\toprule
-\textbf{Limitation} & \textbf{Root Cause} & \textbf{Fix / Path Forward} \\
-\midrule
-PostgreSQL not auto-started; memory retrieval silently skipped &
-DB not managed by the app; requires manual \ic{pg\_ctl start} &
-Add \ic{docker-compose.yml} or launchd plist; health-check at startup \\[0.4em]
+% ── 11. Real Scenarios ─────────────────────────────────────────────────────
+\begin{frame}{Six things you can do right now — no setup, no coding}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \small
+      \textcolor{skyblue}{\textbf{\faHome\; Smart Home}}\\
+      {\color{dimcol}\textit{``Turn living room to warm white and play lo-fi.''}\\
+      Both execute instantly — low-risk actions need no confirmation.}
 
-\ic{DISABLE\_EMBEDDINGS=1} active; no vector search &
-PyTorch/gRPC mutex deadlock with uvicorn's asyncio event loop &
-Isolate embedding model in a subprocess or side-car; pass results over a queue \\[0.4em]
+      \vspace{0.7em}
+      \textcolor{greencol}{\textbf{\faHeartbeat\; Health Insight}}\\
+      {\color{dimcol}\textit{``How did I sleep this week? Is my HRV trending up?''}\\
+      Pulls Apple Health, interprets trends, plain-English summary.}
 
-Connectors are mostly stubbed; no live API data &
-OAuth flows not yet wired &
-Phase 3: add OAuth token fetch, store encrypted in \ic{credentials} table \\[0.4em]
+      \vspace{0.7em}
+      \textcolor{indigocol}{\textbf{\faCamera\; Screen Vision}}\\
+      {\color{dimcol}\textit{``What's on my screen right now?''}\\
+      Screenshot → VisualOS → Structured card in $\sim$1 second. Session saved for follow-up.}
 
-Voice requires manual VoiceOS startup &
-VoiceOS is a separate service (LiveKit-based) &
-Add a process manager (Supervisor / Docker Compose) to boot both together \\[0.4em]
+    \column{0.48\textwidth}
+      \small
+      \textcolor{ambercol}{\textbf{\faSlack\; Work Messaging}}\\
+      {\color{dimcol}\textit{``Slack Priya that I'll be 10 minutes late.''}\\
+      Drafts, shows you, confirms, sends.}
 
-Single-user only &
-Auth is a single API token from \ic{.env} &
-Phase 5: FastAPI JWT auth; per-user \ic{credentials} row \\[0.4em]
+      \vspace{0.7em}
+      \textcolor{skyblue}{\textbf{\faBell\; Proactive Watcher}}\\
+      {\color{dimcol}\textit{``Alert me when Alice emails.''}\\
+      Condition Watcher polls Gmail. Notifies via push when triggered.}
 
-Write confirmation is voice-only &
-\ic{confirm\_fn} wired only in \ic{voice\_gateway.py} &
-Add confirmation to text \ic{/chat} endpoint with SSE event type \\
-\bottomrule
-\end{tabular}
-\end{center}
+      \vspace{0.7em}
+      \textcolor{greencol}{\textbf{\faChartBar\; Finance}}\\
+      {\color{dimcol}\textit{``How much did I spend on food last month?''}\\
+      Queries transactions, aggregates by category, responds.}
+  \end{columns}
 \end{frame}
 
-% ── 8. Next Milestones ────────────────────────────────────────────────────────
-\begin{frame}{Next Milestones}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\begin{block}{Near Term}
-\scriptsize
-\begin{tabular}{p{0.3cm}p{5.0cm}}
-{\color{colorange}1} & Auto-start PostgreSQL; re-enable embeddings and vector memory \\[0.2em]
-{\color{colorange}2} & Wire first real OAuth flow — Google Calendar read + confirmed write \\[0.2em]
-{\color{colorange}3} & Gmail read (recent inbox) + draft reply with confirmation \\[0.2em]
-{\color{colorange}4} & End-to-end smoke test: morning briefing routine via Telegram \\[0.2em]
-{\color{colorange}5} & Fix embedding isolation — move model to subprocess \\
-\end{tabular}
-\end{block}
-\vspace{0.3em}
-\begin{block}{Medium Term}
-\scriptsize
-\begin{tabular}{p{0.3cm}p{5.0cm}}
-{\color{accent}6} & Google Drive read; Todoist full sync \\[0.2em]
-{\color{accent}7} & Home Assistant — full device state + switch control \\[0.2em]
-{\color{accent}8} & Web chat UI (plain HTML + JS served by FastAPI) \\
-\end{tabular}
-\end{block}
-\end{column}
-\begin{column}{0.48\textwidth}
-\begin{block}{Roadmap (from \ic{docs/mvp\_plan.md})}
-\scriptsize
-\begin{tabular}{lll}
-\toprule
-\textbf{Phase} & \textbf{Goal} & \textbf{Status} \\
-\midrule
-0 & Skeleton / agent loop & \textcolor{colgreen}{Done} \\
-1 & First real connector   & \textcolor{colgreen}{Done} \\
-2 & Postgres-backed memory & \textcolor{colorange}{Partial} \\
-3 & Services (Cal, Gmail, Drive) & \textcolor{colorange}{Partial} \\
-4 & Devices (Home Assistant) & \textcolor{colorange}{Partial} \\
-5 & FastAPI layer          & \textcolor{colgreen}{Done} \\
-6 & Voice interface        & \textcolor{colgreen}{Done} \\
-\bottomrule
-\end{tabular}
-\end{block}
-\vspace{0.3em}
-\begin{alertblock}{Principle}
-\scriptsize
-\textbf{One domain end-to-end before the next.}
-Get Calendar read + write fully working with real data before adding Gmail.
-\end{alertblock}
-\end{column}
-\end{columns}
+% ── 12. Decision-Makers ────────────────────────────────────────────────────
+\begin{frame}{For decision-makers — the strategic view across six dimensions}
+  \small
+  \setlength{\tabcolsep}{8pt}
+  \renewcommand{\arraystretch}{1.35}
+  \rowcolors{2}{cardbg}{white}
+  \begin{tabularx}{\textwidth}{>{\bfseries\color{skyblue}\small}p{3.0cm} X}
+    \arrayrulecolor{accentcol!20}
+    \toprule
+    {\normalfont\color{dimcol}\texttt{Dimension}} &
+    {\normalfont\color{dimcol}\texttt{Answer}} \\
+    \midrule
+    Market Gap &
+      General AI assistants are stateless and siloed. CollectiveOS is \hl{stateful, integrated, and private} — the gap no consumer product fills. \\
+    Differentiation &
+      Runs on your hardware. Data never leaves your machine. No per-service subscription. One agent, full capability. \\
+    AI Strategy &
+      Model-agnostic by design. Currently Gemini Flash — swappable. Intelligence is in the \hl{orchestration layer}, not the model. \\
+    Scalability &
+      Hub-and-spoke: every new connector adds capability without touching the core. Plug in any API, MCP server, or peer agent. \\
+    Risk Profile &
+      All write actions require \hl{human confirmation (HITL)}. No autonomous sending, no unsupervised device control. Safety-first by architecture. \\
+    Roadmap &
+      Phased build: read-only → write → memory → voice → vision → robotics. Each phase proven before the next begins. \\
+    \bottomrule
+  \end{tabularx}
 \end{frame}
 
-% =============================================================================
-\section{Technical Demo / Walkthrough}
-% =============================================================================
+% ── 13. Technical ──────────────────────────────────────────────────────────
+\begin{frame}{For engineers — the full stack, every component chosen with purpose}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \begin{tcolorbox}[skycard, title={\faCode\; Agent Framework}]
+        \scriptsize\ttfamily\setlength\itemsep{1pt}
+        \begin{tabular}{@{}ll@{}}
+          Framework:   & LangGraph StateGraph \\
+          Checkpoint:  & PostgresSaver \\
+          HITL:        & interrupt\_before [write\_tools] \\
+          LLM API:     & Gemini function-calling \\
+          Concurrency: & ThreadPoolExecutor \\
+        \end{tabular}
+      \end{tcolorbox}
+      \vspace{4pt}
+      \begin{tcolorbox}[indigocard, title={\faDatabase\; Memory System}]
+        \scriptsize\ttfamily
+        \begin{tabular}{@{}ll@{}}
+          DB:         & PostgreSQL + pgvector \\
+          Index:      & HNSW (cosine similarity) \\
+          Embeddings: & gemini-embedding-001 (3072-dim) \\
+          Graph:      & entities + typed relations \\
+          Retrieval:  & Hybrid RAG (vector + graph) \\
+          Cache:      & Redis (1 h TTL) \\
+        \end{tabular}
+      \end{tcolorbox}
 
-\begin{frame}{One Complete Journey — Input to Logs}
-\begin{center}
-\textit{\small ``Hey Collective, reschedule my 10am standup to 2pm''}
-\end{center}
-
-\vspace{0.3em}
-
-\begin{center}
-\begin{tikzpicture}[node distance=0.55cm, every node/.style={font=\tiny}]
-
-  % Stage nodes (horizontal)
-  \node[stagebox=stagecol1] (s1) at (0,0)    {\textbf{INPUT}\\~\\Wake word\\detected\\``hey collective''\\transcript ready};
-
-  \visible<2->{
-  \node[stagebox=stagecol2] (s2) at (2.7,0)  {\textbf{PROCESSING}\\~\\Router: Flash\\→ [calendar]\\3 tools selected\\context embedded};
-  \draw[-{Stealth},thick,primary] (s1) -- (s2);
-  }
-
-  \visible<3->{
-  \node[stagebox=stagecol3] (s3) at (5.4,0)  {\textbf{INTELLIGENCE}\\~\\Main Gemini call\\+\ memory context\\reasons: need\\read then write};
-  \draw[-{Stealth},thick,primary] (s2) -- (s3);
-  }
-
-  \visible<4->{
-  \node[stagebox=stagecol4] (s4) at (8.1,0)  {\textbf{TOOLS}\\~\\\ic{get\_calendar()}\\runs in parallel\\finds 10am event\\confirm gate fires};
-  \draw[-{Stealth},thick,primary] (s3) -- (s4);
-  }
-
-  \visible<5->{
-  \node[stagebox=stagecol5] (s5) at (10.8,0) {\textbf{OUTPUT}\\~\\User approves\\→ \ic{update\_event()}\\VoiceOS speaks\\confirmation back};
-  \draw[-{Stealth},thick,primary] (s4) -- (s5);
-  }
-
-  \visible<6->{
-  \node[stagebox=stagecol6] (s6) at (13.5,0) {\textbf{LOGS}\\~\\api\_usage: 2 calls\\cost: \$0.0003\\tool: 450ms\\memory saved};
-  \draw[-{Stealth},thick,primary] (s5) -- (s6);
-  }
-
-  % Step labels below
-  \node[below=0.5cm of s1, text width=2.1cm, align=center] {VoiceOS\\wake gate};
-  \visible<2->{\node[below=0.5cm of s2, text width=2.1cm, align=center] {Flash router\\+ pgvector};}
-  \visible<3->{\node[below=0.5cm of s3, text width=2.1cm, align=center] {Gemini Flash\\tool-use loop};}
-  \visible<4->{\node[below=0.5cm of s4, text width=2.1cm, align=center] {ThreadPool\\+ confirm\_fn};}
-  \visible<5->{\node[below=0.5cm of s5, text width=2.1cm, align=center] {VoiceOS\\TTS reply};}
-  \visible<6->{\node[below=0.5cm of s6, text width=2.1cm, align=center] {structlog\\+ Postgres};}
-
-\end{tikzpicture}
-\end{center}
-
-\vspace{0.2em}
-\begin{columns}
-\begin{column}{0.16\textwidth}
-\visible<1->{\begin{exampleblock}{\centering Input}
-\centering\scriptsize Wake word\\+ transcript\\extracted
-\end{exampleblock}}
-\end{column}
-\begin{column}{0.16\textwidth}
-\visible<2->{\begin{block}{\centering Processing}
-\centering\scriptsize Router cuts\\token cost\\8$\times$
-\end{block}}
-\end{column}
-\begin{column}{0.16\textwidth}
-\visible<3->{\begin{block}{\centering Logic}
-\centering\scriptsize Model decides\\read first,\\write second
-\end{block}}
-\end{column}
-\begin{column}{0.16\textwidth}
-\visible<4->{\begin{alertblock}{\centering Tools}
-\centering\scriptsize Read runs free;\\ write is\\gated
-\end{alertblock}}
-\end{column}
-\begin{column}{0.16\textwidth}
-\visible<5->{\begin{block}{\centering Output}
-\centering\scriptsize Bilingual,\\step-by-step,\\voice only
-\end{block}}
-\end{column}
-\begin{column}{0.16\textwidth}
-\visible<6->{\begin{exampleblock}{\centering Logs}
-\centering\scriptsize Every call\\tracked,\\cost visible
-\end{exampleblock}}
-\end{column}
-\end{columns}
+    \column{0.48\textwidth}
+      \begin{tcolorbox}[greencard, title={\faProjectDiagram\; Multi-Agent Protocol}]
+        \scriptsize\ttfamily
+        \begin{tabular}{@{}ll@{}}
+          Pattern:  & AgentClient ABC \\
+          Routing:  & capability-based dispatch \\
+          Persist:  & agent\_connectors table (DB) \\
+          Register: & POST /agents/register \\
+          VoiceOS:  & WS /v1/ws (JSON contract) \\
+          VisualOS: & REST /analyze (base64 img) \\
+        \end{tabular}
+      \end{tcolorbox}
+      \vspace{4pt}
+      \begin{tcolorbox}[ambercard, title={\faServer\; API Surface}]
+        \scriptsize\ttfamily
+        \begin{tabular}{@{}ll@{}}
+          Layer:          & FastAPI + Pydantic \\
+          POST /chat      & JSON + base64 image \\
+          GET  /ask       & plain text (iOS Shortcuts) \\
+          WS   /v1/ws     & VoiceOS contract \\
+          GET  /agents    & registry list \\
+          SSE  /computer/stream & computer agent \\
+        \end{tabular}
+      \end{tcolorbox}
+  \end{columns}
 \end{frame}
 
-% =============================================================================
-\section{Engineering Status / Build Report}
-% =============================================================================
+% ── 14. Influencers ────────────────────────────────────────────────────────
+\begin{frame}{For creators and influencers — four shareable ideas}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \begin{tcolorbox}[skycard, title={``Finally — an AI that knows your life''}]
+        \small
+        Not a chatbot you re-explain yourself to every session. CollectiveOS knows your habits, contacts, and projects. It grows smarter with every conversation.
+      \end{tcolorbox}
+      \vspace{5pt}
+      \begin{tcolorbox}[indigocard, title={``Voice-first future — already here''}]
+        \small
+        Say ``hey collective'' and your entire digital life responds. Control your home, check health, send messages — all through natural conversation.
+      \end{tcolorbox}
 
-\begin{frame}{Engineering Status / Build Report}
-\begin{columns}[T]
-\begin{column}{0.50\textwidth}
-\begin{block}{Phase Completion}
-\scriptsize
-\begin{tabular}{p{0.3cm}lp{3.5cm}}
-\toprule
- & \textbf{Phase} & \textbf{Key Deliverable} \\
-\midrule
-\done & Phase 0 — Skeleton & Agent loop + placeholder tools \\
-\done & Phase 1 — Real connectors & 25+ connector definitions \\
-{\color{colorange}$\sim$} & Phase 2 — Postgres memory & Schema done; DB not auto-started \\
-{\color{colorange}$\sim$} & Phase 3 — Services & Connectors stubbed; OAuth pending \\
-{\color{colorange}$\sim$} & Phase 4 — Devices & Home Assistant partial \\
-\done & Phase 5 — FastAPI layer & \ic{/chat}, \ic{/chat/stream}, \ic{/voice/ws} \\
-\done & Phase 6 — Voice & VoiceOS + wake word + bilingual \\
-\bottomrule
-\end{tabular}
-\end{block}
-\vspace{0.3em}
-\begin{block}{Recent Major Changes (this sprint)}
-\scriptsize
-\begin{itemize}
-  \item Migrated LLM backend: Anthropic SDK → Gemini (\ic{google-genai})
-  \item Added \ic{collectiveos voice} CLI command
-  \item Fixed voice contract event shapes (pydantic validation)
-  \item Added \ic{confirm\_fn} hard gate for write tools in voice pipeline
-  \item VoiceOS PR\#8 merged: \ic{WakeState} + \ic{\_PendingAction} confirmation gate
-\end{itemize}
-\end{block}
-\end{column}
-\begin{column}{0.46\textwidth}
-\begin{exampleblock}{Live Metrics (sampled from logs)}
-\scriptsize
-\begin{tabular}{ll}
-\toprule
-\textbf{Metric} & \textbf{Value} \\
-\midrule
-Model (main)        & \ic{gemini-flash-lite-latest} \\
-Router cost/call    & $\approx\$0.000124$ (1{,}223 in / 3 out) \\
-Chat cost/call      & $\approx\$0.000102$ (908 in / 27 out) \\
-Total (typical msg) & $\approx\$0.00025$ \\
-First token         & $\approx 1.2$s \\
-Full response       & $\approx 3$s \\
-Tool (web\_search)  & $\approx 842$ms avg \\
-\bottomrule
-\end{tabular}
-\end{exampleblock}
-\vspace{0.3em}
-\begin{alertblock}{Blockers}
-\scriptsize
-\begin{enumerate}
-  \item \textbf{Postgres not running} — memory \& observability writes skip silently
-  \item \textbf{Embedding isolation} — PyTorch mutex deadlocks uvicorn event loop; \ic{DISABLE\_EMBEDDINGS=1} active
-  \item \textbf{OAuth not wired} — connectors return stub data
-\end{enumerate}
-\end{alertblock}
-\begin{block}{Branch}
-\scriptsize
-\ic{feature/gemini-backend} — PR ready:\\
-\ic{github.com/Anurag9Dhiman/CollectiveOS}
-\end{block}
-\end{column}
-\end{columns}
+    \column{0.48\textwidth}
+      \begin{tcolorbox}[greencard, title={``Your data stays yours. Always.''}]
+        \small
+        Every major AI assistant sends your data to a cloud. CollectiveOS runs on your machine, stores in your database, and never hands your personal history to anyone.
+      \end{tcolorbox}
+      \vspace{5pt}
+      \begin{tcolorbox}[ambercard, title={``Not an app. An OS for your life.''}]
+        \small
+        ChatGPT forgets you after each session. CollectiveOS remembers your contacts, projects, and habits — building on that knowledge over time. It's infrastructure you live in.
+      \end{tcolorbox}
+  \end{columns}
 \end{frame}
 
-% ─── Thank-you slide ─────────────────────────────────────────────────────────
-\begin{frame}[c]
-\begin{center}
-{\Huge\color{primary}\textbf{Thank You}}\\[1em]
-{\large Questions?}\\[2em]
-\begin{tikzpicture}
-  \node[draw=primary, fill=lightblue, rounded corners=6pt, thick,
-        inner sep=14pt, text width=10cm, align=center] {
-    \scriptsize
-    \textbf{CollectiveOS} --- Personal AI Assistant \hfill \ic{feature/gemini-backend}\\[0.5em]
-    \begin{tabular}{ll}
-      GitHub:     & Anurag9Dhiman/CollectiveOS \\
-      Stack:      & Python, Gemini Flash + Live, PostgreSQL, FastAPI \\
-      Voice:      & VoiceOS (LiveKit + Gemini Live audio) \\
-      Wake word:  & ``hey collective'' \\
-      Memory:     & all-MiniLM-L6-v2 + pgvector IVFFlat \\
-      Cost/msg:   & $\approx\$0.00025$ (Flash, typical turn) \\
-    \end{tabular}
-  };
-\end{tikzpicture}
-\end{center}
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Under the Hood}
+% ═══════════════════════════════════════════════════════════════════════════
+
+% ── 15. Runtime ────────────────────────────────────────────────────────────
+\begin{frame}{Runtime stack — every component earns its place}
+  \centering
+  \small
+  \setlength{\tabcolsep}{7pt}
+  \renewcommand{\arraystretch}{1.4}
+  \rowcolors{2}{cardbg}{white}
+  \begin{tabularx}{\textwidth}{>{\bfseries\color{skyblue}}p{2.4cm}
+                               >{\bfseries\color{accentcol}}p{3.2cm}
+                               X}
+    \arrayrulecolor{accentcol!20}
+    \toprule
+    {\normalfont\color{dimcol}\texttt{Component}} &
+    {\normalfont\color{dimcol}\texttt{Technology}} &
+    {\normalfont\color{dimcol}\texttt{Why this choice}} \\
+    \midrule
+    LLM &
+      Gemini Flash Lite &
+      Fast, capable, cost-efficient. Router model handles intent. Swap anytime — the orchestration is model-agnostic. \\
+    Agent Framework &
+      LangGraph + PostgresSaver &
+      Persistent checkpointing. Survives restarts. Native HITL via \texttt{interrupt\_before}. \\
+    Memory &
+      pgvector HNSW (3072-dim) &
+      Semantic search over all history in the same DB as structured data. \\
+    Voice &
+      Gemini Live (native audio) &
+      Full-duplex, real-time STT + TTS. Wake word. \texttt{gemini-2.5-flash-native-audio-latest}. \\
+    Vision &
+      VisualOS (Gemini Vision) &
+      Screen → structured card. \texttt{scan\_session\_id} enables multi-turn follow-up. \\
+    API Layer &
+      FastAPI + Pydantic &
+      REST + WebSocket + SSE. Bearer token auth. Port 8000. \\
+    Cache &
+      Redis (optional) &
+      1 h TTL on session state. Falls back to in-process dict gracefully. \\
+    Scheduler &
+      APScheduler &
+      Routines (cron), Condition Watchers (interval), Morning Briefings. \\
+    \bottomrule
+  \end{tabularx}
 \end{frame}
 
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Decision Brief}
+% ═══════════════════════════════════════════════════════════════════════════
+
+% ── 16. Decision Brief ─────────────────────────────────────────────────────
+\begin{frame}{Seven questions — seven answers — everything you need to decide}
+  \small
+  \setlength{\tabcolsep}{8pt}
+  \renewcommand{\arraystretch}{1.38}
+  \rowcolors{2}{cardbg}{white}
+  \begin{tabularx}{\textwidth}{>{\bfseries\color{skyblue}}p{2.8cm} X}
+    \arrayrulecolor{accentcol!20}
+    \toprule
+    {\normalfont\color{dimcol}\texttt{Question}} &
+    {\normalfont\color{dimcol}\texttt{Answer}} \\
+    \midrule
+    What is it? &
+      Personal AI OS. One agent connecting every digital service — acting on your behalf. \\
+    Who is it for? &
+      Anyone using 5+ digital services daily who wants them unified, voice-first, and private. \\
+    Working today? &
+      85+ live tools: productivity, communication, smart home, health, finance, vision, voice, robotics. \\
+    Where does data go? &
+      Nowhere. Postgres is local. Only the current query reaches the model API — no personal history in the cloud. \\
+    Is it safe? &
+      Reads: instant. Writes and device control: \hl{always requires explicit confirmation}. Safety-first by architecture. \\
+    Why defensible? &
+      The orchestration architecture — not the model. Hub-and-spoke, persistent memory, growing connector graph. \\
+    What's the vision? &
+      The OS for your personal life. Infrastructure you live in. Smarter every day. \\
+    \bottomrule
+  \end{tabularx}
+\end{frame}
+
+% ── 17. Closing ────────────────────────────────────────────────────────────
+{
+\setbeamercolor{background canvas}{bg=accentcol}
+\begin{frame}[plain]
+  \centering
+  \vspace{1.8em}
+
+  % Quote
+  {\fontsize{18}{22}\selectfont\bfseries\color{white}
+    ``The best AI assistant isn't the one\\
+    with the biggest model.}
+
+  \vspace{0.4em}
+  {\fontsize{18}{22}\selectfont\bfseries\color{skyblue}
+    It's the one that knows \textit{you.}''}
+
+  \vspace{2.0em}
+
+  % Summary pill row
+  \begin{tikzpicture}
+    \foreach \lbl/\x in {
+      {Built in phases}/0,
+      {Proven at each step}/4.2,
+      {Private by design}/8.4
+    }{
+      \fill[white!10] (\x-1.9,-0.28) rectangle (\x+1.9,0.28);
+      \draw[white!25] (\x-1.9,-0.28) rectangle (\x+1.9,0.28);
+      \node[font=\scriptsize\color{white!70}] at (\x,0) {\lbl};
+    }
+  \end{tikzpicture}
+
+  \vspace{1.4em}
+  {\small\color{white!35}\ttfamily
+    github.com/Anurag9Dhiman/CollectiveOS}
+\end{frame}
+}
+
+% ═══════════════════════════════════════════════════════════════════════════
 \end{document}

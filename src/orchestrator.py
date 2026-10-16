@@ -48,6 +48,12 @@ class _Plan(BaseModel):
     steps: list[_Step] = Field(description="Ordered list of tool calls to accomplish the task")
 
 
+class _NavSubtaskPlan(BaseModel):
+    subtasks: list[str] = Field(
+        description="Ordered list of precise nav-agent task descriptions"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Planner
 # ---------------------------------------------------------------------------
@@ -78,6 +84,32 @@ def _plan(description: str, available_tools: list[dict]) -> list[_Step]:
         HumanMessage(content=f"Task: {description}\n\nAvailable tools:\n{tool_lines}"),
     ])
     return result.steps[:MAX_STEPS]
+
+
+_NAV_SEQUENCE_SYSTEM = (
+    "You are a task decomposer for a macOS computer-navigation agent. "
+    "Break the goal into an ordered list of focused subtasks, where each subtask "
+    "is one clear instruction for a single nav-agent call. "
+    "Assume screen state from each step carries forward — do not re-open apps "
+    "already opened by a previous step. Be specific: name the exact app, field, "
+    "button, or menu item to interact with. "
+    "Maximum {max_steps} subtasks. "
+    "If the goal needs only one step, return a list with one item."
+)
+
+
+def plan_nav_subtasks(goal: str) -> list[str]:
+    """Decompose a high-level nav goal into ordered nav-agent task strings."""
+    llm = ChatGoogleGenerativeAI(
+        model=PLANNER_MODEL,
+        google_api_key=os.environ["GEMINI_API_KEY"],
+        temperature=0,
+    )
+    result: _NavSubtaskPlan = llm.with_structured_output(_NavSubtaskPlan).invoke([
+        SystemMessage(content=_NAV_SEQUENCE_SYSTEM.format(max_steps=MAX_STEPS)),
+        HumanMessage(content=f"Goal: {goal}"),
+    ])
+    return result.subtasks[:MAX_STEPS]
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +234,60 @@ def plan_and_run(description: str, available_tools: list[dict] | None = None) ->
 
     word = "completed" if all_ok else "partially failed"
     return f"Task #{task_id} {word} ({len(steps)} steps):\n{summary}"
+
+
+def run_nav_sequence(goal: str, context: str = "") -> str:
+    """
+    Decompose a high-level nav goal into subtasks and execute each via the nav
+    agent in order. Each step's result is passed as context to the next step so
+    the agent knows what is already on screen.
+    """
+    from src.assistant_starter import _exec_tool_fn
+
+    task_id = _create_task(goal)
+    _set_task_status(task_id, "planning")
+
+    try:
+        subtasks = plan_nav_subtasks(goal)
+    except Exception as exc:
+        _set_task_status(task_id, "failed")
+        return f"[task #{task_id}] Nav planning failed: {exc}"
+
+    if not subtasks:
+        _set_task_status(task_id, "failed")
+        return f"[task #{task_id}] Could not decompose nav goal: {goal}"
+
+    steps = [
+        _Step(tool="navigate_computer", args={"task": t}, reason=f"Subtask {i + 1}")
+        for i, t in enumerate(subtasks)
+    ]
+    step_ids = _insert_steps(task_id, steps)
+    _set_task_status(task_id, "running")
+
+    accumulated_context = context
+    lines: list[str] = []
+    all_ok = True
+
+    for i, (subtask, step_id) in enumerate(zip(subtasks, step_ids)):
+        _update_step(step_id, "running")
+        try:
+            result = _exec_tool_fn("navigate_computer", {
+                "task": subtask,
+                "context": accumulated_context,
+            })
+            _update_step(step_id, "completed", str(result))
+            lines.append(f"✓ Step {i + 1}: {str(result)[:300]}")
+            accumulated_context = f"Step {i + 1} result: {str(result)[:500]}"
+        except Exception as exc:
+            err = f"[ERROR: {exc}]"
+            _update_step(step_id, "failed", err)
+            lines.append(f"✗ Step {i + 1} ({subtask[:60]}): {err}")
+            all_ok = False
+            break
+
+    _set_task_status(task_id, "completed" if all_ok else "failed")
+    word = "completed" if all_ok else "partially failed"
+    return f"Nav task #{task_id} {word} ({len(subtasks)} subtasks):\n" + "\n".join(lines)
 
 
 def get_task(task_id: int) -> dict:

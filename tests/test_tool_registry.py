@@ -25,21 +25,21 @@ class TestToolTiers:
             assert tier in valid, f"{name!r} has unknown tier {tier!r}"
 
     def test_read_only_tools(self):
-        read_only = ["memory_list", "get_calendar_events", "web_search",
-                     "robot_status", "robot_describe_scene"]
+        read_only = ["memory_list", "get_devices", "get_device_state",
+                     "robot_status", "robot_describe_scene",
+                     "health_get_sleep", "car_get_status"]
         for t in read_only:
             assert tier_of(t) == READ, f"{t} should be READ"
 
     def test_write_tools(self):
-        write_tools = ["memory_remember", "add_task", "create_event",
-                       "write_local_file", "notes_create"]
+        write_tools = ["memory_remember", "memory_forget",
+                       "write_local_file", "navigate_computer", "set_light"]
         for t in write_tools:
             assert tier_of(t) == WRITE, f"{t} should be WRITE"
 
     def test_destructive_tools(self):
-        destructive = ["send_email", "imessage_send", "control_device",
-                       "robot_move", "robot_navigate", "telegram_send",
-                       "slack_send_message", "car_lock"]
+        destructive = ["control_device", "robot_move", "robot_navigate",
+                       "car_lock", "car_climate", "appliances_control"]
         for t in destructive:
             assert tier_of(t) == DESTRUCTIVE, f"{t} should be DESTRUCTIVE"
 
@@ -58,7 +58,7 @@ class TestDerivedSets:
         assert DESTRUCTIVE_TOOLS.issubset(WRITE_TOOLS)
 
     def test_read_tools_not_in_write(self):
-        read_only = {"memory_list", "get_calendar_events", "web_search"}
+        read_only = {"memory_list", "get_devices", "health_get_sleep"}
         assert read_only.isdisjoint(WRITE_TOOLS)
 
     def test_write_tools_non_empty(self):
@@ -73,17 +73,17 @@ class TestHelpers:
         assert is_write("memory_remember") is True
 
     def test_is_write_returns_true_for_destructive(self):
-        assert is_write("send_email") is True
+        assert is_write("control_device") is True
 
     def test_is_write_returns_false_for_read(self):
-        assert is_write("web_search") is False
+        assert is_write("memory_list") is False
 
     def test_is_destructive_true(self):
         assert is_destructive("robot_move") is True
         assert is_destructive("car_lock") is True
 
     def test_is_destructive_false_for_write(self):
-        assert is_destructive("add_task") is False
+        assert is_destructive("navigate_computer") is False
 
     def test_is_destructive_false_for_read(self):
         assert is_destructive("memory_list") is False

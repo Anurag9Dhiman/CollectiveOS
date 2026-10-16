@@ -359,3 +359,28 @@ CREATE TABLE IF NOT EXISTS watchers (
     last_result     TEXT,               -- last prompt result (for debugging)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- -------------------------------------------------------------------------
+-- Multi-agent registry — peer agents that CollectiveOS can delegate to.
+-- Remote agents self-register via POST /agents/register; built-in agents
+-- (VisualOS, VoiceOS) are also persisted here on first startup so they
+-- survive restarts without needing LENS_URL in every environment.
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS agent_connectors (
+    id              SERIAL PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,       -- logical name, e.g. "visual", "voice"
+    url             TEXT NOT NULL,              -- base URL, e.g. "http://127.0.0.1:7000"
+    protocol        TEXT NOT NULL DEFAULT 'rest'
+                    CHECK (protocol IN ('rest', 'a2a', 'ws')),
+    capabilities    TEXT[] NOT NULL DEFAULT '{}',  -- e.g. ARRAY['visual','screen_analysis']
+    api_key         TEXT NOT NULL DEFAULT '',   -- X-API-Key or Bearer, if required
+    health_url      TEXT NOT NULL DEFAULT '',   -- GET this to check liveness
+    enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+    registered_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS agent_connectors_enabled
+    ON agent_connectors (enabled)
+    WHERE enabled = TRUE;

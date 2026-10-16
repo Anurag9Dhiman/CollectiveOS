@@ -1,66 +1,127 @@
 """
-Web search connector — real-time information via Tavily.
+web_search.py
+-------------
+Web search connector.
 
-Tavily is purpose-built for AI agents: it returns pre-parsed, relevant
-snippets rather than raw HTML, keeping token usage low and results clean.
+Primary:  Brave Search API  (set BRAVE_API_KEY in env)
+Fallback: DuckDuckGo Instant Answer API  (no key required, limited results)
 
-Setup
------
-1. Sign up at https://tavily.com (free tier: 1 000 searches / month).
-2. Add TAVILY_API_KEY=tvly-... to your .env file.
+Returns a plain-text summary of the top results so the agent can answer
+questions about current events, look up documentation, or research topics
+without navigating a browser for every query.
 """
 
+from __future__ import annotations
+
 import os
-from functools import lru_cache
-
-from tavily import TavilyClient
-
-
-@lru_cache(maxsize=1)
-def _client() -> TavilyClient:
-    key = os.environ.get("TAVILY_API_KEY", "")
-    if not key:
-        raise RuntimeError(
-            "TAVILY_API_KEY not set. "
-            "Sign up at https://tavily.com and add the key to .env."
-        )
-    return TavilyClient(api_key=key)
+import urllib.parse
+import urllib.request
+import json
 
 
-def search(query: str, max_results: int = 5) -> str:
-    """
-    Search the web and return a synthesised answer with supporting sources.
+_BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
+_DDG_URL   = "https://api.duckduckgo.com/"
+_TIMEOUT   = 10  # seconds
 
-    Tavily returns a direct AI-generated answer drawn from the top results,
-    plus individual source summaries — ideal for LLM consumption.
-    """
+
+def web_search(query: str, num_results: int = 5) -> str:
+    """Search the web and return a summary of the top results."""
+    query = query.strip()
+    if not query:
+        return "[ERROR: query is empty]"
+
+    num_results = max(1, min(num_results, 10))
+
+    brave_key = os.environ.get("BRAVE_API_KEY", "").strip()
+    if brave_key:
+        return _brave_search(query, num_results, brave_key)
+    return _ddg_search(query)
+
+
+def _brave_search(query: str, num_results: int, api_key: str) -> str:
+    params = urllib.parse.urlencode({
+        "q": query,
+        "count": num_results,
+        "safesearch": "moderate",
+        "text_decorations": "false",
+    })
+    req = urllib.request.Request(
+        f"{_BRAVE_URL}?{params}",
+        headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": api_key,
+        },
+    )
     try:
-        client = _client()
-        resp = client.search(
-            query=query,
-            max_results=max_results,
-            include_answer=True,
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            raw = resp.read()
+            # urllib doesn't auto-decompress; handle gzip if present
+            if resp.getheader("Content-Encoding") == "gzip":
+                import gzip
+                raw = gzip.decompress(raw)
+            data = json.loads(raw)
+    except Exception as exc:
+        return f"[search error] {exc}"
+
+    results = data.get("web", {}).get("results", [])
+    if not results:
+        return f"No results found for: {query}"
+
+    lines = [f"Search results for: {query}\n"]
+    for i, r in enumerate(results[:num_results], 1):
+        title = r.get("title", "")
+        url   = r.get("url", "")
+        desc  = r.get("description", "").replace("\n", " ")
+        lines.append(f"{i}. {title}\n   {url}\n   {desc}\n")
+
+    return "\n".join(lines)
+
+
+def _ddg_search(query: str) -> str:
+    params = urllib.parse.urlencode({
+        "q": query,
+        "format": "json",
+        "no_html": "1",
+        "skip_disambig": "1",
+    })
+    req = urllib.request.Request(
+        f"{_DDG_URL}?{params}",
+        headers={"User-Agent": "CollectiveOS/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        return f"[search error] {exc}"
+
+    lines = [f"Search results for: {query}\n"]
+    added = 0
+
+    abstract = data.get("AbstractText", "").strip()
+    if abstract:
+        lines.append(f"Summary: {abstract}")
+        src = data.get("AbstractURL", "")
+        if src:
+            lines.append(f"Source: {src}")
+        lines.append("")
+        added += 1
+
+    for r in data.get("RelatedTopics", []):
+        if added >= 5:
+            break
+        text = r.get("Text", "").strip()
+        url  = r.get("FirstURL", "")
+        if text:
+            lines.append(f"• {text}")
+            if url:
+                lines.append(f"  {url}")
+            added += 1
+
+    if added == 0:
+        return (
+            f"No instant-answer results for: {query}. "
+            "Set BRAVE_API_KEY for full web search results."
         )
-    except RuntimeError as e:
-        return str(e)
-    except Exception as e:
-        return f"Search error: {e}"
 
-    lines = []
-
-    answer = (resp.get("answer") or "").strip()
-    if answer:
-        lines.append(f"**Answer:** {answer}")
-
-    results = resp.get("results", [])
-    if results:
-        lines.append("\n**Sources:**")
-        for i, r in enumerate(results, 1):
-            title   = (r.get("title") or "").strip()
-            url     = (r.get("url") or "").strip()
-            content = (r.get("content") or "").strip()[:300]
-            if content and not content.endswith((".", "!", "?")):
-                content += "…"
-            lines.append(f"{i}. **{title}**\n   {url}\n   {content}")
-
-    return "\n\n".join(lines) if lines else "No results found."
+    return "\n".join(lines)

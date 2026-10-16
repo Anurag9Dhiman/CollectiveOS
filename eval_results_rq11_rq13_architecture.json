@@ -1,0 +1,171 @@
+{
+  "rq": "RQ11+RQ13",
+  "rq11": {
+    "single_agent": {
+      "vtcr": 0.0,
+      "avg_latency_s": 151.3,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 151.3,
+          "task": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 151.3,
+          "task": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 151.3,
+          "task": "spotlight_search"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 151.3,
+          "task": "check_volume"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 151.3,
+          "task": "open_downloads"
+        }
+      ]
+    },
+    "orchestrator": {
+      "vtcr": 0.0,
+      "avg_latency_s": 0.0,
+      "results": [
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "launch_calculator"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "open_finder"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "spotlight_search"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "check_volume"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "open_downloads"
+        }
+      ]
+    }
+  },
+  "rq13": {
+    "visual_fallback_rate": 0.0,
+    "isolation_rate": 1.0,
+    "recovery_rate": 0.0,
+    "avg_recovery_s": 151.3,
+    "scenarios": {
+      "visual_down": [
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "launch_calculator",
+          "fallback_ok": false
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "open_finder",
+          "fallback_ok": false
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "latency": 0.0,
+          "error": "<module 'src.multi_agent' from '/Users/anuragdhiman/Documents/CollectiveOS/src/m",
+          "task": "spotlight_search",
+          "fallback_ok": false
+        }
+      ],
+      "nav_timeout_isolation": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 6.3,
+          "task": "launch_calculator",
+          "isolated": true
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 6.3,
+          "task": "open_finder",
+          "isolated": true
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "latency": 6.3,
+          "task": "spotlight_search",
+          "isolated": true
+        }
+      ],
+      "recovery": [
+        {
+          "task": "launch_calculator",
+          "initial_fail": "timeout",
+          "recovery": "timeout",
+          "verified": false,
+          "recovery_s": 151.3
+        },
+        {
+          "task": "open_finder",
+          "initial_fail": "timeout",
+          "recovery": "timeout",
+          "verified": false,
+          "recovery_s": 151.3
+        }
+      ]
+    }
+  }
+}

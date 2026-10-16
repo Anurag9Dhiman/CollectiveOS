@@ -1,0 +1,50 @@
+{
+  "rq": "RQ24",
+  "model": "UI-TARS-1.5-7B (Q4_K_M, local)",
+  "cost_model": "GPU wall-clock proxy: $0.000139/sec (\u2248 $0.50/hr)",
+  "vtcr": 0.9778,
+  "n_tasks": 45,
+  "n_success": 44,
+  "total_dur_s": 5496.2,
+  "total_cost_usd": 0.7634,
+  "c_success": 0.01735,
+  "api_cost_usd": 0.0,
+  "note": "UI-TARS runs locally with zero API cost. Cost is estimated as GPU execution time \u00d7 $0.50/hr (conservative cloud-equivalent rate). Gemini Flash API cost comparison deferred to quota replenishment.",
+  "by_horizon": {
+    "1_3": {
+      "n": 10,
+      "vtcr": 0.9,
+      "total_dur_s": 1362.6,
+      "total_cost_usd": 0.18925,
+      "c_success": 0.02103
+    },
+    "4_7": {
+      "n": 15,
+      "vtcr": 1.0,
+      "total_dur_s": 1940.0,
+      "total_cost_usd": 0.26944,
+      "c_success": 0.01796
+    },
+    "8_15": {
+      "n": 12,
+      "vtcr": 1.0,
+      "total_dur_s": 1326.5,
+      "total_cost_usd": 0.18424,
+      "c_success": 0.01535
+    },
+    "16_30": {
+      "n": 5,
+      "vtcr": 1.0,
+      "total_dur_s": 542.0,
+      "total_cost_usd": 0.07528,
+      "c_success": 0.01506
+    },
+    "30plus": {
+      "n": 3,
+      "vtcr": 1.0,
+      "total_dur_s": 325.1,
+      "total_cost_usd": 0.04515,
+      "c_success": 0.01505
+    }
+  }
+}

@@ -61,6 +61,14 @@ def save(user_message: str, assistant_reply: str, source: str = "conversation") 
             conn.close()
 
         _gm.trigger_async(chunk_id, content)
+
+        # Auto-extract durable facts in a background thread (fire-and-forget)
+        if user_message and assistant_reply:
+            try:
+                from src import memory_extractor as _me
+                _me.trigger(user_message, assistant_reply)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -139,22 +147,35 @@ def save_fact(fact: str) -> None:
         pass
 
 
-def list_facts() -> list[dict]:
-    """Return all explicitly saved facts, newest first."""
+def list_facts(include_auto: bool = True) -> list[dict]:
+    """Return saved facts newest first.
+
+    include_auto=True (default) returns both manually saved facts
+    (source='fact') and auto-extracted ones (source='auto_fact').
+    Each dict includes a 'source' key so callers can distinguish them.
+    """
     conn = connect()
     try:
         user_id = default_user_id(conn)
+        sources = ("fact", "auto_fact") if include_auto else ("fact",)
+        placeholders = ",".join(["%s"] * len(sources))
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, content, created_at FROM memory_chunks "
-                "WHERE user_id = %s AND source = 'fact' ORDER BY created_at DESC",
-                (user_id,),
+                f"SELECT id, content, created_at, source FROM memory_chunks "
+                f"WHERE user_id = %s AND source IN ({placeholders}) "
+                f"ORDER BY created_at DESC",
+                (user_id, *sources),
             )
             rows = cur.fetchall()
     finally:
         conn.close()
     return [
-        {"id": r[0], "content": r[1], "date": r[2].strftime("%Y-%m-%d") if r[2] else ""}
+        {
+            "id":      r[0],
+            "content": r[1],
+            "date":    r[2].strftime("%Y-%m-%d") if r[2] else "",
+            "source":  r[3],   # 'fact' = manual, 'auto_fact' = extracted
+        }
         for r in rows
     ]
 
@@ -193,7 +214,8 @@ def delete_fact_by_id(fact_id: int) -> bool:
         user_id = default_user_id(conn)
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM memory_chunks WHERE id = %s AND user_id = %s AND source = 'fact' RETURNING id",
+                "DELETE FROM memory_chunks WHERE id = %s AND user_id = %s "
+                "AND source IN ('fact', 'auto_fact') RETURNING id",
                 (fact_id, user_id),
             )
             deleted = cur.fetchone() is not None
@@ -276,6 +298,71 @@ def search(query: str, limit: int = 5) -> str:
         date = created_at.strftime("%Y-%m-%d") if created_at else ""
         parts.append(f"[{date}]\n{content}")
     return "\n\n".join(parts)
+
+
+def save_nav_pattern(pattern: str) -> None:
+    """Persist a navigation pattern so the nav agent can learn from past runs.
+
+    Stored with source='nav' — visible to semantic search but excluded from
+    the user-facing fact list (list_facts filters to source='fact').
+    """
+    try:
+        embedding = _embed(pattern)
+        now = datetime.datetime.utcnow()
+        conn = connect()
+        try:
+            user_id = default_user_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO memory_chunks (user_id, source, content, embedding, created_at) "
+                    "VALUES (%s, 'nav', %s, %s::vector, %s)",
+                    (user_id, pattern, embedding, now),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def search_nav_patterns(task: str, limit: int = 3) -> str:
+    """Return the most relevant past navigation patterns for *task*.
+
+    Only searches source='nav' rows so user facts don't contaminate nav context.
+    Returns an empty string when the DB is unreachable or no patterns exist yet.
+    """
+    if not task or not task.strip():
+        return ""
+    try:
+        embedding = _embed(task)
+        conn = connect()
+        try:
+            user_id = default_user_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT content, created_at
+                    FROM memory_chunks
+                    WHERE user_id = %s AND source = 'nav' AND embedding IS NOT NULL
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (user_id, embedding, limit),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return ""
+
+    if not rows:
+        return ""
+
+    parts = []
+    for content, created_at in rows:
+        date = created_at.strftime("%Y-%m-%d") if created_at else ""
+        parts.append(f"[{date}] {content}")
+    return "\n".join(parts)
 
 
 def search_with_graph(query: str, limit: int = 5) -> str:

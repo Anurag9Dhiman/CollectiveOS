@@ -85,26 +85,25 @@ class TestFallbackText:
         text = briefing._fallback_text(sections)
         assert "Monday, January 1, 2026" in text
 
-    def test_includes_calendar_when_present(self):
-        sections = {"date": "today", "calendar": "Meeting at 10am"}
+    def test_includes_health_when_present(self):
+        sections = {"date": "today", "health": "Readiness 85, HRV 45"}
         text = briefing._fallback_text(sections)
-        assert "Meeting at 10am" in text
+        assert "Readiness 85, HRV 45" in text
 
-    def test_includes_tasks_when_present(self):
-        sections = {"date": "today", "tasks": "Buy milk"}
+    def test_includes_memory_when_present(self):
+        sections = {"date": "today", "memory": "User prefers dark roast coffee"}
         text = briefing._fallback_text(sections)
-        assert "Buy milk" in text
+        assert "User prefers dark roast coffee" in text
 
     def test_skips_none_sections(self):
-        sections = {"date": "today", "calendar": None, "tasks": None}
+        sections = {"date": "today", "health": None, "memory": None}
         text = briefing._fallback_text(sections)
         assert "None" not in text
         assert "Good morning" in text
 
-    def test_truncates_long_calendar(self):
-        sections = {"date": "today", "calendar": "x" * 500}
+    def test_truncates_long_health(self):
+        sections = {"date": "today", "health": "x" * 500}
         text = briefing._fallback_text(sections)
-        # calendar gets sliced to 200 chars, plus "Your calendar: " prefix
         assert len(text) < 400
 
 
@@ -122,8 +121,7 @@ class TestSynthesize:
         mock_client = MagicMock()
         mock_client.models.generate_content.return_value = mock_resp
         with patch("google.genai.Client", return_value=mock_client):
-            sections = {"date": "today", "calendar": None, "tasks": None,
-                        "emails": None, "weather": None, "memory": None}
+            sections = {"date": "today", "health": None, "memory": None}
             result = briefing._synthesize(sections)
         assert "Good morning" in result
 
@@ -138,10 +136,7 @@ class TestSynthesize:
 
 class TestGenerate:
     def test_returns_required_keys(self):
-        with patch.object(briefing, "_get_weather", return_value=None), \
-             patch.object(briefing, "_get_calendar", return_value=None), \
-             patch.object(briefing, "_get_tasks", return_value=None), \
-             patch.object(briefing, "_get_emails", return_value=None), \
+        with patch.object(briefing, "_get_health", return_value=None), \
              patch.object(briefing, "_get_memory_context", return_value=None), \
              patch.object(briefing, "_synthesize", return_value="Test briefing"):
             result = briefing.generate()
@@ -151,30 +146,24 @@ class TestGenerate:
         assert "generated_at" in result
 
     def test_briefing_text_is_from_synthesize(self):
-        with patch.object(briefing, "_get_weather", return_value=None), \
-             patch.object(briefing, "_get_calendar", return_value="9am standup"), \
-             patch.object(briefing, "_get_tasks", return_value=None), \
-             patch.object(briefing, "_get_emails", return_value=None), \
+        with patch.object(briefing, "_get_health", return_value=None), \
              patch.object(briefing, "_get_memory_context", return_value=None), \
              patch.object(briefing, "_synthesize", return_value="Custom briefing text"):
             result = briefing.generate()
         assert result["briefing"] == "Custom briefing text"
 
     def test_sections_include_data_from_connectors(self):
-        with patch.object(briefing, "_get_weather", return_value="Sunny"), \
-             patch.object(briefing, "_get_calendar", return_value="Meeting at 9"), \
-             patch.object(briefing, "_get_tasks", return_value=None), \
-             patch.object(briefing, "_get_emails", return_value=None), \
-             patch.object(briefing, "_get_memory_context", return_value=None), \
+        with patch.object(briefing, "_get_health", return_value="Readiness 90"), \
+             patch.object(briefing, "_get_memory_context", return_value="Prefers coffee"), \
              patch.object(briefing, "_synthesize", return_value="x"):
             result = briefing.generate()
-        assert result["sections"]["weather"] == "Sunny"
-        assert result["sections"]["calendar"] == "Meeting at 9"
+        assert result["sections"]["health"] == "Readiness 90"
+        assert result["sections"]["memory"] == "Prefers coffee"
 
-    def test_get_weather_handles_connector_exception(self):
-        """_get_weather wraps connector errors and returns None so generate() never crashes."""
-        with patch("src.connectors.web_search.search", side_effect=RuntimeError("network down")):
-            result = briefing._get_weather()
+    def test_get_health_handles_connector_exception(self):
+        """_get_health wraps connector errors and returns None so generate() never crashes."""
+        with patch("src.connectors.health.health_get_readiness", side_effect=RuntimeError("no device")):
+            result = briefing._get_health()
         assert result is None
 
 

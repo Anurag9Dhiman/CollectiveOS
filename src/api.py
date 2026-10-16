@@ -43,7 +43,7 @@ from contextlib import asynccontextmanager
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -55,7 +55,8 @@ from src import titler as _titler
 from src import scheduler as _scheduler
 from src import observability as _obs
 from src import redis_client as _cache
-from src.agent import run as agent_run, approve as agent_approve
+from src import multi_agent as _orchestrator
+from src.agent import approve as agent_approve
 from src.voice_gateway import handle_voice_ws
 from src.wearable_stream import handle_wearable_ws
 from src import computer_stream as _cs
@@ -68,8 +69,11 @@ _TZ_NAME = os.environ.get("TIMEZONE", "UTC")
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     _obs.configure_logging()
+    from src.activity import bootstrap as _activity_bootstrap
+    _activity_bootstrap()
     _scheduler.load_all()
     _scheduler.start()
+    _orchestrator.setup()   # register built-in agents + reload any DB-persisted ones
     yield
     _scheduler.shutdown()
 
@@ -79,7 +83,7 @@ _READ_TOOLS = (
     "get_calendar_events, get_recent_emails, search_emails, list_drive_files, "
     "read_drive_file, get_tasks, get_projects, get_devices, get_device_state, "
     "spotify_now_playing, spotify_get_devices, get_system_info, get_wifi_info, "
-    "web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
+    "open_file, web_search, imessage_get_messages, capture_screen, list_directory, read_local_file, "
     "browser_get_active_tab, browser_list_tabs, contacts_search, reminders_list, "
     "notes_list, notes_read, clipboard_read, telegram_get_messages"
     "notes_list, notes_read, clipboard_read, notion_search, notion_read_page, "
@@ -114,7 +118,11 @@ def _system_prompt(past: str = "") -> str:
         f"- Write/action tools ({_WRITE_TOOLS}): you MUST describe exactly what you "
         f"are about to do and only call the tool after the user gives an explicit "
         f"go-ahead such as 'yes', 'ok', 'do it', 'send it', 'confirm', or 'proceed'. "
-        f"Never call a write/action tool without explicit user approval in this turn."
+        f"Never call a write/action tool without explicit user approval in this turn.\n\n"
+        f"NAVIGATION RESULTS — when navigate_computer finishes, you will receive a "
+        f"screenshot of the current screen alongside the tool result. Always describe "
+        f"what you can see on the screen so the user knows exactly where and how the "
+        f"task was completed (e.g. which app is open, what is visible)."
     )
     facts = memory.get_all_facts_str()
     if facts:
@@ -152,12 +160,14 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[int] = None
     image_b64: Optional[str] = None        # base64-encoded image for this turn only
     image_mime: str = "image/jpeg"         # MIME type: image/jpeg, image/png, image/webp, image/gif
+    entity_refs: Optional[dict] = None     # agent context: scan_session_id, region, etc.
 
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: int
     interrupted: bool = False    # True when write-tool HITL approval is needed
     destructive: bool = False    # True when pending action is DESTRUCTIVE tier (sends msg / controls hardware)
+    scan_session_id: Optional[str] = None  # VisualOS session id when a new scan was created; pass back as entity_refs["scan_session_id"] on next turn
 
 
 class ApproveRequest(BaseModel):
@@ -171,16 +181,18 @@ _NOTIFY_VIA_OPTIONS = {"notification", "slack", "telegram", "push", "both", "non
 
 class RoutineCreate(BaseModel):
     name: str
-    prompt: str
-    schedule: str          # cron expression, e.g. "0 8 * * *"
-    notify_via: str = "notification"
+    prompt: str = ""           # agent chat prompt (optional if nav_task is set)
+    schedule: str              # cron expression, e.g. "0 8 * * *"
+    notify_via: str = "slack"  # Slack is primary delivery channel
+    nav_task: Optional[str] = None  # computer-control task for navigate_computer
 
 class RoutineUpdate(BaseModel):
-    name: Optional[str]    = None
-    prompt: Optional[str]  = None
-    schedule: Optional[str]= None
-    enabled: Optional[bool]= None
+    name: Optional[str]     = None
+    prompt: Optional[str]   = None
+    schedule: Optional[str] = None
+    enabled: Optional[bool] = None
     notify_via: Optional[str] = None
+    nav_task: Optional[str] = None
 
 class HealthIngest(BaseModel):
     date: str                    # YYYY-MM-DD
@@ -196,13 +208,94 @@ class ConnectorConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 @app.get("/", include_in_schema=False)
-def index():
+def index(request: Request):
+    is_local = request.client and request.client.host in ("127.0.0.1", "::1", "localhost")
+    if is_local:
+        html = open(os.path.join(_STATIC, "index.html"), encoding="utf-8").read()
+        token = os.environ.get("API_TOKEN", "")
+        inject = f'<script>window._API_TOKEN="{token}";localStorage.setItem("collectiveos_token","{token}");</script>'
+        html = html.replace("</head>", inject + "\n</head>", 1)
+        return HTMLResponse(html)
     return FileResponse(os.path.join(_STATIC, "index.html"))
 
 
 @app.get("/health")
 def health():
     return {"status": "ok", "redis": "ok" if _cache.ping() else "unavailable"}
+
+
+@app.get("/dashboard")
+def dashboard_stats(_token: str = Depends(_verify_token)):
+    """Aggregate system status for the dashboard home panel."""
+    import datetime as _dt
+    from src import nav_queue as _nq, activity as _act, screen_watcher as _sw
+
+    # Nav queue
+    nq_tasks = _nq.list_all(limit=200)
+    nq_active = sum(1 for t in nq_tasks if t["status"] in ("pending", "running"))
+
+    # Routines
+    try:
+        from src import routines as _r
+        all_routines = _r.list_all(enabled_only=False)
+        enabled_routines = [r for r in all_routines if r.get("enabled")]
+        next_routine = None
+        try:
+            from src.scheduler import _scheduler
+            jobs = [j for j in _scheduler.get_jobs() if j.id.startswith("routine_")]
+            if jobs:
+                jobs.sort(key=lambda j: j.next_run_time or _dt.datetime.max.replace(tzinfo=_dt.timezone.utc))
+                nxt = jobs[0]
+                next_routine = {
+                    "name": nxt.kwargs.get("name", ""),
+                    "next_run": nxt.next_run_time.isoformat() if nxt.next_run_time else None,
+                }
+        except Exception:
+            pass
+    except Exception:
+        all_routines, enabled_routines, next_routine = [], [], None
+
+    # Recent activity
+    try:
+        recent_events = _act.list_events(limit=5, days=7)
+    except Exception:
+        recent_events = []
+
+    # Memory facts
+    try:
+        from src import memory as _mem
+        facts = _mem.list_facts()
+        facts_count = len(facts)
+    except Exception:
+        facts_count = 0
+
+    # Tool count
+    try:
+        from src.assistant_starter import TOOLS
+        tool_count = len(TOOLS)
+    except Exception:
+        tool_count = 0
+
+    # Personalization
+    try:
+        from src import personalization as _pers
+        profile = _pers.get_summary()
+    except Exception:
+        profile = {}
+
+    return {
+        "nav_queue": {"active": nq_active, "total": len(nq_tasks)},
+        "routines":  {
+            "total": len(all_routines),
+            "enabled": len(enabled_routines),
+            "next": next_routine,
+        },
+        "activity":       {"recent": recent_events[:5]},
+        "screen_watcher": _sw.status(),
+        "memory":         {"facts_count": facts_count},
+        "tools":          {"total": tool_count},
+        "profile":        profile,
+    }
 
 
 @app.get("/metrics")
@@ -241,7 +334,8 @@ def ask(
     past = memory.search_with_graph(user_message)
     system_prompt = _system_prompt(past)
 
-    reply, _interrupted, _destructive = agent_run(user_message, system_prompt=system_prompt, thread_id="ask")
+    result = _orchestrator.run(user_message, system_prompt=system_prompt, thread_id="ask")
+    reply = result.text
     memory.save_smart(user_message, reply)
     return reply
 
@@ -303,16 +397,32 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
 
     conversations.save_message(conv_id, "user", user_message)
 
-    # The LangGraph agent carries full history via PostgresSaver — no need to
-    # load and pass history manually; it's restored from the checkpoint.
-    # image_b64 is forwarded for this turn only and is NOT persisted to DB.
-    reply, interrupted, destructive = agent_run(
-        user_message,
-        system_prompt=system_prompt,
-        thread_id=thread_id,
-        image_b64=body.image_b64 or None,
-        image_mime=body.image_mime or "image/jpeg",
-    )
+    # Route through the multi-agent orchestrator.
+    # The orchestrator enriches with VisualOS context (if scan_session_id present),
+    # then delegates to the task agent (LangGraph loop) with PostgresSaver checkpointing.
+    try:
+        result = _orchestrator.run(
+            user_message,
+            entity_refs=body.entity_refs or {},
+            image_b64=body.image_b64 or None,
+            image_mime=body.image_mime or "image/jpeg",
+            system_prompt=system_prompt,
+            thread_id=thread_id,
+        )
+        reply = result.text
+        interrupted = result.metadata.get("interrupted", False)
+        destructive = result.metadata.get("destructive", False)
+        scan_session_id = result.metadata.get("scan_session_id") or None
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).exception("Orchestrator error for conv %s", conv_id)
+        reply = (
+            f"I ran into an error while processing your request: {exc}\n\n"
+            "You can try rephrasing, or check the server logs for details."
+        )
+        interrupted = False
+        destructive = False
+        scan_session_id = None
 
     conversations.save_message(conv_id, "assistant", reply)
     if not interrupted:
@@ -329,6 +439,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
         conversation_id=conv_id,
         interrupted=interrupted,
         destructive=destructive,
+        scan_session_id=scan_session_id,
     )
 
 
@@ -387,7 +498,8 @@ def create_routine(body: RoutineCreate, _token: str = Depends(_verify_token)):
     if body.notify_via not in _NOTIFY_VIA_OPTIONS:
         raise HTTPException(status_code=400,
                             detail=f"notify_via must be one of: {sorted(_NOTIFY_VIA_OPTIONS)}")
-    row = _routines.create(body.name, body.prompt, body.schedule, body.notify_via)
+    row = _routines.create(body.name, body.prompt, body.schedule,
+                           body.notify_via, body.nav_task)
     _scheduler.reload_routine(row["id"])
     return row
 
@@ -432,7 +544,8 @@ def run_routine_now(routine_id: int, _token: str = Depends(_verify_token)):
     threading.Thread(
         target=_scheduler._run_routine,
         kwargs={"routine_id": r["id"], "name": r["name"],
-                "prompt": r["prompt"], "notify_via": r["notify_via"]},
+                "prompt": r["prompt"] or "", "notify_via": r["notify_via"],
+                "nav_task": r.get("nav_task")},
         daemon=True,
     ).start()
     return {"message": f"Routine '{r['name']}' triggered."}
@@ -541,6 +654,66 @@ def update_connector_config(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return {"connector": connector, "config": updates}
+
+
+# ---------------------------------------------------------------------------
+# Multi-agent registry — register, list, and remove peer agents
+# ---------------------------------------------------------------------------
+
+class AgentRegisterRequest(BaseModel):
+    name: str                          # logical name, e.g. "visual", "calendar"
+    url: str                           # base URL of the agent service
+    protocol: str = "rest"             # "rest" | "a2a" | "ws"
+    capabilities: List[str]            # what tasks this agent handles
+    api_key: Optional[str] = None      # passed as X-API-Key on outbound calls
+    health_url: Optional[str] = None   # GET this to check liveness
+
+
+@app.get("/agents")
+def list_agents(_token: str = Depends(_verify_token)):
+    """Return all registered peer agents with their capabilities and liveness."""
+    from src.agents.base import AgentRegistry
+    return {"agents": AgentRegistry.list_all()}
+
+
+@app.post("/agents/register", status_code=201)
+def register_agent(body: AgentRegisterRequest, _token: str = Depends(_verify_token)):
+    """Register (or update) a peer agent in the registry.
+
+    Remote services (VisualOS, VoiceOS, future agents) call this on startup
+    so CollectiveOS can delegate tasks to them.  Built-in agents are also
+    registered here on CollectiveOS startup (via multi_agent.setup()).
+    """
+    if body.protocol not in ("rest", "a2a", "ws"):
+        raise HTTPException(status_code=400, detail="protocol must be rest, a2a, or ws")
+    if not body.capabilities:
+        raise HTTPException(status_code=400, detail="capabilities must not be empty")
+
+    client = _orchestrator._build_client(
+        body.name, body.url, body.protocol, body.capabilities, body.api_key or ""
+    )
+    if client is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No client class available for protocol {body.protocol!r} with these capabilities."
+        )
+
+    from src.agents.base import AgentRegistry
+    AgentRegistry.register(body.name, client)
+    _orchestrator.persist_agent(
+        body.name, body.url, body.protocol, body.capabilities,
+        body.api_key or "", body.health_url or "",
+    )
+    return {"message": f"Agent '{body.name}' registered.", "capabilities": body.capabilities}
+
+
+@app.delete("/agents/{name}", status_code=204)
+def unregister_agent(name: str, _token: str = Depends(_verify_token)):
+    """Unregister a peer agent by name."""
+    from src.agents.base import AgentRegistry
+    if not AgentRegistry.unregister(name):
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found.")
+    _orchestrator.remove_agent(name)
 
 
 @app.post("/health-ingest", status_code=201)
@@ -653,6 +826,41 @@ def delete_memory_fact(fact_id: int, _token: str = Depends(_verify_token)):
     deleted = memory.delete_fact_by_id(fact_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Fact not found.")
+
+
+@app.get("/memory/search")
+def search_memory(
+    q: str = Query(..., min_length=1, description="Natural-language search query"),
+    limit: int = Query(8, ge=1, le=30),
+    _token: str = Depends(_verify_token),
+):
+    """
+    Semantic + keyword hybrid search over all memory chunks.
+
+    Uses hybrid RRF (vector cosine + ILIKE) via search_with_graph() which
+    also enriches results with knowledge-graph context for named entities.
+    Returns a list of {date, content, excerpt} objects ranked by relevance.
+    """
+    raw = memory.search_with_graph(q, limit=limit)
+    if not raw:
+        return {"query": q, "results": []}
+
+    results = []
+    for block in raw.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        # Each block is "[YYYY-MM-DD]\nContent…" or a graph section
+        lines = block.split("\n", 1)
+        date = ""
+        content = block
+        if lines[0].startswith("[") and lines[0].endswith("]"):
+            date = lines[0][1:-1]
+            content = lines[1].strip() if len(lines) > 1 else ""
+        excerpt = content[:300] + ("…" if len(content) > 300 else "")
+        results.append({"date": date, "content": content, "excerpt": excerpt})
+
+    return {"query": q, "results": results[:limit]}
 
 
 @app.get("/export")
@@ -777,8 +985,18 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
             }
         })
 
+    # Load prior conversation history from the LangGraph checkpoint so the
+    # model can refer to earlier turns in this conversation.
+    try:
+        from src.agent import get_graph as _get_graph
+        _g = _get_graph()
+        _prev = _g.get_state({"configurable": {"thread_id": thread_id}})
+        prior_history: list[dict] = (_prev.values or {}).get("history", []) if _prev else []
+    except Exception:
+        prior_history = []
+
     initial_state = {
-        "history": [{"role": "user", "parts": user_parts}],
+        "history": prior_history + [{"role": "user", "parts": user_parts}],
         "system_prompt": system_prompt,
         "active_tools": active_tools,
         "reply": "",
@@ -836,12 +1054,6 @@ async def chat_stream(body: ChatRequest, _token: str = Depends(_verify_token)):
                 yield f"data: {json.dumps({'progress': label})}\n\n"
             else:
                 _, reply, interrupted = item
-            chunk = await queue.get()
-            if chunk is None:
-                full_reply = "".join(collected)
-                conversations.save_message(conv_id, "assistant", full_reply)
-                memory.save_smart(user_message, full_reply)
-                yield f"data: {json.dumps({'done': True})}\n\n"
                 break
 
         # Stream reply word-by-word so the client renders it progressively.
@@ -910,6 +1122,140 @@ def computer_stop(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Automation template library
+# ---------------------------------------------------------------------------
+
+class TemplateInstallRequest(BaseModel):
+    schedule: Optional[str] = None
+    notify_via: Optional[str] = None
+
+
+@app.get("/templates")
+def list_templates(category: Optional[str] = None, _token: str = Depends(_verify_token)):
+    """List all pre-built automation templates, optionally filtered by category."""
+    from src import templates as _tmpl
+    return {
+        "categories": _tmpl.categories(),
+        "templates":  _tmpl.list_templates(category=category),
+    }
+
+
+@app.post("/templates/{template_id}/install", status_code=201)
+def install_template(
+    template_id: str,
+    body: TemplateInstallRequest = TemplateInstallRequest(),
+    _token: str = Depends(_verify_token),
+):
+    """Install a template as a saved routine."""
+    from src import templates as _tmpl
+    try:
+        return _tmpl.install(
+            template_id,
+            schedule_override=body.schedule,
+            notify_override=body.notify_via,
+        )
+    except KeyError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Workflow recorder — natural language → scheduled nav routine
+# ---------------------------------------------------------------------------
+
+class WorkflowRecordRequest(BaseModel):
+    description: str
+    name: Optional[str] = None
+    schedule: Optional[str] = None
+    notify_via: str = "slack"
+
+
+@app.post("/workflows/record", status_code=201)
+def record_workflow(body: WorkflowRecordRequest, _token: str = Depends(_verify_token)):
+    """Convert a plain-English workflow description into a scheduled nav routine."""
+    from src import workflow_recorder as _wr
+    try:
+        return _wr.record(
+            description=body.description,
+            name=body.name,
+            schedule=body.schedule,
+            notify_via=body.notify_via,
+        )
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Nav queue — background task tracking
+# ---------------------------------------------------------------------------
+
+@app.get("/nav-queue")
+def nav_queue_list(limit: int = 50, _token: str = Depends(_verify_token)):
+    """Return background nav tasks ordered newest first."""
+    from src import nav_queue as _nq
+    return _nq.list_all(limit=limit)
+
+
+@app.delete("/nav-queue/{task_id}", status_code=204)
+def nav_queue_cancel(task_id: str, _token: str = Depends(_verify_token)):
+    """Cancel a pending or running nav task."""
+    from src import nav_queue as _nq
+    _nq.cancel(task_id)
+
+
+# ---------------------------------------------------------------------------
+# Task orchestrator — REST endpoints for the Tasks UI panel
+# ---------------------------------------------------------------------------
+
+@app.get("/tasks")
+def list_tasks_endpoint(limit: int = 25, _token: str = Depends(_verify_token)):
+    """Return the most recent tasks ordered newest first."""
+    from src.orchestrator import list_tasks
+    try:
+        return list_tasks(limit=limit)
+    except Exception:
+        return []
+
+
+@app.get("/tasks/{task_id}")
+def get_task_endpoint(task_id: int, _token: str = Depends(_verify_token)):
+    """Return a single task with its steps."""
+    from src.orchestrator import get_task
+    from fastapi import HTTPException
+    data = get_task(task_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+    return data
+
+
+@app.post("/tasks/{task_id}/cancel")
+def cancel_task_endpoint(task_id: int, _token: str = Depends(_verify_token)):
+    """Cancel a pending or running task."""
+    from src.orchestrator import cancel_task
+    result = cancel_task(task_id)
+    return {"message": result}
+
+
+# ---------------------------------------------------------------------------
+# Activity log — chronological record of proactive agent actions
+# ---------------------------------------------------------------------------
+
+@app.get("/activity")
+def activity_endpoint(limit: int = 100, days: int = 7,
+                      _token: str = Depends(_verify_token)):
+    """
+    Return recent activity events (routine runs, watcher triggers,
+    notification deliveries), newest first.
+    """
+    from src.activity import list_events
+    return list_events(limit=limit, days=days)
+
+
+# ---------------------------------------------------------------------------
 # Robot status — live state for the floor-plan UI panel
 # ---------------------------------------------------------------------------
 
@@ -924,14 +1270,157 @@ def robot_status_endpoint(_token: str = Depends(_verify_token)):
 
 
 # ---------------------------------------------------------------------------
+# Robot WebSocket — camera stream + demonstration recording
+# ---------------------------------------------------------------------------
+
+@app.websocket("/robot/ws")
+async def robot_websocket(ws: WebSocket, token: str = "") -> None:
+    """
+    Robot camera stream and task endpoint.
+
+    The robot connects here, streams its camera (type=frame) and sends
+    tasks (type=task).  The nav agent runs with record=True so every step
+    is written to data/demonstrations/ for imitation learning.
+
+    Auth: pass ?token=<API_TOKEN> as a query parameter.
+    """
+    if token != _API_TOKEN:
+        await ws.close(code=4401, reason="Unauthorized")
+        return
+    from src.robot_stream import handle_robot_ws
+    await handle_robot_ws(ws, token)
+
+
+# ---------------------------------------------------------------------------
+# Demonstrations — imitation learning data
+# ---------------------------------------------------------------------------
+
+@app.get("/demonstrations")
+def list_demonstrations(limit: int = 50, _token: str = Depends(_verify_token)):
+    """List the most recent demonstration files written by the nav agent."""
+    from src.connectors.demonstrations import list_demos
+    return list_demos(limit=limit)
+
+
+@app.get("/demonstrations/policy")
+def demonstrations_policy(_token: str = Depends(_verify_token)):
+    """
+    Aggregate all demonstrations into an action-frequency policy summary.
+    Useful as a seed for imitation learning or for inspecting agent behaviour.
+    """
+    from src.connectors.demonstrations import summarize_policy
+    return summarize_policy()
+
+
+@app.get("/demonstrations/{demo_id}")
+def get_demonstration(demo_id: str, _token: str = Depends(_verify_token)):
+    """Return the full JSON for a specific demonstration file by id."""
+    from src.connectors.demonstrations import get_demo
+    data = get_demo(demo_id)
+    if data is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Demo '{demo_id}' not found.")
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Personalization
+# ---------------------------------------------------------------------------
+
+@app.get("/profile")
+def user_profile(_token: str = Depends(_verify_token)):
+    """Return the user's usage profile summary."""
+    from src import personalization as _pers
+    return _pers.get_summary()
+
+
+@app.get("/profile/suggestions")
+def routine_suggestions(_token: str = Depends(_verify_token)):
+    """Return proactive routine suggestions based on usage patterns."""
+    from src import personalization as _pers
+    return _pers.suggest_routines()
+
+
+# ---------------------------------------------------------------------------
+# Proactive push queue
+# ---------------------------------------------------------------------------
+
+@app.get("/proactive")
+def get_proactive_messages(_token: str = Depends(_verify_token)):
+    """
+    Return and clear all pending proactive messages.
+
+    The UI polls this endpoint every 30 s. Any messages enqueued by the
+    scheduler (time-of-day triggers), screen watcher, or personalization
+    engine are returned and immediately removed from the queue so they
+    appear only once.
+    """
+    from src import proactive as _proactive
+    return {"messages": _proactive.pop_all()}
+
+
+# ---------------------------------------------------------------------------
+# Proactive screen watcher
+# ---------------------------------------------------------------------------
+
+@app.get("/screen-watcher/status")
+def screen_watcher_status(_token: str = Depends(_verify_token)):
+    """Return screen watcher configuration and enabled state."""
+    from src import screen_watcher as _sw
+    return _sw.status()
+
+
+@app.post("/screen-watcher/check")
+def screen_watcher_check_now(_token: str = Depends(_verify_token)):
+    """Run one screen-awareness poll immediately (ignores enabled flag)."""
+    import threading
+    from src import screen_watcher as _sw
+
+    def _run():
+        _sw._check_screen.__wrapped__ = True  # bypass enabled guard below
+        png = _sw._capture_screenshot()
+        if not png:
+            return
+        result = _sw._ask_llm(png)
+        if result and result.get("alert"):
+            from src import output_bus
+            urgency = result.get("urgency", "medium")
+            prefix = {"high": "🔴", "medium": "🟡", "low": "🔵"}.get(urgency, "")
+            output_bus.deliver(
+                title="Screen alert (manual check)",
+                body=f"{prefix} {result.get('summary', '')}",
+                channel="slack",
+            )
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"message": "Screen check triggered — result will arrive on Slack if anything is found."}
+
+
+# ---------------------------------------------------------------------------
 # Morning briefing
 # ---------------------------------------------------------------------------
 
 @app.get("/briefing")
-def briefing_now(_token: str = Depends(_verify_token)):
-    """Generate and return a morning briefing immediately."""
+def briefing_get(fresh: bool = False, _token: str = Depends(_verify_token)):
+    """
+    Return the morning briefing.
+
+    By default returns the last cached briefing (fast). Pass ?fresh=true to
+    regenerate from live health + memory data (may take a few seconds).
+    """
     from src import briefing as _briefing
-    return _briefing.generate()
+    if fresh:
+        return _briefing.generate()
+    last = _briefing.get_last()
+    return last if last else _briefing.generate()
+
+
+@app.post("/briefing/deliver", status_code=202)
+def briefing_deliver(_token: str = Depends(_verify_token)):
+    """Generate a fresh briefing and push it to all configured channels + UI queue."""
+    from src import briefing as _briefing
+    _briefing.deliver()
+    return {"status": "delivered"}
 
 
 @app.get("/briefing/schedule")

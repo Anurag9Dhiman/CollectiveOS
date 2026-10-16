@@ -1,0 +1,641 @@
+% ============================================================
+%  CollectiveOS — Investor & General Audience Presentation
+%  Compile with: pdflatex presentation.tex
+% ============================================================
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, shapes.rounded}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{array}
+\usepackage{booktabs}
+
+% ── Colours ─────────────────────────────────────────────────────────────────
+\definecolor{accentcol}{HTML}{1E293B}
+\definecolor{white}{HTML}{FFFFFF}
+\definecolor{bodytext}{HTML}{1E293B}
+\definecolor{subtext}{HTML}{64748B}
+\definecolor{highlight}{HTML}{3B82F6}
+\definecolor{green}{HTML}{22C55E}
+\definecolor{amber}{HTML}{F59E0B}
+\definecolor{lightbg}{HTML}{F1F5F9}
+\definecolor{cardbg}{HTML}{E2E8F0}
+
+% ── Theme setup ──────────────────────────────────────────────────────────────
+\usetheme{default}
+\setbeamertemplate{navigation symbols}{}
+
+\setbeamercolor{frametitle}{bg=accentcol, fg=white}
+\setbeamercolor{normal text}{fg=bodytext}
+\setbeamercolor{structure}{fg=accentcol}
+\setbeamercolor{item}{fg=accentcol}
+\setbeamercolor{subitem}{fg=subtext}
+\setbeamercolor{block title}{bg=accentcol, fg=white}
+\setbeamercolor{block body}{bg=lightbg, fg=bodytext}
+\setbeamercolor{alerted text}{fg=highlight}
+
+\setbeamerfont{frametitle}{size=\large, series=\bfseries}
+\setbeamerfont{title}{size=\huge, series=\bfseries}
+\setbeamerfont{subtitle}{size=\normalsize}
+
+% ── Frame title ──────────────────────────────────────────────────────────────
+\setbeamertemplate{frametitle}{%
+  \nointerlineskip
+  \begin{beamercolorbox}[wd=\paperwidth,ht=2.6ex,dp=1.2ex,leftskip=1.2em]{frametitle}%
+    \usebeamerfont{frametitle}\insertframetitle%
+  \end{beamercolorbox}%
+}
+
+% ── Footline ─────────────────────────────────────────────────────────────────
+\setbeamertemplate{footline}{%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=2.2ex,dp=1ex,
+      leftskip=1.2em,rightskip=1.2em]{frametitle}%
+    {\scriptsize CollectiveOS \textbar{} Confidential}%
+    \hfill%
+    {\scriptsize \insertframenumber\,/\,\inserttotalframenumber}%
+  \end{beamercolorbox}%
+}
+
+% ── Title page ───────────────────────────────────────────────────────────────
+\setbeamertemplate{title page}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \fill[accentcol]
+      (current page.north west) rectangle
+      ([yshift=-0.45\paperheight]current page.north east);
+    \node[anchor=center, text=white, font=\huge\bfseries]
+      at ([yshift=-0.12\paperheight]current page.north) {\inserttitle};
+    \node[anchor=center, text=white!80, font=\normalsize]
+      at ([yshift=-0.22\paperheight]current page.north) {\insertsubtitle};
+    \node[anchor=center, text=bodytext, font=\small]
+      at ([yshift=0.14\paperheight]current page.south) {\insertauthor\quad\textbar\quad\insertdate};
+  \end{tikzpicture}%
+}
+
+% ── Metadata ─────────────────────────────────────────────────────────────────
+\title{CollectiveOS}
+\subtitle{One AI. Every Device. Total Control.}
+\author{Engineering Team}
+\date{\the\year}
+
+% ── Helper: pill-style callout ────────────────────────────────────────────────
+\newcommand{\pill}[2]{%
+  \tikz[baseline=(t.base)]\node[fill=#1,rounded corners=3pt,
+    inner xsep=5pt,inner ysep=2pt,text=white,font=\scriptsize\bfseries](t){#2};%
+}
+
+% =============================================================================
+\begin{document}
+
+% ─── TITLE ───────────────────────────────────────────────────────────────────
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+% =============================================================================
+%  SECTION 1 — ARCHITECTURE OVERVIEW
+% =============================================================================
+
+% ─── ARCHITECTURE OVERVIEW ───────────────────────────────────────────────────
+\begin{frame}{Architecture Overview}
+  \begin{columns}[T]
+
+    \column{0.48\textwidth}
+    \textbf{\color{accentcol}The Challenge}\\[0.3em]
+    {\small We use dozens of apps, devices, and services every day —
+    but nothing connects them into one smart system that works for \emph{us}.}
+
+    \vspace{1em}
+    \textbf{\color{accentcol}The System}\\[0.3em]
+    {\small CollectiveOS is a personal AI hub. It sits at the centre of your
+    digital life, understands what you need, takes action, and remembers
+    your preferences across every session.}
+
+    \vspace{1em}
+    \textbf{\color{accentcol}Security \& Control}\\[0.3em]
+    {\small Every sensitive action requires your explicit approval.
+    Your data stays local. Credentials are encrypted. Nothing happens
+    behind your back.}
+
+    \column{0.48\textwidth}
+    \textbf{\color{accentcol}Key Design Decisions}
+    \begin{itemize}\small
+      \item Safety first — write actions need your sign-off
+      \item Memory-first — learns and remembers across sessions
+      \item Modular — add any new service without changing the core
+      \item Single user, fully private
+    \end{itemize}
+
+    \vspace{0.8em}
+    \textbf{\color{accentcol}Tech Snapshot}
+    \begin{itemize}\small
+      \item \textbf{AI:} Google Gemini (language + vision)
+      \item \textbf{Memory:} PostgreSQL + vector search
+      \item \textbf{API:} FastAPI (Python)
+      \item \textbf{Automation:} LangGraph agent loop
+    \end{itemize}
+
+    \vspace{0.8em}
+    \textbf{\color{accentcol}Integrations Planned}
+    {\small Calendar · Email · Smart Home · Web · Files · Vehicle}
+
+  \end{columns}
+\end{frame}
+
+% =============================================================================
+%  SECTION 2 — ENGINEERING DEMO DECK
+% =============================================================================
+
+% ─── 1. WHAT WE ARE BUILDING ─────────────────────────────────────────────────
+\begin{frame}{What We Are Building}
+  \vspace{0.5em}
+  \begin{center}
+    {\large\bfseries\color{accentcol}
+      A personal AI that talks to your entire digital world —\\
+      and takes action on your behalf.}
+  \end{center}
+  \vspace{1em}
+  \begin{columns}[T]
+    \column{0.3\textwidth}
+    \begin{block}{Think}
+      \small Understands natural language.\\
+      Remembers past conversations.\\
+      Knows your context.
+    \end{block}
+    \column{0.3\textwidth}
+    \begin{block}{Act}
+      \small Opens apps, searches the web,\\
+      sends messages, controls smart\\
+      devices — on your command.
+    \end{block}
+    \column{0.3\textwidth}
+    \begin{block}{Learn}
+      \small Builds a memory of your\\
+      preferences, habits, and past\\
+      requests over time.
+    \end{block}
+  \end{columns}
+  \vspace{1em}
+  \begin{center}
+    {\small\color{subtext}
+      Think of it as a chief of staff for your personal life —
+      always available, always up to date.}
+  \end{center}
+\end{frame}
+
+% ─── 2. PROBLEM / USE CASE ───────────────────────────────────────────────────
+\begin{frame}{The Problem We're Solving}
+  \vspace{0.6em}
+  \begin{columns}[T]
+    \column{0.45\textwidth}
+    {\color{accentcol}\bfseries Today's reality:}
+    \begin{itemize}\small
+      \item You switch between 10+ apps just to plan one day
+      \item Smart home, calendar, email, files — nothing talks to each other
+      \item Repetitive tasks (checking weather, finding appointments,
+            controlling lights) eat minutes every day
+      \item Existing assistants answer questions — but can't \emph{do} things
+    \end{itemize}
+
+    \column{0.48\textwidth}
+    \begin{tikzpicture}
+      \node[fill=lightbg, rounded corners=6pt, minimum width=5.5cm,
+            minimum height=3.8cm, inner sep=10pt] (box) {};
+      \node[font=\bfseries\small, text=accentcol, anchor=north]
+        at (box.north) {Time lost daily to manual switching};
+      \node[font=\Huge\bfseries, text=highlight] at (box.center) {45+ min};
+      \node[font=\scriptsize, text=subtext, anchor=south]
+        at (box.south) {Average across knowledge workers — Asana 2024};
+    \end{tikzpicture}
+  \end{columns}
+  \vspace{0.5em}
+  \begin{center}
+    {\small\bfseries\color{highlight}
+      CollectiveOS collapses all of this into one conversation.}
+  \end{center}
+\end{frame}
+
+% ─── 3. CURRENT CAPABILITIES ─────────────────────────────────────────────────
+\begin{frame}{What Works Today}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{itemize}
+      \item[\color{green}\bfseries\checkmark] \textbf{Smart conversation}\\
+        {\small Remembers what you've said across sessions}
+      \item[\color{green}\bfseries\checkmark] \textbf{Autonomous computer control}\\
+        {\small Opens apps, navigates websites, fills forms}
+      \item[\color{green}\bfseries\checkmark] \textbf{Visual awareness}\\
+        {\small Can see and describe your screen}
+      \item[\color{green}\bfseries\checkmark] \textbf{Voice input}\\
+        {\small Speak your commands naturally}
+    \end{itemize}
+
+    \column{0.48\textwidth}
+    \begin{itemize}
+      \item[\color{green}\bfseries\checkmark] \textbf{Scheduled routines}\\
+        {\small Automates recurring tasks on a timer}
+      \item[\color{green}\bfseries\checkmark] \textbf{Condition watchers}\\
+        {\small Alerts you when something changes}
+      \item[\color{green}\bfseries\checkmark] \textbf{Knowledge graph memory}\\
+        {\small Remembers people, places, and facts about you}
+      \item[\color{green}\bfseries\checkmark] \textbf{Action approval system}\\
+        {\small You stay in control — approve before anything is done}
+    \end{itemize}
+  \end{columns}
+  \vspace{0.6em}
+  \begin{center}
+    \pill{accentcol}{11 phases shipped} \quad
+    \pill{highlight}{Live \& running} \quad
+    \pill{green}{100\% tests passing}
+  \end{center}
+\end{frame}
+
+% ─── 4. SYSTEM ARCHITECTURE ──────────────────────────────────────────────────
+% ─── 4. SYSTEM ARCHITECTURE — FULL TECHNICAL ─────────────────────────────────
+\begin{frame}{System Architecture — Full Technical Detail}
+\vspace{-0.6em}
+\centering
+\resizebox{0.97\textwidth}{!}{%
+\begin{tikzpicture}[
+  %% node styles
+  inp/.style   ={draw=accentcol,  fill=accentcol!12, rounded corners=3pt,
+                 font=\fontsize{6.5}{8}\sf\bfseries, text=accentcol,
+                 inner xsep=5pt, inner ysep=3pt, align=center,
+                 minimum width=2.6cm, minimum height=0.62cm},
+  core/.style  ={draw=accentcol,  fill=accentcol,    rounded corners=3pt,
+                 font=\fontsize{6.5}{8}\sf\bfseries, text=white,
+                 inner xsep=5pt, inner ysep=3pt, align=center,
+                 minimum width=7.8cm, minimum height=0.7cm},
+  agent/.style ={draw=accentcol,  fill=accentcol!8,  rounded corners=3pt,
+                 font=\fontsize{6.5}{8}\sf\bfseries, text=accentcol,
+                 inner xsep=5pt, inner ysep=3pt, align=center,
+                 minimum width=3.8cm, minimum height=0.7cm},
+  hitl/.style  ={draw=amber!80!black, fill=amber!15, rounded corners=3pt,
+                 font=\fontsize{6.5}{8}\sf\bfseries, text=amber!80!black,
+                 inner xsep=5pt, inner ysep=3pt, align=center,
+                 minimum width=2.5cm, minimum height=0.7cm},
+  tool/.style  ={draw=highlight,  fill=highlight!10, rounded corners=3pt,
+                 font=\fontsize{6.5}{8}\sf\bfseries, text=highlight!70!black,
+                 inner xsep=4pt, inner ysep=3pt, align=center,
+                 minimum width=2.2cm, minimum height=0.62cm},
+  nav/.style   ={draw=highlight,  fill=highlight!20, rounded corners=3pt,
+                 font=\fontsize{6}{7.5}\sf\bfseries, text=highlight!70!black,
+                 inner xsep=4pt, inner ysep=2pt, align=center,
+                 minimum width=1.7cm, minimum height=0.55cm},
+  peer/.style  ={draw=green!70!black, fill=green!10, rounded corners=3pt,
+                 font=\fontsize{6.5}{8}\sf\bfseries, text=green!60!black,
+                 inner xsep=4pt, inner ysep=3pt, align=center,
+                 minimum width=2.4cm, minimum height=0.62cm},
+  db/.style    ={draw=accentcol,  fill=accentcol!6,  rounded corners=3pt,
+                 font=\fontsize{6}{7.5}\sf\bfseries, text=accentcol,
+                 inner xsep=4pt, inner ysep=3pt, align=center},
+  lbl/.style   ={font=\fontsize{5.5}{7}\sf\color{subtext}, align=left},
+  %% arrow styles
+  arr/.style   ={-{Latex[length=1.8mm,width=1.1mm]},
+                 draw=highlight,    line width=0.7pt},
+  sarr/.style  ={-{Latex[length=1.5mm,width=1mm]},
+                 draw=accentcol,    line width=0.6pt},
+  darr/.style  ={-{Latex[length=1.5mm,width=1mm]},
+                 draw=subtext,      line width=0.55pt, dashed},
+]
+
+%% ── ROW 0  INPUT SOURCES  (y = 0) ──────────────────────────────────────────
+\node[inp] (voice)   at (-3.2, 0)  {VoiceOS\\{\fontsize{5.5}{7}\sf\selectfont WS /v1/ws}};
+\node[inp] (wui)     at (0,    0)  {Web Chat UI\\{\fontsize{5.5}{7}\sf\selectfont HTTP POST /chat}};
+\node[inp] (img)     at (3.2,  0)  {Image / Scan\\{\fontsize{5.5}{7}\sf\selectfont base64 in request body}};
+\node[lbl]           at (-5.7, 0)  {\textbf{INPUT}};
+
+%% ── ROW 1  FASTAPI GATEWAY  (y = -1.1) ─────────────────────────────────────
+\node[core] (api)    at (0, -1.1)
+  {FastAPI Gateway \enspace \fontsize{5.5}{7}\sf src/api.py \enspace
+   Bearer-token auth · SSE streaming · WebSocket handler · static UI serve};
+\node[lbl]           at (-5.7,-1.1){\textbf{GATEWAY}};
+
+\draw[arr] (voice.south) -- ++(0,-0.22) -| ([xshift=-2.5cm]api.north);
+\draw[arr] (wui.south)   -- (api.north);
+\draw[arr] (img.south)   -- ++(0,-0.22) -| ([xshift=2.5cm]api.north);
+
+%% ── ROW 2  ORCHESTRATOR  (y = -2.2) ────────────────────────────────────────
+\node[core] (orch) at (0,-2.2)
+  {Orchestrator \enspace \fontsize{5.5}{7}\sf src/multi\_agent.py \enspace
+   Gemini router model · intent classification · VisualOS context injection};
+\node[lbl] at (-5.7,-2.2) {\textbf{ROUTER}};
+
+\draw[arr] (api) -- (orch);
+
+%% ── VisualOS PEER  (right of orchestrator) ──────────────────────────────────
+\node[peer, minimum width=2.3cm, minimum height=1.2cm]
+  (vis) at (6.5,-2.2)
+  {VisualOS Agent\\{\fontsize{5.5}{7}\sf\selectfont Screen analysis}\\
+   {\fontsize{5.5}{7}\sf\selectfont Image QA · scan context}};
+\draw[darr] ([xshift=3.9cm]orch.east)  -- (vis.west)
+  node[midway,above,font=\fontsize{5}{6}\sf\color{subtext}]{scan\_session\_id};
+\draw[darr] (vis.south) -- ++(0,-0.25)
+  -| ([xshift=3.5cm]orch.east)
+  node[near start,right,font=\fontsize{5}{6}\sf\color{subtext}]{context prefix};
+
+%% ── ROW 3  LANGGRAPH TASK AGENT + HITL  (y = -3.35) ───────────────────────
+\node[agent, minimum width=5cm] (agent) at (-1.2,-3.35)
+  {LangGraph Task Agent \enspace \fontsize{5.5}{7}\sf src/agent.py\\
+   \fontsize{5.5}{7}\sf StateGraph · Gemini Flash Lite · PostgresSaver checkpoint};
+\node[hitl] (hitl) at (3.4,-3.35)
+  {HITL Gate\\
+   \fontsize{5.5}{7}\sf interrupt\_before\\
+   \fontsize{5.5}{7}\sf ["write\_tools"]};
+\node[inp, minimum width=1.6cm] (usr) at (5.6,-3.35)
+  {User\\{\fontsize{5.5}{7}\sf Approve / Reject}};
+\node[lbl] at (-5.7,-3.35) {\textbf{AGENT}};
+
+\draw[arr] (orch)    -- (agent);
+\draw[arr] (agent.east) -- (hitl.west)
+  node[midway,above,font=\fontsize{5}{6}\sf\color{subtext}]{write tool?};
+\draw[sarr](hitl.east) -- (usr.west);
+\draw[sarr](usr.south) -- ++(0,-0.2) -| (hitl.south)
+  node[near start,below,font=\fontsize{5}{6}\sf\color{subtext}]{approved};
+
+%% ── ROW 4  TOOL CONNECTORS  (y = -4.55) ───────────────────────────────────
+\node[tool] (tnav)  at (-3.8,-4.55) {navigate\_computer\\{\fontsize{5.5}{7}\sf connector}};
+\node[tool] (tmem)  at (-1.2,-4.55) {memory r/w\\{\fontsize{5.5}{7}\sf pgvector search}};
+\node[tool] (tweb)  at ( 1.4,-4.55) {web / search\\{\fontsize{5.5}{7}\sf connector}};
+\node[tool] (tcal)  at ( 4.0,-4.55) {calendar · email\\{\fontsize{5.5}{7}\sf (next phase)}};
+\node[lbl]          at (-5.7,-4.55) {\textbf{TOOLS}};
+
+\draw[arr] (agent.south) -- ++(0,-0.4) -| (tnav.north);
+\draw[arr] (agent.south) -- ++(0,-0.4) -| (tmem.north);
+\draw[arr] (agent.south) -- ++(0,-0.4) -| (tweb.north);
+\draw[darr](agent.south) -- ++(0,-0.4) -| (tcal.north);
+
+%% ── ROW 5  NAV AGENT INTERNALS  (y = -5.75) ───────────────────────────────
+\node[nav] (ax)    at (-5.0,-5.75) {AX Tree\\{\fontsize{5}{6}\sf pyobjc}};
+\node[nav] (pag)   at (-3.5,-5.75) {pyautogui\\{\fontsize{5}{6}\sf mouse + keyboard}};
+\node[nav] (gv)    at (-2.0,-5.75) {Gemini Vision\\{\fontsize{5}{6}\sf screenshot QA}};
+\node[nav] (ocd)   at (-0.5,-5.75) {OpenCV\\{\fontsize{5}{6}\sf screen-diff}};
+\node[nav] (plan)  at ( 1.0,-5.75) {Task Planner\\{\fontsize{5}{6}\sf 3-7 step plan}};
+\node[lbl]         at (-5.7,-5.75) {\textbf{NAV AGENT}};
+
+\draw[sarr](tnav.south) -- ++(0,-0.3) -| (ax.north);
+\draw[sarr](tnav.south) -- ++(0,-0.3) -| (pag.north);
+\draw[sarr](tnav.south) -- ++(0,-0.3) -| (gv.north);
+\draw[sarr](tnav.south) -- ++(0,-0.3) -| (ocd.north);
+\draw[sarr](tnav.south) -- ++(0,-0.3) -| (plan.north);
+
+%% ── ROW 6  STORAGE  (y = -5.75, right side) ───────────────────────────────
+\node[db, minimum width=4.8cm, minimum height=1.1cm]
+  (pg) at (4.3,-5.75)
+  {PostgreSQL + pgvector\\
+   \fontsize{5.5}{7}\sf conversations · messages · tasks · task\_steps\\
+   \fontsize{5.5}{7}\sf memory\_chunks (3072-dim) · LangGraph checkpoints};
+\node[db, minimum width=2.2cm] (redis) at (4.3,-7.1)
+  {Redis cache\\{\fontsize{5.5}{7}\sf optional · fallback: in-process dict}};
+\node[lbl] at (-5.7,-6.5) {\textbf{STORAGE}};
+
+\draw[sarr] (tmem.south)  -- ++(0,-0.3) -| (pg.north);
+\draw[sarr] (agent.south) -- ++(0,-0.4) -| ([xshift=1cm]pg.north west)
+  node[near end,right,font=\fontsize{5}{6}\sf\color{subtext}]{checkpoint};
+\draw[darr] (pg.south) -- (redis.north);
+
+%% ── observability note ─────────────────────────────────────────────────────
+\node[lbl, minimum width=3.5cm, align=center] at (4.3,-7.8)
+  {\fontsize{5.5}{7}\sf Observability: token cost · latency · model logged per call};
+
+\end{tikzpicture}%
+}%
+\end{frame}
+
+% ─── 5. END-TO-END WORKFLOW ──────────────────────────────────────────────────
+\begin{frame}{How a Request Flows End-to-End}
+  \vspace{0.4em}
+  \begin{center}
+  \begin{tikzpicture}[
+    step/.style = {draw=accentcol, fill=accentcol, rounded corners=4pt,
+                   text=white, font=\scriptsize\bfseries,
+                   minimum width=2cm, minimum height=0.85cm,
+                   inner sep=4pt, align=center},
+    arr/.style  = {-{Latex[length=2.5mm]}, draw=highlight, line width=1.2pt},
+    lab/.style  = {font=\tiny\color{subtext}, align=center},
+    node distance=0.5cm,
+  ]
+    \node[step] (in)  {Input\\{\tiny Voice / Text / Image}};
+    \node[step, right=0.7cm of in]  (route)  {AI Router\\{\tiny Understands intent}};
+    \node[step, right=0.7cm of route] (agent) {Task Agent\\{\tiny Plans steps}};
+    \node[step, right=0.7cm of agent] (tools) {Tools\\{\tiny Takes action}};
+    \node[step, right=0.7cm of tools] (out)   {Response\\{\tiny Text / Action}};
+    \node[step, below=0.6cm of out]  (log)   {Memory \&\\Logs};
+
+    \draw[arr] (in)    -- (route);
+    \draw[arr] (route) -- (agent);
+    \draw[arr] (agent) -- (tools);
+    \draw[arr] (tools) -- (out);
+    \draw[arr] (out)   -- (log);
+    \draw[arr, draw=accentcol] (log.west) -- ++(-1,0) |- (agent.south);
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.5em}
+  \begin{columns}[T]
+    \column{0.32\textwidth}
+    {\small \textbf{Example:} ``Open Safari and check the weather''}
+    \column{0.32\textwidth}
+    {\small The AI routes to the \emph{computer control} tool, plans
+    two steps (open browser, navigate to weather site), then asks you
+    to approve before acting.}
+    \column{0.32\textwidth}
+    {\small After you approve, the action runs, the result is shown,
+    and the session is saved to memory for next time.}
+  \end{columns}
+\end{frame}
+
+% ─── 6. LIVE DEMO ────────────────────────────────────────────────────────────
+\begin{frame}{Live Demo}
+  \vspace{1em}
+  \begin{center}
+    \begin{tikzpicture}
+      \node[draw=accentcol, fill=lightbg, rounded corners=8pt,
+            minimum width=10cm, minimum height=3.5cm,
+            inner sep=16pt, align=center] {
+        {\large\bfseries\color{accentcol} Demo: End-to-End Workflow}\\[0.6em]
+        {\small ``Open Safari and give me a weather update''}\\[0.4em]
+        {\scriptsize\color{subtext}
+          Watch: intent detection → approval gate → computer navigation → result}
+      };
+    \end{tikzpicture}
+
+    \vspace{0.8em}
+    {\small\color{subtext}
+      The assistant asks for your approval before touching any application.\\
+      You click \textbf{Approve} — it opens the browser, navigates, and reports back.}
+  \end{center}
+\end{frame}
+
+% ─── 7. CURRENT LIMITATIONS ──────────────────────────────────────────────────
+\begin{frame}{Where We Are Honest About Limitations}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    {\color{accentcol}\bfseries Current constraints:}
+    \begin{itemize}\small
+      \item \textbf{Service connectors:} Calendar and email are next — not yet wired
+      \item \textbf{Single user:} Built for one person; no multi-account support yet
+      \item \textbf{Desktop only:} No mobile app; phone integration is planned
+      \item \textbf{Local setup:} Requires a Mac with the server running
+      \item \textbf{Web navigation speed:} Visual-only browsing is slower than
+            dedicated browser APIs
+    \end{itemize}
+
+    \column{0.48\textwidth}
+    {\color{accentcol}\bfseries Why this is fine for now:}
+    \begin{itemize}\small
+      \item Each limitation is a \emph{known, planned milestone} — not a
+            fundamental blocker
+      \item The core loop (understand → decide → act → remember) is solid
+            and tested
+      \item Safety constraints are intentional: read-only comes before write;
+            approval gates stay forever
+      \item Every new service is one connector file — the architecture
+            scales cleanly
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+% ─── 8. NEXT MILESTONES ──────────────────────────────────────────────────────
+\begin{frame}{Next Milestones}
+  \vspace{0.4em}
+  \begin{center}
+  \begin{tikzpicture}[
+    milestone/.style = {draw=accentcol, fill=lightbg, rounded corners=5pt,
+                        minimum width=3.2cm, minimum height=1.8cm,
+                        inner sep=8pt, align=center, font=\scriptsize},
+    node distance=0.5cm,
+  ]
+    \node[milestone] (m1) {
+      \textbf{\color{highlight}Phase 12}\\[0.2em]
+      {\color{accentcol}Google Calendar}\\
+      Read \& write events\\
+      {\color{subtext}with approval}
+    };
+    \node[milestone, right=0.5cm of m1] (m2) {
+      \textbf{\color{highlight}Phase 13}\\[0.2em]
+      {\color{accentcol}Gmail}\\
+      Read emails,\\
+      draft replies
+    };
+    \node[milestone, right=0.5cm of m2] (m3) {
+      \textbf{\color{highlight}Phase 14}\\[0.2em]
+      {\color{accentcol}Smart Home}\\
+      Home Assistant\\
+      lights, climate
+    };
+    \node[milestone, right=0.5cm of m3] (m4) {
+      \textbf{\color{highlight}Phase 15}\\[0.2em]
+      {\color{accentcol}Phone Bridge}\\
+      iOS Shortcuts\\
+      presence \& location
+    };
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.5em}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    {\small\color{accentcol}\bfseries Principle:} One domain end-to-end before starting the next.\\
+    {\small\color{subtext} No half-finished integrations — each phase ships fully working.}
+    \column{0.48\textwidth}
+    {\small\color{accentcol}\bfseries Longer horizon:}
+    Smart appliances, EV integration, wearable notifications,
+    and multi-modal world model research.
+  \end{columns}
+\end{frame}
+
+% =============================================================================
+%  SECTION 3 — TECHNICAL DEMO / WALKTHROUGH
+% =============================================================================
+
+\begin{frame}{Technical Walkthrough — One Complete Journey}
+  \vspace{0.3em}
+  {\small\color{subtext}\itshape
+    ``In Safari, search for the current weather'' — traced from input to result}
+  \vspace{0.5em}
+
+  \begin{enumerate}\small
+    \item \textbf{Input} \quad User types the request in the chat window
+    \item \textbf{Processing} \quad AI router classifies intent as a
+          \emph{computer-use} task; semantic memory is checked for past
+          navigation patterns
+    \item \textbf{Intelligence / Logic} \quad Task agent plans steps:
+          (a) open Safari, (b) navigate to a weather site; generates
+          an approval request before acting
+    \item \textbf{Tools} \quad On approval, the computer agent uses
+          vision + accessibility tree to click, type, and navigate —
+          verifying each step succeeded
+    \item \textbf{Output} \quad Result displayed in chat; screen
+          screenshots streamed live to the Computer panel
+    \item \textbf{Logs / Observability} \quad Session saved to PostgreSQL,
+          navigation pattern stored in vector memory, token cost logged
+  \end{enumerate}
+
+  \vspace{0.3em}
+  {\scriptsize\color{subtext}
+    Every step is traceable. If anything goes wrong, the agent retries
+    up to twice, then reports the failure honestly.}
+\end{frame}
+
+% =============================================================================
+%  SECTION 4 — ENGINEERING STATUS / BUILD REPORT
+% =============================================================================
+
+\begin{frame}{Engineering Status — Build Report}
+  \vspace{0.4em}
+  \begin{columns}[T]
+    \column{0.55\textwidth}
+    \renewcommand{\arraystretch}{1.35}
+    \begin{tabular}{@{}lll@{}}
+      \toprule
+      \textbf{Phase} & \textbf{Capability} & \textbf{Status} \\
+      \midrule
+      0--2  & Core loop, memory, API          & \pill{green}{Done} \\
+      3     & Cloud service connectors         & \pill{amber}{Next} \\
+      4     & Device connectors (smart home)   & \pill{amber}{Planned} \\
+      5--8  & Voice, Vision, Multimodal        & \pill{green}{Done} \\
+      9     & Image input                      & \pill{green}{Done} \\
+      10    & Condition watchers               & \pill{green}{Done} \\
+      11    & Full-text search                 & \pill{green}{Done} \\
+      12+   & Nav agent (computer control)     & \pill{green}{Live} \\
+      \bottomrule
+    \end{tabular}
+
+    \column{0.42\textwidth}
+    \textbf{\color{accentcol}By the numbers}
+    \begin{itemize}\small
+      \item \textbf{12 phases} shipped
+      \item \textbf{39+ automated tests} — all passing
+      \item \textbf{Gemini Flash Lite} — sub-2s response times
+      \item \textbf{pgvector memory} — semantic recall across sessions
+      \item \textbf{Live server} — running on local Mac, accessible via browser
+    \end{itemize}
+
+    \vspace{0.6em}
+    {\scriptsize\color{subtext}
+      Built by a solo developer. Architecture designed to scale
+      to multi-user and cloud deployment when ready.}
+  \end{columns}
+\end{frame}
+
+% ─── CLOSING ─────────────────────────────────────────────────────────────────
+\begin{frame}[plain]
+  \begin{tikzpicture}[remember picture, overlay]
+    \fill[accentcol] (current page.south west) rectangle
+      ([yshift=0.45\paperheight]current page.south east);
+    \node[anchor=center, text=white, font=\LARGE\bfseries]
+      at ([yshift=0.22\paperheight]current page.south)
+      {CollectiveOS};
+    \node[anchor=center, text=white!80, font=\normalsize]
+      at ([yshift=0.15\paperheight]current page.south)
+      {One AI. Every Device. Total Control.};
+    \node[anchor=center, text=white!60, font=\small]
+      at ([yshift=0.09\paperheight]current page.south)
+      {Thank you — questions welcome};
+  \end{tikzpicture}
+\end{frame}
+
+\end{document}

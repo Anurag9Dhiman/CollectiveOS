@@ -1,0 +1,70 @@
+{
+  "rq": "RQ20",
+  "vtcr": 0.8333333333333334,
+  "avg_steps": 16.7,
+  "avg_dur": 171.6,
+  "avg_hitl": 0.0,
+  "mem_ok": 3,
+  "results": [
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 181.3,
+      "hitl_count": 0,
+      "id": "W1",
+      "type": "memory_then_apply",
+      "memory_ok": true
+    },
+    {
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 233.3,
+      "hitl_count": 0,
+      "id": "W2",
+      "type": "search_and_save",
+      "memory_ok": null
+    },
+    {
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 153.4,
+      "hitl_count": 0,
+      "id": "W3",
+      "type": "screen_inspect_act",
+      "memory_ok": null
+    },
+    {
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 152.6,
+      "hitl_count": 0,
+      "id": "W4",
+      "type": "pref_to_config",
+      "memory_ok": true
+    },
+    {
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 163.4,
+      "hitl_count": 0,
+      "id": "W5",
+      "type": "read_confirm_exec",
+      "memory_ok": null
+    },
+    {
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 145.7,
+      "hitl_count": 0,
+      "id": "W6",
+      "type": "multi_connector",
+      "memory_ok": true
+    }
+  ]
+}
