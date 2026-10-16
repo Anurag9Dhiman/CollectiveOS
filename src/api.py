@@ -305,7 +305,7 @@ def metrics(days: int = Query(1, ge=1, le=90), _token: str = Depends(_verify_tok
 
 
 @app.get("/ask", response_class=PlainTextResponse)
-def ask(
+async def ask(
     q: str = Query(..., description="The question or command for the assistant."),
     token: Optional[str] = Query(None, description="API token (alternative to Bearer header)."),
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
@@ -334,7 +334,7 @@ def ask(
     past = memory.search_with_graph(user_message)
     system_prompt = _system_prompt(past)
 
-    result = _orchestrator.run(user_message, system_prompt=system_prompt, thread_id="ask")
+    result = await _orchestrator.run(user_message, system_prompt=system_prompt, thread_id="ask")
     reply = result.text
     memory.save_smart(user_message, reply)
     return reply
@@ -383,7 +383,7 @@ def _validate_image(body: ChatRequest) -> None:
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
+async def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     user_message = body.message.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="message must not be empty.")
@@ -401,7 +401,7 @@ def chat(body: ChatRequest, _token: str = Depends(_verify_token)):
     # The orchestrator enriches with VisualOS context (if scan_session_id present),
     # then delegates to the task agent (LangGraph loop) with PostgresSaver checkpointing.
     try:
-        result = _orchestrator.run(
+        result = await _orchestrator.run(
             user_message,
             entity_refs=body.entity_refs or {},
             image_b64=body.image_b64 or None,
