@@ -278,3 +278,38 @@ class TestDemoAPIEndpoints:
             r = auth.get("/demonstrations/demo_42")
         assert r.status_code == 200
         assert r.json()["task"] == "test task"
+
+
+# ── /robot/ws route (src/api.py) ──────────────────────────────────────────────
+
+class TestRobotWebSocketRoute:
+    """Goes through the real route in src/api.py, not just handle_robot_ws."""
+
+    def test_valid_token_connects_and_gets_ack(self, client):
+        with client.websocket_connect("/robot/ws?token=test-token") as ws:
+            assert ws.receive_json()["type"] == "ack"
+
+    def test_wrong_token_is_rejected(self, client):
+        from starlette.websockets import WebSocketDisconnect
+
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/robot/ws?token=wrong"):
+                pass
+        assert exc.value.code == 4401
+
+    def test_missing_token_is_rejected(self, client):
+        from starlette.websockets import WebSocketDisconnect
+
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/robot/ws"):
+                pass
+        assert exc.value.code == 4401
+
+    def test_rejects_everything_when_api_token_unset(self, client, monkeypatch):
+        from starlette.websockets import WebSocketDisconnect
+
+        monkeypatch.delenv("API_TOKEN", raising=False)
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/robot/ws?token="):
+                pass
+        assert exc.value.code == 4401
