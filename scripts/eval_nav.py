@@ -676,6 +676,9 @@ async def _main(args: argparse.Namespace) -> None:
     if args.horizon:
         tasks = [t for t in tasks if t.get("horizon_group") == args.horizon]
 
+    if args.limit and args.limit > 0:
+        tasks = tasks[:args.limit]
+
     if args.dry_run:
         print(f"\n{'ID':<28} {'HOR':<8} TASK")
         print("─" * 80)
@@ -747,6 +750,7 @@ if __name__ == "__main__":
                         choices=["detect", "recover", "none"],
                         help="RQ4: stuck detection strategy (default: detect)")
     parser.add_argument("--timeout",     type=int, default=120, help="Per-task timeout seconds (default 120)")
+    parser.add_argument("--limit",    type=int, default=0, help="Cap number of tasks (0 = all)")
     parser.add_argument("--dry-run",  action="store_true", help="List tasks without running")
     parser.add_argument("--out",      help="Save JSON report to this path")
     parser.add_argument(

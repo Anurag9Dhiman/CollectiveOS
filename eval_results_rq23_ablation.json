@@ -1,0 +1,724 @@
+{
+  "rq": "RQ23",
+  "variants": [
+    {
+      "variant": "V0",
+      "label": "full_system",
+      "vtcr": 0.2,
+      "avg_steps": 17.4,
+      "avg_dur": 293.2,
+      "results": [
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 278.7,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 242.8,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 19,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 16,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 16,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_safari"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.7,
+          "hitl": 0,
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "type_hello"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 16,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_terminal"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 16,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "check_battery"
+        }
+      ]
+    },
+    {
+      "variant": "V1",
+      "label": "no_ax_tree",
+      "vtcr": 0.6,
+      "avg_steps": 16.4,
+      "avg_dur": 275.2,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 19,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 19,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 18,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 300.8,
+          "hitl": 0,
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 300.4,
+          "hitl": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 292.4,
+          "hitl": 0,
+          "id": "open_safari"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 283.3,
+          "hitl": 0,
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 251.8,
+          "hitl": 0,
+          "id": "type_hello"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 277.5,
+          "hitl": 0,
+          "id": "open_terminal"
+        },
+        {
+          "status": "done",
+          "verified": true,
+          "steps": 8,
+          "duration": 141.6,
+          "hitl": 0,
+          "id": "check_battery"
+        }
+      ]
+    },
+    {
+      "variant": "V2",
+      "label": "no_verifier",
+      "vtcr": 0.1,
+      "avg_steps": 5.6,
+      "avg_dur": 107.6,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 19,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 239.5,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "duration": 232.1,
+          "hitl": 0,
+          "error": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "duration": 0.2,
+          "hitl": 0,
+          "error": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+          "id": "check_wifi"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "duration": 0.3,
+          "hitl": 0,
+          "error": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+          "id": "open_safari"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "duration": 0.2,
+          "hitl": 0,
+          "error": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "duration": 0.2,
+          "hitl": 0,
+          "error": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+          "id": "type_hello"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "duration": 0.2,
+          "hitl": 0,
+          "error": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+          "id": "open_terminal"
+        },
+        {
+          "status": "error",
+          "verified": false,
+          "steps": 0,
+          "duration": 0.2,
+          "hitl": 0,
+          "error": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+          "id": "check_battery"
+        }
+      ]
+    },
+    {
+      "variant": "V3",
+      "label": "no_stuck_detect",
+      "vtcr": 0.4,
+      "avg_steps": 17.9,
+      "avg_dur": 283.8,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 15,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 16,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.6,
+          "hitl": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.7,
+          "hitl": 0,
+          "id": "open_safari"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 256.0,
+          "hitl": 0,
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 232.1,
+          "hitl": 0,
+          "id": "type_hello"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 276.3,
+          "hitl": 0,
+          "id": "open_terminal"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 264.6,
+          "hitl": 0,
+          "id": "check_battery"
+        }
+      ]
+    },
+    {
+      "variant": "V4",
+      "label": "no_planning",
+      "vtcr": 0.4,
+      "avg_steps": 14.8,
+      "avg_dur": 277.3,
+      "results": [
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 273.1,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 201.7,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 224.1,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 266.7,
+          "hitl": 0,
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 16,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 300.1,
+          "hitl": 0,
+          "id": "open_safari"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 300.0,
+          "hitl": 0,
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 18,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "type_hello"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_terminal"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 303.1,
+          "hitl": 0,
+          "id": "check_battery"
+        }
+      ]
+    },
+    {
+      "variant": "V5",
+      "label": "no_memory",
+      "vtcr": 0.2,
+      "avg_steps": 14.3,
+      "avg_dur": 292.4,
+      "results": [
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 270.1,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 245.0,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 17,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 15,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 15,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "open_safari"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 13,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "type_hello"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 300.1,
+          "hitl": 0,
+          "id": "open_terminal"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 12,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "check_battery"
+        }
+      ]
+    },
+    {
+      "variant": "V6",
+      "label": "no_hitl",
+      "vtcr": 0.0,
+      "avg_steps": 13.4,
+      "avg_dur": 301.3,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 13,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 12,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 12,
+          "duration": 302.3,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 15,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 300.4,
+          "hitl": 0,
+          "id": "open_safari"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 13,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "type_hello"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_terminal"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 13,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "check_battery"
+        }
+      ]
+    },
+    {
+      "variant": "V7",
+      "label": "no_visual_context",
+      "vtcr": 0.0,
+      "avg_steps": 11.3,
+      "avg_dur": 301.2,
+      "results": [
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "launch_calculator"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_finder"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.9,
+          "hitl": 0,
+          "id": "navigate_downloads"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 13,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "spotlight_textedit"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 14,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "check_wifi"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 13,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "open_safari"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 11,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "new_textedit_doc"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 300.0,
+          "hitl": 0,
+          "id": "type_hello"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 10,
+          "duration": 301.4,
+          "hitl": 0,
+          "id": "open_terminal"
+        },
+        {
+          "status": "timeout",
+          "verified": false,
+          "steps": 10,
+          "duration": 301.3,
+          "hitl": 0,
+          "id": "check_battery"
+        }
+      ]
+    }
+  ]
+}

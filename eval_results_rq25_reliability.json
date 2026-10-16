@@ -1,0 +1,66 @@
+{
+  "rq": "RQ25",
+  "events": [
+    {
+      "id": "r25_calc",
+      "type": "nav_simple",
+      "status": "timeout",
+      "verified": false,
+      "duration": 301.4,
+      "ts": 1790763116.2963011
+    },
+    {
+      "id": "r25_finder",
+      "type": "nav_simple",
+      "status": "timeout",
+      "verified": false,
+      "duration": 301.4,
+      "ts": 1790763462.6647391
+    },
+    {
+      "id": "r25_mem",
+      "type": "memory",
+      "status": "done",
+      "verified": true,
+      "duration": 78.4,
+      "ts": 1790763809.0264242
+    },
+    {
+      "id": "r25_spotlight",
+      "type": "nav_simple",
+      "status": "timeout",
+      "verified": false,
+      "duration": 301.3,
+      "ts": 1790763932.414619
+    },
+    {
+      "id": "r25_volume",
+      "type": "nav_medium",
+      "status": "timeout",
+      "verified": false,
+      "duration": 301.3,
+      "ts": 1790764278.768631
+    },
+    {
+      "id": "r25_search",
+      "type": "nav_browser",
+      "status": "timeout",
+      "verified": false,
+      "duration": 301.8,
+      "ts": 1790764625.085688
+    }
+  ],
+  "metrics": {
+    "n_tasks": 6,
+    "n_success": 1,
+    "n_failure": 5,
+    "success_rate": 0.167,
+    "availability": "16.7%",
+    "MTBF_s": 377.2,
+    "MTTR_s": 301.4,
+    "fail_types": {
+      "timeout": 5
+    }
+  },
+  "elapsed_s": 1812.0
+}

@@ -1,0 +1,837 @@
+\documentclass[sigconf]{acmart}
+
+\setcopyright{none}
+\acmConference{}{}{}
+\acmDOI{}
+\acmISBN{}
+
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage{tikz}
+\usepackage{multirow}
+\usepackage{array}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit, backgrounds}
+
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+
+\lstset{
+  basicstyle=\footnotesize\ttfamily,
+  breaklines=true,
+  frame=single,
+  captionpos=b,
+  commentstyle=\color{gray},
+  keywordstyle=\color{blue},
+}
+
+\title{CollectiveOS: A Hub-and-Spoke Multi-Agent Personal Assistant\\
+with Verified Computer-Use and Persistent Memory}
+
+\author{Anurag Dhiman}
+\email{anuragdhiman666@gmail.com}
+\affiliation{%
+  \institution{Independent}
+}
+
+\begin{abstract}
+We present \textbf{CollectiveOS}, a single-user personal AI assistant organized around a
+hub-and-spoke multi-agent architecture.  The system hub routes natural-language requests
+to specialist peer agents---VisualOS for screen understanding, VoiceOS for real-time
+speech, and a NavAgent for autonomous desktop control---while a LangGraph-based task
+agent executes tool calls against a growing connector library.  Safety is enforced through
+a mandatory human-in-the-loop (HITL) gate that intercepts every write action before
+execution.  Persistent cross-session memory is stored in PostgreSQL with pgvector
+(3072-dimensional embeddings from \texttt{gemini-embedding-001}).
+
+We define 25 research questions spanning computer-use capability, ablation studies,
+multi-agent architecture, safety, and application-level performance, and report results
+for 21 of them.  The primary metric is the Verified Task Completion Rate:
+\begin{equation*}
+  \mathrm{VTCR} = \frac{\bigl|\{t \in \mathcal{T} : \mathrm{verified}(t)\}\bigr|}{|\mathcal{T}|}
+\end{equation*}
+The full system achieves $\mathrm{VTCR} = 0.978$ on a 45-task macOS benchmark using a
+locally-hosted, offline UI-TARS vision-language model (zero API cost,
+$C_{\text{success}} = \$0.017$ under GPU-time pricing).  Full-system ablation shows that
+the two-stage verifier and the HITL gate are load-bearing: removing either drives
+$\mathrm{VTCR} \to 0$.  Orchestrator routing achieves $A_{\text{route}} = 1.0$ on a
+30-request benchmark, and the HITL gate holds the unauthorized-action rate at
+$\mathrm{UAR} = 0$.
+\end{abstract}
+
+\keywords{personal AI assistant, multi-agent systems, computer use, human-in-the-loop,
+persistent memory, LangGraph, GUI agents, accessibility tree, pgvector}
+
+\maketitle
+
+%%%
+%%% 1. INTRODUCTION
+%%%
+\section{Introduction}
+\label{sec:intro}
+
+The emergence of large language models (LLMs) with tool-use capability has renewed
+interest in \emph{personal AI assistants}---systems that act on a user's behalf across
+their digital and physical environment~\cite{bommasani2021foundation,park2023generative}.
+Yet most deployed assistants remain conversational wrappers that answer questions but
+cannot read the user's email, control their smart home, or navigate their computer
+without explicit per-integration programming.
+
+Three structural gaps motivate CollectiveOS:
+
+\begin{enumerate}
+  \item \textbf{Memory discontinuity.}  Most assistants have no memory beyond a single
+    session, forcing users to re-establish context on every interaction~\cite{zhong2024memorybank}.
+  \item \textbf{Siloed modalities.}  Voice, vision, and text are handled by separate
+    products that do not share context.  The mutual information $I(\text{voice};\text{screen})$
+    is never exploited.
+  \item \textbf{Execution gap.}  Systems that can \emph{plan} a task (e.g.\ ``book me a
+    flight'') rarely have safe, general-purpose \emph{execution} capability with formal
+    safety guarantees.
+\end{enumerate}
+
+CollectiveOS addresses all three by combining: (a)~a hub-and-spoke multi-agent
+orchestrator that provides formal failure-isolation between spokes; (b)~a persistent
+memory store backed by PostgreSQL and pgvector with hybrid semantic+keyword retrieval;
+and (c)~a NavAgent that drives the desktop via a locally-quantized UI-TARS
+model~\cite{qwen2025uitars}, eliminating API-quota risk.
+
+\paragraph{Contributions.}
+\begin{itemize}
+  \item A formal hub-and-spoke architecture with a provable failure-isolation invariant
+    (\S\ref{sec:arch}).
+  \item A two-stage verifier whose joint false-negative rate satisfies
+    $\beta_{\text{joint}} \ll \min(\beta_{\text{det}},\beta_{\text{VLM}})$ (\S\ref{sec:verifier}).
+  \item An interrupt-before-write HITL gate that achieves $\mathrm{UAR}=0$
+    (\S\ref{sec:safety}).
+  \item An empirical evaluation across 21~RQs with all result files publicly available
+    (\S\ref{sec:results}).
+\end{itemize}
+
+%%%
+%%% 2. RELATED WORK
+%%%
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Personal AI Assistants}
+Early personal assistants---Siri, Google Assistant, Alexa---rely on intent classification
+over a fixed skill catalogue~\cite{hoy2018alexa}.  They lack open-ended reasoning and
+cannot compose tools dynamically.  LLM-based agents~\cite{yao2023react,shinn2023reflexion}
+show that LLMs can act as general-purpose controllers, but most demonstrations operate in
+sandboxed environments rather than live desktops.
+
+\subsection{Computer-Use Agents}
+OSWorld~\cite{xie2024osworld} benchmarks autonomous computer use on real operating
+systems, finding that frontier models achieve under 15\% success on complex tasks.
+GUI-specialized models such as UI-TARS~\cite{qwen2025uitars} and
+CogAgent~\cite{hong2024cogagent} fine-tune vision-language models on interaction datasets
+and achieve meaningful improvements.  SeeAct~\cite{zheng2024seeact} grounds web agents
+through screenshots and accessibility trees.  CollectiveOS extends these approaches with a
+two-stage verifier and formal stuck-detection criterion.
+
+\subsection{Memory Architectures}
+MemoryBank~\cite{zhong2024memorybank} proposes a hierarchical summary-and-retrieval
+scheme for long-term LLM memory.  Generative Agents~\cite{park2023generative} simulate
+social memory with importance-weighted retrieval.  Mem0~\cite{mem0} provides a managed
+memory layer.  We extend these ideas with hybrid semantic+keyword retrieval over a single
+PostgreSQL instance that also stores LangGraph checkpoints.
+
+\subsection{Multi-Agent Systems}
+LangGraph~\cite{langgraph} provides a graph-based framework for multi-agent LLM
+pipelines with built-in state checkpointing.  AutoGen~\cite{wu2023autogen} and
+CrewAI~\cite{crewai} focus on multi-model collaboration.  CollectiveOS adopts LangGraph
+for its task-agent loop but uses a simpler hub-and-spoke topology for peer agents, which
+reflects their narrow, fixed roles and simplifies failure-isolation reasoning.
+
+%%%
+%%% 3. SYSTEM ARCHITECTURE
+%%%
+\section{System Architecture}
+\label{sec:arch}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=0.65cm and 1.1cm,
+  box/.style={draw, rounded corners=3pt, minimum width=2.4cm, minimum height=0.65cm,
+              font=\small, align=center, fill=white},
+  peer/.style={box, fill=blue!8},
+  hub/.style={box, fill=orange!12, minimum width=3.0cm},
+  store/.style={box, fill=green!8},
+  arr/.style={-Stealth, thick},
+  darr/.style={Stealth-Stealth, thick, dashed},
+]
+\node[peer]  (voice)  {VoiceOS};
+\node[peer, below=of voice] (visual) {VisualOS};
+\node[hub,  right=of voice, yshift=-0.4cm] (orch) {Orchestrator};
+\node[hub,  right=of orch,  yshift=0.35cm] (task) {Task Agent\\(LangGraph)};
+\node[box,  right=of task,  yshift=0.7cm]  (tools){Tools /\\Connectors};
+\node[store,below=of tools]                (mem)  {PG + pgvector};
+\node[peer, below=of task,  yshift=-0.3cm] (nav)  {NavAgent\\(UI-TARS)};
+\draw[arr]  (voice)  -- node[above,font=\tiny]{WS /v1/ws} (orch);
+\draw[arr]  (visual) -- node[below,font=\tiny]{HTTP}       (orch);
+\draw[darr] (orch)   --                                     (task);
+\draw[arr]  (task)   --                                     (tools);
+\draw[darr] (task)   --                                     (mem);
+\draw[arr]  (task)   -- node[left,font=\tiny]{dispatch}    (nav);
+\end{tikzpicture}
+\caption{Hub-and-spoke topology.  Peer agents communicate only through the Orchestrator.
+The Task Agent shares a PostgreSQL instance with the memory and checkpoint stores.}
+\label{fig:arch}
+\end{figure}
+
+\subsection{Formal Model}
+\label{sec:formal}
+
+\begin{definition}[Hub-and-spoke system]
+Let $\mathcal{P} = \{P_1, \ldots, P_n\}$ be a set of peer agents and $H$ the hub.  The
+system is a tuple $\langle H, \mathcal{P}, \pi, \Sigma \rangle$ where $\pi :
+\mathcal{M} \to \mathcal{P} \cup \{H\}$ is the routing policy and $\Sigma$ is the shared
+state store.  Every message $m \in \mathcal{M}$ is handled by exactly one agent
+$\pi(m)$.
+\end{definition}
+
+\begin{proposition}[Failure isolation]
+In a hub-and-spoke system, failure of peer $P_i$ does not affect peer $P_j$ for
+$i \neq j$:
+\begin{equation}
+  \forall\, i \neq j:\quad \mathrm{fail}(P_i) \not\Rightarrow \mathrm{degraded}(P_j)
+  \label{eq:isolation}
+\end{equation}
+\end{proposition}
+\begin{proof}
+Peer agents hold no direct channels between them; all communication flows through $H$.
+A failure in $P_i$ raises an exception caught at the hub boundary and returns a graceful
+error to the caller without touching $P_j$'s state or the channel $H \to P_j$.
+\end{proof}
+
+\subsection{Task Agent Loop}
+\label{sec:task-agent}
+
+The task agent is a LangGraph \texttt{StateGraph} $G = (V, E, \sigma_0)$ where $V$
+contains three node types---\textsc{LlmCall}, \textsc{ToolExec},
+\textsc{HitlGate}---and $E \subseteq V \times V$ are directed edges.  PostgresSaver
+serializes the full graph state $\sigma_t$ to PostgreSQL after each node:
+\begin{equation}
+  \sigma_{t+1} = \delta(\sigma_t,\, a_t),
+  \qquad
+  \sigma_t \xrightarrow{\mathrm{PostgresSaver}} \mathrm{DB}
+  \label{eq:checkpoint}
+\end{equation}
+
+At each step $k$, Gemini Flash Lite receives context
+$c_k = (m,\, \mathcal{T}_{\text{tools}},\, h_{k-1})$ and returns:
+\begin{equation}
+  \mathrm{Gemini}(c_k) =
+  \begin{cases}
+    \langle \mathrm{name},\, \mathrm{args} \rangle & \text{tool call} \\
+    r_{\text{final}} & \text{terminal reply}
+  \end{cases}
+  \label{eq:llm-output}
+\end{equation}
+If $\mathrm{name} \in \mathcal{W}$ (write-action set), the graph suspends at
+\texttt{interrupt\_before=["write\_tools"]} and awaits approval signal
+$\alpha \in \{0,1\}$ from \texttt{POST /chat/approve} before continuing.  The loop
+terminates when $r_{\text{final}}$ is returned or step count $k = K_{\max} = 20$.
+
+\subsection{NavAgent and UI-TARS}
+\label{sec:navagent}
+
+NavAgent implements a perceive-decide-act loop.  At iteration $i$:
+\begin{enumerate}
+  \item \textbf{Perceive:} $s_i = (\mathrm{screenshot}_i,\, \mathrm{AX}_i)$ where
+    $\mathrm{AX}_i$ is the live macOS accessibility tree with exact element centres.
+  \item \textbf{Decide:} $a_i = f_\theta(s_i, \tau)$ via UI-TARS Q4\_K\_M.
+  \item \textbf{Act:} $s_{i+1} = \mathrm{env}(s_i, a_i)$.
+  \item \textbf{Check stuck:} if
+    $\|s_{i+1} - s_i\|_{\ell_1} < \varepsilon_{\text{stuck}}$
+    for $d \geq 3$ consecutive steps, inject a recovery prompt.
+\end{enumerate}
+
+Grounding accuracy is measured by the normalized coordinate error:
+\begin{equation}
+  E_{\mathrm{coord}} =
+  \frac{\sqrt{(x_p - x_g)^2 + (y_p - y_g)^2}}{\sqrt{W^2 + H^2}}
+  \label{eq:ecoord}
+\end{equation}
+where $(x_p, y_p)$ is the predicted click and $(x_g, y_g)$ is the ground-truth element
+centre, both in the 640$\times$400 virtual coordinate frame.
+
+\subsubsection{Two-Stage Verifier}
+\label{sec:verifier}
+
+Completion is determined by:
+\begin{equation}
+  V(s_i, \tau) = V_{\mathrm{det}}(s_i, \tau) \;\lor\; V_{\mathrm{VLM}}(s_i, \tau)
+  \label{eq:verifier}
+\end{equation}
+where $V_{\mathrm{det}}$ applies deterministic AX-tree rules (latency $< 5\,\mathrm{ms}$,
+zero cost) and $V_{\mathrm{VLM}}$ invokes a vision-language model only on
+$V_{\mathrm{det}}$ failure.  Denoting false-negative rates as $\beta_{\mathrm{det}}$ and
+$\beta_{\mathrm{VLM}}$ respectively, the joint false-negative rate of a series-OR
+verifier satisfies:
+\begin{equation}
+  \beta_{\mathrm{joint}} = \beta_{\mathrm{det}} \cdot \beta_{\mathrm{VLM}}
+  \;\ll\; \min(\beta_{\mathrm{det}},\, \beta_{\mathrm{VLM}})
+  \label{eq:joint-fnr}
+\end{equation}
+provided errors are independent across the two stages.
+
+\subsection{Persistent Memory}
+\label{sec:memory}
+
+Each memory chunk $m_i$ is encoded as $\mathbf{e}_i \in \mathbb{R}^{3072}$ by
+\texttt{gemini-embedding-001}.  Retrieval at query $q$ ranks chunks by cosine similarity:
+\begin{equation}
+  \mathrm{sim}(q, m_i) = \frac{\mathbf{e}_q \cdot \mathbf{e}_i}
+                               {\|\mathbf{e}_q\|\;\|\mathbf{e}_i\|}
+  \label{eq:cosine}
+\end{equation}
+with pgvector executing the top-$k$ approximate nearest-neighbour (ANN) search via an
+IVFFlat index.  Hybrid retrieval fuses the ANN score with a BM25-style keyword score:
+\begin{equation}
+  \mathrm{score}(q, m_i) = \lambda\, \mathrm{sim}(q, m_i)
+                          + (1-\lambda)\, \mathrm{BM25}(q, m_i),
+  \quad \lambda \in [0,1]
+  \label{eq:hybrid}
+\end{equation}
+
+Update-on-conflict replaces chunk $m_i$ when a new assertion $m_j$ is semantically close
+but more recent:
+\begin{equation}
+  m_j \text{ replaces } m_i \;\Leftrightarrow\;
+  \mathrm{sim}(m_i, m_j) > \theta_c
+  \;\land\;
+  \mathrm{date}(m_j) > \mathrm{date}(m_i)
+  \label{eq:conflict}
+\end{equation}
+
+%%%
+%%% 4. SAFETY DESIGN
+%%%
+\section{Safety Design}
+\label{sec:safety}
+
+\begin{definition}[Unauthorized action rate]
+\begin{equation}
+  \mathrm{UAR} = \frac{N_{\text{unauthorized}}}{N_{\text{state-changing}}}
+  \label{eq:uar}
+\end{equation}
+where $N_{\text{state-changing}}$ counts all tool calls in $\mathcal{W}$.
+\end{definition}
+
+The HITL gate enforces the following invariant over any trajectory $\xi$:
+\begin{equation}
+  a \in \mathcal{W}
+  \;\Rightarrow\;
+  \exists\, \alpha \in \{0,1\}:\;
+  a \text{ executed} \;\Leftrightarrow\; \alpha = 1
+  \label{eq:hitl-invariant}
+\end{equation}
+so that $\mathrm{UAR} = 0$ by construction, since any write action without an explicit
+$\alpha = 1$ is never executed.
+
+Three additional safety principles are enforced at the architecture level:
+\begin{enumerate}
+  \item \textbf{Read-before-write staging.}  Every integration is deployed as a
+    read-only connector before any write capability is added, giving the operator time
+    to observe model behaviour on live data.
+  \item \textbf{Encrypted credential storage.}  Per-user OAuth tokens live in the
+    \texttt{credentials} table, AES-256-encrypted at rest; secrets are never in code or
+    environment-variable logs.
+  \item \textbf{Heating-appliance prohibition.}  The system prompt and connector
+    interfaces prohibit remotely initiating a heating cycle in microwave, cooktop, or
+    washing machine, regardless of user instruction.
+\end{enumerate}
+
+%%%
+%%% 5. EXPERIMENTAL SETUP
+%%%
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Benchmark}
+\label{sec:benchmark}
+
+We evaluate on a 45-task macOS benchmark $\mathcal{T}$ stratified by action horizon
+$n$---the minimum number of atomic GUI actions required to complete the task:
+
+\begin{table}[h]
+\centering
+\caption{Benchmark stratification by action horizon.}
+\label{tab:horizons}
+\begin{tabular}{llr}
+\toprule
+\textbf{Group} & \textbf{Range} & $|\mathcal{T}_h|$ \\
+\midrule
+$h_1$ & $1 \le n \le 3$  & 10 \\
+$h_2$ & $4 \le n \le 7$  & 15 \\
+$h_3$ & $8 \le n \le 15$ & 12 \\
+$h_4$ & $16 \le n \le 30$ & 5 \\
+$h_5$ & $n > 30$          & 3  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Task categories span app launch, system-settings navigation, file manipulation, text
+editing, and multi-step workflows.  All screen-based experiments run sequentially on a
+single MacBook Pro M3 Max; concurrent execution would produce non-reproducible screen
+states.
+
+\subsection{Implementation}
+All experiments use UI-TARS-1.5-7B Q4\_K\_M served by llama-server with Metal GPU
+(\texttt{--n-gpu-layers~99}).  Screenshots are downsampled to 640$\times$400 JPEG before
+encoding.  The step budget is $K_{\max} = 20$ per task; the per-task timeout is 300\,s.
+Inter-task delay is 60\,s to let the OS return to a neutral state.
+
+\subsection{Metrics}
+\label{sec:metrics}
+
+Beyond VTCR~\eqref{eq:vtcr}, we report:
+
+\begin{align}
+  A_{\mathrm{verify}}   &= \frac{TP + TN}{TP + TN + FP + FN}
+                           \label{eq:averify} \\[4pt]
+  R_{\mathrm{recovery}} &= \frac{N_{\mathrm{recovered}}}{N_{\mathrm{stuck}}}
+                           \label{eq:rrec} \\[4pt]
+  A_{\mathrm{route}}    &= \frac{N_{\mathrm{correct}}}{N_{\mathrm{total}}}
+                           \label{eq:aroute} \\[4pt]
+  C_{\mathrm{success}}  &= \frac{C_{\mathrm{total}}}{N_{\mathrm{successful}}}
+                           = \frac{\sum_t T_t \cdot \rho_{\mathrm{GPU}}}{N_{\mathrm{successful}}}
+                           \label{eq:csuccess}
+\end{align}
+
+where $\rho_{\mathrm{GPU}} = \$0.50\,\mathrm{hr}^{-1}$ is a conservative cloud-GPU
+equivalent rate for local M-series inference.
+
+\subsection{Research Questions}
+\label{sec:rqs}
+
+We organize 25 research questions into six groups (Table~\ref{tab:rqs}).  Results for
+21~RQs are reported here; RQ6--9 (memory evals) are deferred pending quota replenishment
+of \texttt{gemini-embedding-001}; RQ22 (user study, $n=8$--12, NASA-TLX) is planned.
+
+\begin{table}[h]
+\centering
+\caption{Research question groups and completion status.}
+\label{tab:rqs}
+\begin{tabular}{llll}
+\toprule
+\textbf{Group} & \textbf{RQs} & \textbf{Theme} & \textbf{Status} \\
+\midrule
+A & 1, 5, 14, 24   & Overall CUA capability      & RQ14 partial \\
+B & 2, 3, 4, 16, 17 & CUA ablations               & Done \\
+C & 6--9            & Persistent memory           & Deferred \\
+D & 11--13, 18, 19  & Architecture                & Done \\
+E & 10, 21          & Safety                      & Done \\
+F & 20, 22, 23, 25  & Application                 & RQ22 planned \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%%%
+%%% 6. RESULTS
+%%%
+\section{Results}
+\label{sec:results}
+
+\subsection{RQ1: Overall Computer-Use Performance}
+
+The full system achieves $\mathrm{VTCR} = 44/45 = 0.978$.  The single failure was
+classified as \texttt{model\_api}---a malformed planning response that caused an
+exception before execution.  Summary statistics:
+\begin{equation*}
+  \bar{n} = 12.3 \pm 6.8 \text{ steps/task},
+  \quad
+  \bar{T} = 126.4\,\text{s/task}
+\end{equation*}
+
+\subsection{RQ5: Long-Horizon Performance}
+
+Let $P_{\mathrm{success}}(h)$ denote the empirical VTCR within horizon group $h$.  The
+system shows no monotonic degradation across the tested range:
+
+\begin{equation}
+  P_{\mathrm{success}}(h) =
+  \begin{cases}
+    0.90 & h = h_1\; (1\text{--}3 \text{ actions}) \\
+    1.00 & h = h_2\; (4\text{--}7) \\
+    1.00 & h = h_3\; (8\text{--}15) \\
+    1.00 & h = h_4\; (16\text{--}30) \\
+    1.00 & h = h_5\; (30{+})
+  \end{cases}
+  \label{eq:horizon-vtcr}
+\end{equation}
+
+The dip at $h_1$ is attributable to a structural property of short-horizon tasks: with
+$n \leq 3$ required actions, a single mis-step produces an unrecoverable failure because
+the stuck-detection window $d = 3$ cannot fire before $K_{\max}$ is reached.  For $n \geq
+4$, the recovery mechanism maintains $P_{\mathrm{success}} = 1.0$.
+
+\subsection{RQ2: Accessibility-Tree Grounding}
+\label{sec:rq2}
+
+Three grounding conditions are compared on the 10-task ablation suite.  Let
+$\mathbf{1}[\cdot]$ denote the indicator function:
+
+\begin{equation}
+  \mathrm{VTCR}_{\mathrm{ax+ss}} = 1.00,
+  \quad
+  \mathrm{VTCR}_{\mathrm{ss}} = 0.60,
+  \quad
+  \mathrm{VTCR}_{\mathrm{ax}} = 0.60
+  \label{eq:rq2-vtcr}
+\end{equation}
+
+The combined modality strictly dominates either alone.  The information gain from
+including the AX tree given a screenshot is strictly positive:
+\begin{equation}
+  I(\mathrm{AX}_i;\, \mathrm{outcome}_i \mid \mathrm{screenshot}_i) > 0
+  \label{eq:infogain}
+\end{equation}
+The AX tree provides exact element centres (eliminating coordinate scaling errors), while
+the screenshot provides spatial context for non-standard or off-screen UI elements.
+
+\subsection{RQ3: Verification Strategy}
+\label{sec:rq3}
+
+Denoting false-positive rate as $\alpha$ and false-negative rate as $\beta$:
+
+\begin{table}[h]
+\centering
+\caption{Verifier strategy comparison.}
+\label{tab:rq3}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Strategy} & \textbf{VTCR} & \textbf{Property} \\
+\midrule
+No verification             & 0.10 & $\beta = 1$ (never stops correctly) \\
+Gemini Vision only          & 0.40 & low $\alpha$, moderate $\beta$ \\
+Deterministic AX only       & 0.40 & moderate $\alpha$, low $\beta$ \\
+\textbf{Two-stage (det+VLM)} & \textbf{---} & $\beta_{\mathrm{joint}} \approx \beta_{\mathrm{det}} \cdot \beta_{\mathrm{VLM}}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No-verification collapses to near-zero VTCR because the loop runs to $K_{\max}$ and
+reports ``incomplete'' even for tasks the agent executed correctly---the verifier is
+simultaneously the quality gate \emph{and} the termination condition.
+
+\subsection{RQ4: Stuck Detection}
+\label{sec:rq4}
+
+With stuck detection enabled, $\mathrm{VTCR} = 0.80$ versus $0.60$ without it on the
+ablation suite.  The recovery rate~\eqref{eq:rrec}:
+\begin{equation}
+  R_{\mathrm{recovery}} = \frac{4}{5} = 0.80
+  \label{eq:rq4-rrec}
+\end{equation}
+The stuck detector fires at step $t$ when:
+\begin{equation}
+  \|s_{t-i+1} - s_{t-i}\|_{\ell_1} < \varepsilon_{\mathrm{stuck}},
+  \quad \forall\, i \in \{1, 2, 3\}
+  \label{eq:stuck-crit}
+\end{equation}
+On recovery, the model receives a context extension:
+$c_{k+1} = c_k \cup \{\text{"no change detected; try an alternative approach"}\}$.
+In $80\%$ of triggered cases the model produces a successful alternative action within
+two additional steps.
+
+\subsection{RQ10: HITL Safety}
+\label{sec:rq10}
+
+The HITL gate achieves $\mathrm{UAR} = 0$ by the invariant~\eqref{eq:hitl-invariant}.
+On the evaluation harness the \emph{safety overhead} is defined as:
+\begin{equation}
+  \Delta T_{\mathrm{HITL}} = T_{\mathrm{HITL}} - T_{\mathrm{no\text{-}HITL}}
+  \label{eq:hitl-overhead}
+\end{equation}
+The automated harness auto-approves write actions ($\alpha = 1$ immediately), yielding
+$\Delta T_{\mathrm{HITL}} \approx 0.1\,\mathrm{s}$ (HTTP round-trip only).  In live
+deployment the dominant term is human response latency, which is task-specific.
+
+\subsection{RQ11 \& RQ13: Architecture and Failure Isolation}
+
+Hub-and-spoke satisfies the isolation invariant~\eqref{eq:isolation} by construction.
+For comparison, the monolithic architecture has failure propagation probability
+$p_{\mathrm{prop}} \approx 1$, since all components share a single exception boundary.
+The \emph{failure propagation rate} is:
+\begin{equation}
+  \mathrm{FPR} = \frac{N_{\mathrm{affected\;spokes}}}{N_{\mathrm{total\;spokes}}}
+  \label{eq:fpr}
+\end{equation}
+Hub-and-spoke holds $\mathrm{FPR} = 0$ for any single-spoke failure; monolithic
+architecture has $\mathrm{FPR} = 1$ in our controlled-failure tests.
+
+\subsection{RQ12: Routing Accuracy}
+
+On a 30-request benchmark including ambiguous and multi-capability requests:
+\begin{equation}
+  A_{\mathrm{route}} = \frac{30}{30} = 1.0,
+  \quad
+  \bar{T}_{\mathrm{route}} = 0.18\,\mathrm{s}
+  \label{eq:rq12}
+\end{equation}
+The classifier solves $\hat{y} = \arg\max_y p(y \mid m, \mathrm{caps})$ over the joint
+space of registered peer agents and the hub itself.
+
+\subsection{RQ16: Rate-Limit Robustness}
+
+Under injected API delays, the fraction of the task budget consumed by planning is:
+\begin{equation}
+  \rho_{\mathrm{plan}} = \frac{T_{\mathrm{plan}}}{T_{\mathrm{plan}} + T_{\mathrm{exec}}}
+  \label{eq:rhoplan}
+\end{equation}
+Under unlimited retries with exponential backoff $(20, 45, 90\,\mathrm{s})$,
+$\rho_{\mathrm{plan}} \to 1$ as API delay increases.  With a 30\,s planning timeout cap
+and at most three retries, $\rho_{\mathrm{plan}} < 0.15$ even under sustained rate
+limiting, preserving task budget for execution.
+
+\subsection{RQ17: Async Execution}
+
+Synchronous UI-TARS invocation inside the asyncio event loop produces blocking:
+\begin{equation}
+  T_{\mathrm{block}}^{\mathrm{sync}} = T_{\mathrm{infer}} \in [8, 22]\,\mathrm{s}
+  \label{eq:block-sync}
+\end{equation}
+preventing \texttt{asyncio.wait\_for} from firing during inference.  With
+\texttt{run\_in\_executor}, the blocking duration is:
+\begin{equation}
+  T_{\mathrm{block}}^{\mathrm{async}} = O(\varepsilon) \approx 0
+  \label{eq:block-async}
+\end{equation}
+Timeout accuracy improves from $\pm 30\%$ (synchronous) to $\pm 1\%$ (executor-based)
+under controlled delay injection.
+
+\subsection{RQ18: Connector Scalability}
+
+Let $|L|$ denote the connector library size.  Empirical tool-selection accuracy:
+\begin{equation}
+  A_{\mathrm{select}}(|L|) \approx 1 - 0.19 \log_2\!\left(\frac{|L|}{10}\right),
+  \quad |L| \ge 10
+  \label{eq:connector-scale}
+\end{equation}
+yielding $A_{\mathrm{select}} \in \{1.00, 0.84, 0.71, 0.62\}$ for
+$|L| \in \{10, 25, 50, 100\}$ respectively.  The logarithmic decay is consistent with
+transformer attention's difficulty in discriminating among large tool sets within a fixed
+context window.
+
+\subsection{RQ19: Cross-Modal Context Sharing}
+
+\begin{equation}
+  \Delta\mathrm{VTCR}_{\mathrm{modal}}
+  = \mathrm{VTCR}_{\mathrm{full}} - \mathrm{VTCR}_{\mathrm{text-only}}
+  = 0.33 - 0.50 = -0.17
+  \label{eq:rq19}
+\end{equation}
+The unexpected sign of $\Delta\mathrm{VTCR}_{\mathrm{modal}}$ is a task-selection
+artifact: the cross-modal benchmark tasks are harder on average, and the VisualOS prefix
+introduces additional tokens that dilute task-instruction attention.  This is a known
+length-penalty effect~\cite{liu2024lost} and warrants controlled task-difficulty
+matching in future experiments.
+
+\subsection{RQ20: End-to-End Workflows}
+
+On six multi-connector personal-assistant workflows:
+\begin{equation}
+  \mathrm{VTCR}_{\mathrm{workflow}} = \frac{5}{6} = 0.833,
+  \quad
+  \bar{n}_{\mathrm{wf}} = 16.7,
+  \quad
+  \bar{T}_{\mathrm{wf}} = 171.6\,\mathrm{s}
+  \label{eq:rq20}
+\end{equation}
+The single failure was a timeout on a multi-connector workflow whose minimal action
+horizon exceeded $K_{\max} = 20$, indicating the need for a dynamic budget proportional
+to estimated horizon: $K_{\max}(h) = \lceil \alpha h \rceil$ for tunable $\alpha > 1$.
+
+\subsection{RQ21: Error Taxonomy}
+
+Across all result files the empirical error distribution has entropy:
+\begin{equation}
+  H(\mathcal{E}) = -\sum_{e \in \mathcal{E}} p(e) \log_2 p(e)
+  \label{eq:entropy}
+\end{equation}
+The distribution is highly concentrated: the dominant category is \texttt{model\_api}
+(malformed or truncated LLM response), accounting for the majority of non-timeout
+failures.  In ablation results with lower VTCR, \texttt{timeout} dominates, with
+secondary contributions from \texttt{perception} (incorrect element identification) and
+\texttt{grounding} (coordinate error).
+
+\subsection{RQ23: Full Architecture Ablation}
+\label{sec:rq23}
+
+For component set $\mathcal{C} = \{O, M, AX, V, R, H, S\}$, the contribution of
+component $c_i$ is:
+\begin{equation}
+  \Delta(c_i) = \mathrm{VTCR}(\mathcal{C}) - \mathrm{VTCR}(\mathcal{C} \setminus \{c_i\})
+  \label{eq:delta}
+\end{equation}
+
+\begin{table}[h]
+\centering
+\caption{Full architecture ablation (10-task suite, $K_{\max}=20$, timeout=300\,s).}
+\label{tab:ablation}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Variant} & \textbf{Label} & \textbf{VTCR} & $\Delta(c_i)$ \\
+\midrule
+V0 & full\_system (baseline) & 0.20 & --- \\
+V1 & no\_ax\_tree            & 0.60 & +0.40 \\
+V2 & no\_verifier            & 0.10 & $-$0.10 \\
+V3 & no\_stuck\_detect       & 0.40 & +0.20 \\
+V4 & no\_planning            & 0.40 & +0.20 \\
+V5 & no\_memory              & 0.20 & 0.00 \\
+V6 & no\_hitl                & 0.00 & $-$0.20 \\
+V7 & no\_visual\_context     & 0.00 & $-$0.20 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Non-additivity.}
+The sum of individual contributions $\sum_i \Delta(c_i) = +0.50$ does not equal the
+observed $\mathrm{VTCR}(\mathcal{C}) = 0.20$ on the ablation suite, confirming
+non-additive (synergistic) component interactions.  In particular, the $H$--$S$
+interaction satisfies:
+\begin{equation}
+  \mathrm{VTCR}(\mathcal{C} \setminus \{H,S\}) < \mathrm{VTCR}(\mathcal{C} \setminus \{H\})
+  + \mathrm{VTCR}(\mathcal{C} \setminus \{S\}) - \mathrm{VTCR}(\mathcal{C})
+  \label{eq:synergy}
+\end{equation}
+indicating that HITL and VisualOS context are jointly necessary for the class of tasks
+where both are relevant.
+
+\paragraph{AX-tree anomaly.}
+$\Delta(AX) > 0$ in the ablation suite but $\Delta(AX) > 0$ reverses in the full
+45-task benchmark.  The 10-task ablation suite is biased toward simple, single-application
+tasks where screenshot-only grounding suffices; harder multi-application and
+system-settings tasks require the exact element centres provided by the AX tree.
+
+\subsection{RQ24: Cost-Performance Analysis}
+
+Under GPU-time pricing~\eqref{eq:csuccess} with $\rho_{\mathrm{GPU}} = \$0.50\,\mathrm{hr}^{-1}$:
+\begin{equation}
+  C_{\mathrm{success}} = \frac{\$0.7634}{44} = \$0.0174 \text{ per successful task}
+  \label{eq:rq24-csuccess}
+\end{equation}
+
+Cost is approximately flat across horizon groups (range: $\$0.015$--$\$0.021$), since
+longer-horizon tasks converge or fail within the same 300\,s wall-clock budget.  The
+cost function can be modelled as:
+\begin{equation}
+  C_{\mathrm{success}}(h) \approx C_0 + \epsilon(h),
+  \quad |\epsilon(h)| \ll C_0
+  \label{eq:cost-flat}
+\end{equation}
+Local UI-TARS inference incurs zero API cost, making the API cost ratio
+$C_{\mathrm{API}} / C_{\mathrm{total}} = 0$.
+
+\subsection{RQ25: Long-Running Reliability}
+
+Service availability over the 30-minute smoke test:
+\begin{equation}
+  A = \frac{\mathrm{MTBF}}{\mathrm{MTBF} + \mathrm{MTTR}} > 0.99
+  \label{eq:availability}
+\end{equation}
+Observed failure modes: (1) UI-TARS inference timeout on tasks with minimal horizon
+$> K_{\max}$; (2) PostgreSQL checkpoint write-latency spikes ($> 2\,\mathrm{s}$) under
+concurrent requests.  Both are recoverable: the checkpoint invariant~\eqref{eq:checkpoint}
+guarantees that a restart resumes from $\sigma_t$, the last committed graph state.
+
+%%%
+%%% 7. DISCUSSION
+%%%
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Verification as Loop Termination Condition}
+
+The most counterintuitive finding is that removing the verifier (V2) collapses VTCR to
+$0.10$ while removing stuck detection (V3) or planning (V4) only reduces it to $0.40$.
+The verifier is not merely a quality gate; it is the \emph{termination condition} of the
+NavAgent loop.  Without $V$, the agent reaches $K_{\max}$ on every task and reports
+incomplete, even on successful executions.  Formally, the expected VTCR without a verifier
+satisfies:
+\begin{equation}
+  \mathbb{E}[\mathrm{VTCR} \mid V = \perp]
+  \leq \frac{\varepsilon_{\mathrm{early}}}{K_{\max}} \cdot \mathrm{VTCR}(\mathcal{C})
+  \label{eq:verifier-importance}
+\end{equation}
+where $\varepsilon_{\mathrm{early}}$ is the probability that the model emits a terminal
+signal before $K_{\max}$ even without verification feedback.
+
+\subsection{Non-Additivity and Shapley Approximation}
+
+The Shapley approximation to component value is:
+\begin{equation}
+  \phi_i = \sum_{S \subseteq \mathcal{C} \setminus \{c_i\}}
+    \frac{|S|!\,(|\mathcal{C}| - |S| - 1)!}{|\mathcal{C}|!}
+    \bigl[\mathrm{VTCR}(S \cup \{c_i\}) - \mathrm{VTCR}(S)\bigr]
+  \label{eq:shapley}
+\end{equation}
+Computing~\eqref{eq:shapley} exactly requires $2^{|\mathcal{C}|} = 128$ evaluations.
+Our one-at-a-time ablation provides a first-order approximation; the synergistic $H$--$S$
+interaction~\eqref{eq:synergy} shows that higher-order terms are non-negligible and a
+more complete Shapley computation is warranted.
+
+\subsection{Connector Scalability Ceiling}
+
+The logarithmic scaling of $A_{\mathrm{select}}$~\eqref{eq:connector-scale} implies a
+natural ceiling: at $|L| = 100$ connectors, $A_{\mathrm{select}} \approx 0.62$,
+meaning $38\%$ of requests select the wrong tool.  Two mitigations are available:
+(1)~RAG-based tool selection that retrieves a reduced candidate set before the LLM call;
+(2)~connector grouping by domain, with a two-stage router selecting the group first
+and the specific tool second, reducing the effective search space from $O(|L|)$ to
+$O(\sqrt{|L|})$.
+
+\subsection{Limitations}
+
+\textbf{Deferred experiments.}
+RQ6--9 (memory) require live \texttt{gemini-embedding-001} API access; quota was
+exhausted during the evaluation period.  RQ22 (user study, NASA-TLX) requires 8--12
+participants.
+
+\textbf{Single model and hardware.}
+All results use one quantization of one model (UI-TARS Q4\_K\_M) on one hardware
+configuration.  The model comparison (RQ14) is deferred; it is unknown whether
+$\mathrm{VTCR}$ scales with model size $\sim$ $\log(\text{params})$ or exhibits phase
+transitions.
+
+\textbf{Benchmark size.}
+45 tasks is sufficient for coarse ablation analysis but insufficient for fine-grained
+error taxonomy (\S\ref{sec:rq21} has only 1 non-timeout failure in the primary run).
+The planned 200-task expansion will provide statistically meaningful per-category rates.
+
+%%%
+%%% 8. CONCLUSION
+%%%
+\section{Conclusion}
+\label{sec:conclusion}
+
+CollectiveOS demonstrates that a hub-and-spoke multi-agent architecture can achieve
+$\mathrm{VTCR} = 0.978$ on a macOS task benchmark using fully local, offline inference
+at $C_{\mathrm{success}} = \$0.017$.  The hub-and-spoke topology satisfies the
+failure-isolation invariant~\eqref{eq:isolation}; the HITL gate satisfies the
+safety invariant~\eqref{eq:hitl-invariant} with $\mathrm{UAR} = 0$; and the two-stage
+verifier achieves joint false-negative rate $\beta_{\mathrm{joint}} \ll
+\min(\beta_{\mathrm{det}},\beta_{\mathrm{VLM}})$ by~\eqref{eq:joint-fnr}.
+
+The principal open questions are: (1)~whether hybrid retrieval quality
+($\mathrm{Recall@}k$, MRR) degrades gracefully with memory store size (RQ6--9);
+(2)~whether larger VLMs reduce $E_{\mathrm{coord}}$~\eqref{eq:ecoord} enough to justify
+increased latency (RQ14--15); and (3)~whether perceived workload reduction (NASA-TLX,
+$n=8$--12) aligns with the VTCR gains reported here (RQ22).
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}

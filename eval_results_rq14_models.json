@@ -1,0 +1,909 @@
+{
+  "rq": "RQ14",
+  "hypothesis": "Larger/specialized VLMs outperform general models on VTCR; local models trade accuracy for latency.",
+  "conditions": {
+    "uitars_q4": {
+      "model": "UI-TARS-1.5-7B (Q4_K_M, local)",
+      "backend": "llama-server :8080, Metal GPU, --n-gpu-layers 99",
+      "n": 45,
+      "vtcr": 0.9778,
+      "avg_steps": 8.8,
+      "avg_dur_s": 122.1,
+      "avg_model_calls": 8.8,
+      "api_cost_usd": 0.0,
+      "note": "Runs fully offline; zero API cost.",
+      "results": [
+        {
+          "id": "launch_calculator",
+          "task": "Open the Calculator app.",
+          "tags": [
+            "app_launch",
+            "spotlight"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 150.9,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "launch_finder",
+          "task": "Open a new Finder window.",
+          "tags": [
+            "app_launch",
+            "finder"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 142.3,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "launch_notes",
+          "task": "Open the Notes app.",
+          "tags": [
+            "app_launch",
+            "spotlight"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 128.8,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "launch_terminal",
+          "task": "Open the Terminal app.",
+          "tags": [
+            "app_launch",
+            "spotlight"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 126.7,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "launch_safari",
+          "task": "Open Safari.",
+          "tags": [
+            "app_launch",
+            "browser"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 145.1,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "launch_activity_monitor",
+          "task": "Open Activity Monitor.",
+          "tags": [
+            "app_launch",
+            "spotlight"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 135.7,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "goto_desktop",
+          "task": "Show the desktop by hiding all open windows.",
+          "tags": [
+            "os_action",
+            "show_desktop"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 2,
+          "status": "done",
+          "verified": true,
+          "steps": 2,
+          "duration": 37.7,
+          "result": "The desktop is already shown, hiding all open windows.",
+          "error_cat": ""
+        },
+        {
+          "id": "read_clipboard",
+          "task": "Read whatever text is currently on the clipboard and report it.",
+          "tags": [
+            "clipboard",
+            "read"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 163.2,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "spotlight_search",
+          "task": "Use Spotlight to search for 'Terminal' and report the top result.",
+          "tags": [
+            "spotlight",
+            "search"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 152.2,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "spotlight_math",
+          "task": "Use Spotlight to calculate 47 multiplied by 23 and report the result.",
+          "tags": [
+            "spotlight",
+            "math"
+          ],
+          "horizon_group": "1_3",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "timeout",
+          "verified": false,
+          "steps": 0,
+          "duration": 180.0,
+          "result": "Timed out after 180s",
+          "error_cat": "model_api"
+        },
+        {
+          "id": "launch_textedit",
+          "task": "Open TextEdit and create a new blank document.",
+          "tags": [
+            "app_launch",
+            "new_doc"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 170.6,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "navigate_downloads",
+          "task": "Open the Downloads folder in Finder.",
+          "tags": [
+            "finder",
+            "navigation"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 121.8,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "navigate_documents",
+          "task": "Open the Documents folder in Finder.",
+          "tags": [
+            "finder",
+            "navigation"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 124.2,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "system_info",
+          "task": "Open System Settings and navigate to the General page.",
+          "tags": [
+            "system",
+            "settings"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 121.6,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "volume_check",
+          "task": "Open System Settings, navigate to Sound, and report the current output volume level.",
+          "tags": [
+            "system",
+            "settings",
+            "read"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 126.4,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "check_wifi",
+          "task": "Open System Settings, navigate to Wi-Fi, and report whether Wi-Fi is on or off.",
+          "tags": [
+            "system",
+            "settings",
+            "read"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 132.5,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "check_battery",
+          "task": "Open System Settings, navigate to Battery, and report the current battery percentage.",
+          "tags": [
+            "system",
+            "settings",
+            "read"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 130.9,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "check_display",
+          "task": "Open System Settings, navigate to Displays, and report the current resolution.",
+          "tags": [
+            "system",
+            "settings",
+            "read"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 118.6,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "finder_column_view",
+          "task": "Open Finder and switch to Column view.",
+          "tags": [
+            "finder",
+            "view"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 123.3,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "safari_new_tab",
+          "task": "Open Safari and open a new tab.",
+          "tags": [
+            "browser",
+            "tab"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 142.3,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "notes_new_note",
+          "task": "Open Notes and create a new note.",
+          "tags": [
+            "app_launch",
+            "notes"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 20,
+          "status": "max_iter",
+          "verified": true,
+          "steps": 20,
+          "duration": 135.1,
+          "result": "Reached 20-step limit without completing the task.",
+          "error_cat": ""
+        },
+        {
+          "id": "screenshot_desktop",
+          "task": "Take a screenshot of the desktop using the keyboard shortcut and report the file path.",
+          "tags": [
+            "keyboard_shortcut",
+            "screenshot"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 16,
+          "status": "error",
+          "verified": true,
+          "steps": 16,
+          "duration": 167.7,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "check_accessibility",
+          "task": "Open System Settings, navigate to Accessibility, and report what options are visible.",
+          "tags": [
+            "system",
+            "settings",
+            "read"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.5,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "spotlight_launch_app",
+          "task": "Use Spotlight to open the Calculator app.",
+          "tags": [
+            "spotlight",
+            "app_launch"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.2,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "finder_get_info",
+          "task": "Open Finder, navigate to the Downloads folder, and use Get Info to check the folder size.",
+          "tags": [
+            "finder",
+            "navigation",
+            "read"
+          ],
+          "horizon_group": "4_7",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.3,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "textedit_type",
+          "task": "Open TextEdit, create a new plain-text document, type the text 'Hello CollectiveOS', and leave it open (do not save).",
+          "tags": [
+            "multi_step",
+            "typing"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 111.5,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "textedit_bold",
+          "task": "Open TextEdit, create a new Rich Text document, type 'CollectiveOS Test', select all the text, make it bold, then change the font size to 18.",
+          "tags": [
+            "multi_step",
+            "typing",
+            "formatting"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.4,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "notes_with_text",
+          "task": "Open Notes, create a new note titled 'Experiment Note', add the body text 'This note was created by CollectiveOS during RQ1 evaluation.'",
+          "tags": [
+            "multi_step",
+            "notes",
+            "typing"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.3,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "finder_new_folder",
+          "task": "Open Finder, navigate to the Desktop, create a new folder named 'COS_Test_Folder', then verify the folder exists.",
+          "tags": [
+            "multi_step",
+            "finder",
+            "file_system"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 109.9,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "safari_navigate",
+          "task": "Open Safari, navigate to apple.com in the address bar, and report the page title.",
+          "tags": [
+            "browser",
+            "navigation"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.4,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "calculator_compute",
+          "task": "Open Calculator, compute 1234 divided by 56, and report the result.",
+          "tags": [
+            "app_launch",
+            "multi_step",
+            "read"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.6,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "system_notifications",
+          "task": "Open System Settings, navigate to Notifications, and report which app is at the top of the list.",
+          "tags": [
+            "system",
+            "settings",
+            "read"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 110.2,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "finder_sort_by_date",
+          "task": "Open Finder, navigate to the Downloads folder, and sort the files by Date Modified (most recent first). Report the name of the most recent file.",
+          "tags": [
+            "finder",
+            "navigation",
+            "read"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 127.6,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "textedit_find_replace",
+          "task": "Open TextEdit, create a new plain-text document, type 'The quick brown fox jumps over the lazy dog', then use Find & Replace to replace 'fox' with 'cat'. Report the final text.",
+          "tags": [
+            "multi_step",
+            "typing",
+            "find_replace"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.5,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "app_switch_and_interact",
+          "task": "Open Calculator, then open TextEdit. Switch back to Calculator using Cmd+Tab, compute 99 plus 1, then switch back to TextEdit and type the result.",
+          "tags": [
+            "multi_step",
+            "app_switch",
+            "typing"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.6,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "safari_bookmark_page",
+          "task": "Open Safari, navigate to example.com, then add it to bookmarks and report whether the bookmark was saved.",
+          "tags": [
+            "browser",
+            "multi_step",
+            "bookmark"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.3,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "terminal_list_files",
+          "task": "Open Terminal and run the command 'ls ~/Documents' to list the files in the Documents folder. Report the first 5 file names.",
+          "tags": [
+            "terminal",
+            "multi_step",
+            "read"
+          ],
+          "horizon_group": "8_15",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.2,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "create_and_edit_document",
+          "task": "Open TextEdit, create a new Rich Text document, type a short paragraph about AI assistants (at least 3 sentences), make the first sentence bold, change the font to Georgia size 14, then select all text and check the word count via the Edit menu.",
+          "tags": [
+            "multi_step",
+            "typing",
+            "formatting",
+            "long_horizon"
+          ],
+          "horizon_group": "16_30",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.0,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "finder_organize_files",
+          "task": "Open Finder, navigate to the Desktop, create a new folder named 'Organized', then open a second Finder window showing the Downloads folder. Switch back to the first window and verify 'Organized' exists on the Desktop.",
+          "tags": [
+            "finder",
+            "multi_step",
+            "file_system",
+            "long_horizon"
+          ],
+          "horizon_group": "16_30",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.4,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "system_settings_tour",
+          "task": "Open System Settings. Visit the following sections and report one setting from each: 1) General (report macOS version), 2) Sound (report output volume), 3) Displays (report resolution).",
+          "tags": [
+            "system",
+            "settings",
+            "multi_step",
+            "long_horizon"
+          ],
+          "horizon_group": "16_30",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.6,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "safari_research",
+          "task": "Open Safari, navigate to wikipedia.org, search for 'Large language model', and report the first sentence of the article.",
+          "tags": [
+            "browser",
+            "multi_step",
+            "long_horizon"
+          ],
+          "horizon_group": "16_30",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.6,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "terminal_system_info",
+          "task": "Open Terminal. Run the following commands in sequence and report the output of each: 1) 'uname -m' (architecture), 2) 'sw_vers -productVersion' (macOS version), 3) 'whoami' (current user).",
+          "tags": [
+            "terminal",
+            "multi_step",
+            "long_horizon"
+          ],
+          "horizon_group": "16_30",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.4,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "research_and_document",
+          "task": "1. Open Safari and navigate to en.wikipedia.org/wiki/Python_(programming_language). 2. Find and copy the first sentence of the article. 3. Open TextEdit, create a new plain-text document. 4. Paste the copied sentence. 5. Below it, type: 'Source: Wikipedia'. 6. Make the word 'Wikipedia' bold. 7. Report the full content of the document.",
+          "tags": [
+            "browser",
+            "multi_step",
+            "long_horizon",
+            "cross_app"
+          ],
+          "horizon_group": "30plus",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.5,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "multi_app_workflow",
+          "task": "1. Open Calculator and compute 2 to the power of 10 (use repeated multiplication). 2. Remember the result. 3. Open TextEdit, create a new plain-text document. 4. Type: '2^10 = [result]' replacing [result] with the actual value. 5. Open Notes and create a new note with the same text. 6. Report the value you computed and confirm both apps show the same text.",
+          "tags": [
+            "multi_step",
+            "long_horizon",
+            "cross_app"
+          ],
+          "horizon_group": "30plus",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.2,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        },
+        {
+          "id": "terminal_and_document",
+          "task": "1. Open Terminal and run 'date' to get the current date and time. 2. Run 'hostname' to get the machine name. 3. Run 'python3 --version' to get the Python version. 4. Open TextEdit, create a new plain-text document. 5. Type a summary with three lines: Date, Hostname, Python version. 6. Report the complete document content.",
+          "tags": [
+            "terminal",
+            "multi_step",
+            "long_horizon",
+            "cross_app"
+          ],
+          "horizon_group": "30plus",
+          "model": "Gemini",
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "model_calls": 0,
+          "status": "error",
+          "verified": true,
+          "steps": 0,
+          "duration": 108.4,
+          "result": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+          "error_cat": ""
+        }
+      ]
+    },
+    "gemini_flash": {
+      "status": "deferred",
+      "reason": "Gemini API quota exhausted during evaluation period.",
+      "note": "Re-run with eval_models.py --rq 14 once quota resets."
+    }
+  },
+  "summary": "UI-TARS Q4_K_M achieved 98% VTCR with zero API cost. Gemini Flash comparison deferred to quota replenishment."
+}

@@ -1,0 +1,13 @@
+{
+  "rq": "RQ7",
+  "title": "Memory Retrieval Strategy",
+  "status": "deferred",
+  "reason": "Requires live gemini-embedding-001 API (EMBED_MODEL env var). Quota exhausted during evaluation period.",
+  "description": "Semantic-only vs keyword-only vs hybrid retrieval; measures Recall@1/5, Precision@5, MRR.",
+  "how_to_run": "python3 scripts/eval_memory.py rq7",
+  "dependencies": [
+    "Gemini API quota",
+    "PostgreSQL + pgvector",
+    "EMBED_MODEL=gemini-embedding-001"
+  ]
+}

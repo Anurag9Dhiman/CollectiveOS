@@ -1,0 +1,208 @@
+{
+  "model": "UI-TARS",
+  "ax_mode": "both",
+  "verify_mode": "gemini_only",
+  "stuck_mode": "detect",
+  "vtcr": 0.4,
+  "total": 10,
+  "vtcr_by_horizon": {
+    "1_3": 0.4
+  },
+  "error_categories": {
+    "model_api": 5,
+    "unknown": 1
+  },
+  "total_tokens": 0,
+  "results": [
+    {
+      "id": "launch_calculator",
+      "task": "Open the Calculator app.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 287.2,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_finder",
+      "task": "Open a new Finder window.",
+      "tags": [
+        "app_launch",
+        "finder"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 248.9,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_notes",
+      "task": "Open the Notes app.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "timeout",
+      "verified": false,
+      "steps": 19,
+      "duration": 301.8,
+      "result": "Timed out after 300s (19 steps done)",
+      "error_cat": "model_api"
+    },
+    {
+      "id": "launch_terminal",
+      "task": "Open the Terminal app.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 293.0,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_safari",
+      "task": "Open Safari.",
+      "tags": [
+        "app_launch",
+        "browser"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 20,
+      "status": "max_iter",
+      "verified": true,
+      "steps": 20,
+      "duration": 298.9,
+      "result": "Reached 20-step limit without completing the task.",
+      "error_cat": ""
+    },
+    {
+      "id": "launch_activity_monitor",
+      "task": "Open Activity Monitor.",
+      "tags": [
+        "app_launch",
+        "spotlight"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "timeout",
+      "verified": false,
+      "steps": 14,
+      "duration": 301.3,
+      "result": "Timed out after 300s (14 steps done)",
+      "error_cat": "model_api"
+    },
+    {
+      "id": "goto_desktop",
+      "task": "Show the desktop by hiding all open windows.",
+      "tags": [
+        "os_action",
+        "show_desktop"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "timeout",
+      "verified": false,
+      "steps": 12,
+      "duration": 301.4,
+      "result": "Timed out after 300s (12 steps done)",
+      "error_cat": "model_api"
+    },
+    {
+      "id": "read_clipboard",
+      "task": "Read whatever text is currently on the clipboard and report it.",
+      "tags": [
+        "clipboard",
+        "read"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "error",
+      "verified": false,
+      "steps": 0,
+      "duration": 201.5,
+      "result": "[Errno 28] No space left on device: '/tmp/nav_feed.png'",
+      "error_cat": "unknown"
+    },
+    {
+      "id": "spotlight_search",
+      "task": "Use Spotlight to search for 'Terminal' and report the top result.",
+      "tags": [
+        "spotlight",
+        "search"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "timeout",
+      "verified": false,
+      "steps": 17,
+      "duration": 301.4,
+      "result": "Timed out after 300s (17 steps done)",
+      "error_cat": "model_api"
+    },
+    {
+      "id": "spotlight_math",
+      "task": "Use Spotlight to calculate 47 multiplied by 23 and report the result.",
+      "tags": [
+        "spotlight",
+        "math"
+      ],
+      "horizon_group": "1_3",
+      "model": "UI-TARS",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "model_calls": 0,
+      "status": "timeout",
+      "verified": false,
+      "steps": 16,
+      "duration": 301.3,
+      "result": "Timed out after 300s (16 steps done)",
+      "error_cat": "model_api"
+    }
+  ]
+}

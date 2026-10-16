@@ -1,0 +1,97 @@
+{
+  "rq": "RQ19",
+  "vtcr_no_context": 0.5,
+  "vtcr_with_context": 0.3333333333333333,
+  "delta_vtcr": -0.167,
+  "avg_steps_no_ctx": 0.8,
+  "avg_steps_with_ctx": 0.0,
+  "step_reduction_pct": 100.0,
+  "results_no_context": [
+    {
+      "status": "done",
+      "verified": true,
+      "steps": 2,
+      "duration": 27.2,
+      "id": "find_open_window"
+    },
+    {
+      "status": "done",
+      "verified": true,
+      "steps": 0,
+      "duration": 12.7,
+      "id": "click_visible_button"
+    },
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 151.3,
+      "id": "read_status_bar"
+    },
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 151.3,
+      "id": "continue_typing"
+    },
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 151.3,
+      "id": "scroll_to_content"
+    },
+    {
+      "status": "done",
+      "verified": true,
+      "steps": 3,
+      "duration": 47.3,
+      "id": "close_dialog"
+    }
+  ],
+  "results_with_context": [
+    {
+      "status": "done",
+      "verified": true,
+      "steps": 0,
+      "duration": 12.0,
+      "id": "find_open_window"
+    },
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 151.4,
+      "id": "click_visible_button"
+    },
+    {
+      "status": "done",
+      "verified": true,
+      "steps": 0,
+      "duration": 16.7,
+      "id": "read_status_bar"
+    },
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 151.3,
+      "id": "continue_typing"
+    },
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 150.1,
+      "id": "scroll_to_content"
+    },
+    {
+      "status": "timeout",
+      "verified": false,
+      "steps": 0,
+      "duration": 151.3,
+      "id": "close_dialog"
+    }
+  ]
+}
